@@ -1,6 +1,6 @@
 # blaecktcpy
 
-Python implementation of the [BlaeckTCP](https://github.com/sebaJoSt/BlaeckTCP) protocol — compatible with Loggbok.
+Python implementation of the [BlaeckTCP](https://github.com/sebaJoSt/BlaeckTCP) protocol — compatible with Loggbok. Use it to turn any Python script into a BlaeckTCP device.
 
 ## Installation
 
