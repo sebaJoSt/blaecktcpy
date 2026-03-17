@@ -11,27 +11,15 @@ pip install blaecktcpy
 ## Usage
 
 ```python
+import math, time
 from blaecktcpy import blaecktcpy, Signal
 
-# Create a TCP server
-bltcp = blaecktcpy(
-    device_name='My Device',
-    device_hw_version='1.0',
-    device_fw_version='1.0',
-    ip='127.0.0.1',
-    port=23
-)
+bltcp = blaecktcpy('My Device', '1.0', '1.0', '127.0.0.1', 23)
+bltcp.add_signal(Signal('Sine', 'float', 0.0))
 
-# Add signals
-bltcp.add_signal(Signal('Temperature', 'float', 0.0))
-bltcp.add_signal(Signal('Counter',     'int',   0))
-
-# Main loop
-counter = 0
+start = time.time()
 while True:
-    bltcp.signals[0].value = 23.5
-    counter += 1
-    bltcp.signals[1].value = counter
+    bltcp.signals[0].value = math.sin((time.time() - start) * 2 * math.pi)
     bltcp.tick()
 ```
 
