@@ -15,11 +15,11 @@ import math, time
 from blaecktcpy import blaecktcpy, Signal
 
 bltcp = blaecktcpy('My Device', '1.0', '1.0', '127.0.0.1', 23)
-bltcp.add_signal(Signal('Sine', 'float', 0.0))
+bltcp.add_signal(Signal('Sine_1', 'float', 0.0))
 
 start = time.time()
 while True:
-    bltcp.signals[0].value = math.sin((time.time() - start) * 2 * math.pi)
+    bltcp.signals[0].value = math.sin((time.time() - start) * 0.1)
     bltcp.tick()
 ```
 
