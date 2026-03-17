@@ -27,9 +27,11 @@ bltcp.add_signal(Signal('Temperature', 'float', 0.0))
 bltcp.add_signal(Signal('Counter',     'int',   0))
 
 # Main loop
+counter = 0
 while True:
     bltcp.signals[0].value = 23.5
-    bltcp.signals[1].value += 1
+    counter += 1
+    bltcp.signals[1].value = counter
     bltcp.tick()
 ```
 
