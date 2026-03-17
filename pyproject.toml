@@ -6,19 +6,21 @@ build-backend = "setuptools.build_meta"
 name = "blaecktcpy"
 version = "1.0.0"
 description = "Python implementation of the BlaeckTCP protocol — compatible with Loggbok"
+readme = "README.md"
 authors = [
     { name = "Sebastian Strobl" }
 ]
 requires-python = ">=3.6"
-license = { text = "MIT" }
+license = "MIT"
 keywords = ["blaeck", "tcp", "loggbok", "logging", "arduino"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Topic :: System :: Logging",
     "Topic :: Scientific/Engineering",
 ]
 
 [project.urls]
-Homepage = "https://github.com/sebaJoSt/BlaeckTCP"
+Homepage = "https://github.com/sebaJoSt/blaecktcpy"
+"Bug Reports" = "https://github.com/sebaJoSt/blaecktcpy/issues"
+"Source" = "https://github.com/sebaJoSt/blaecktcpy"
