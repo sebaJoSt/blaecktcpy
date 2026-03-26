@@ -1,6 +1,6 @@
 # blaecktcpy
 
-A Python library for streaming typed signal data over TCP. Use it to turn any Python script into a signal source.
+A Python TCP server for real-time streaming of named, typed signals in binary format. Use it to turn any Python script into a signal source.
 
 ## Getting Started
 

@@ -6,9 +6,6 @@ __pycache__/
 # IDE
 .vscode/
 
-# Test scripts
-examples/test_script.py
-
 # C extensions
 *.so
 
