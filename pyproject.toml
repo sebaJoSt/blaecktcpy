@@ -10,7 +10,7 @@ readme = "README.md"
 authors = [
     { name = "Sebastian Strobl" }
 ]
-requires-python = ">=3.6"
+requires-python = ">=3.12"
 license = "MIT"
 keywords = ["blaeck", "tcp", "loggbok", "logging", "arduino"]
 classifiers = [
