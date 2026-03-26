@@ -15,7 +15,13 @@ pip install blaecktcpy
 ```python
 from blaecktcpy import BlaeckTCPy, Signal
 
-bltcp = BlaeckTCPy('My Device', '1.0', '1.0', '127.0.0.1', 23)
+bltcp = BlaeckTCPy(
+    device_name='My Device',
+    device_hw_version='1.0',
+    device_fw_version='1.0',
+    ip='127.0.0.1',
+    port=23,
+)
 ```
 
 ### Add signals
