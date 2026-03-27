@@ -1,8 +1,9 @@
 """blaecktcpy — BlaeckTCP Protocol Implementation."""
 
 import logging
+from importlib.metadata import version
 
-__version__ = "2.0.0"
+__version__ = version("blaecktcpy")
 
 # -- Logging setup (colour-coded console handler) ---------------------------
 logger = logging.getLogger("blaecktcpy")

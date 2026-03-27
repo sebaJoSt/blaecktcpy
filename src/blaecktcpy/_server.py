@@ -14,7 +14,9 @@ from ._signal import Signal
 
 __all__ = ["BlaeckTCPy"]
 
-LIB_VERSION = "2.0.0"
+from importlib.metadata import version as _pkg_version
+
+LIB_VERSION = _pkg_version("blaecktcpy")
 LIB_NAME = "blaecktcpy"
 
 _MAX_RECV_BUFFER = 65536  # 64 KB per-client receive buffer limit
