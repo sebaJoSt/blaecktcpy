@@ -54,24 +54,25 @@ class BlaeckTCPy:
         self._init_device_info(device_name, device_hw_version, device_fw_version)
         self._init_socket()
 
-        while True:
-            try:
-                self._bind_socket(ip, port)
-                self._port = port
-                break
-            except OSError:
-                print(f"\033[31mPort {port} is already in use.\033[0m")
-                user_input = input("Enter a different port (or 'q' to quit): ").strip()
-                if user_input.lower() == "q":
-                    self._server_socket.close()
-                    raise OSError(f"Port {port} is already in use")
-                try:
-                    port = int(user_input)
-                except ValueError:
-                    print("Invalid port number.")
-                    continue
-                self._server_socket.close()
+        try:
+            self._bind_socket(ip, port)
+        except OSError:
+            self._server_socket.close()
+            alt_port = self._find_free_port(ip, port)
+            print(
+                f"\033[33m[WARNING]\033[0m Something is already running on port {port}."
+            )
+            answer = input(
+                f"\nWould you like to run blaecktcpy on port {alt_port} instead? \033[1m(Y/n)\033[0m "
+            ).strip()
+            if answer.lower() in ("", "y", "yes"):
+                port = alt_port
                 self._init_socket()
+                self._bind_socket(ip, port)
+            else:
+                raise OSError(f"Port {port} is already in use")
+
+        self._port = port
 
         self._start_listening()
         self._init_protocol()
@@ -102,6 +103,18 @@ class BlaeckTCPy:
     def _bind_socket(self, ip, port):
         """Step 3: Bind socket to address"""
         self._server_socket.bind((ip, port))
+
+    @staticmethod
+    def _find_free_port(ip: str, starting_port: int) -> int:
+        """Find the next available port starting from starting_port + 1."""
+        for port in range(starting_port + 1, 65536):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind((ip, port))
+                    return port
+                except OSError:
+                    continue
+        raise OSError("No free port found")
 
     def _start_listening(self):
         """Step 4: Start listening for connections"""
