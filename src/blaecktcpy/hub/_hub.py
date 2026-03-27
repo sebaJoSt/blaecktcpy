@@ -654,13 +654,12 @@ class BlaeckHub:
     # Callbacks
     # ====================================================================
 
-    @property
     def on_upstream_disconnected(self):
         """Decorator to register a callback when an upstream device disconnects.
 
         Example::
 
-            @hub.on_upstream_disconnected
+            @hub.on_upstream_disconnected()
             def handle(name):
                 print(f"Lost connection to {name}")
         """

@@ -57,7 +57,7 @@ hub.start()
 
 
 # Optional: callbacks for upstream connection events
-@hub.on_upstream_disconnected
+@hub.on_upstream_disconnected()
 def on_disconnect(name):
     print(f"  !! Upstream '{name}' disconnected")
 

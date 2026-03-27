@@ -450,7 +450,6 @@ class BlaeckTCPy:
 
         return decorator
 
-    @property
     def on_read(self):
         """Decorator to register a catch-all callback for every message.
 
@@ -459,7 +458,7 @@ class BlaeckTCPy:
 
         Example::
 
-            @bltcp.on_read
+            @bltcp.on_read()
             def log_all(command, *params):
                 print(f"{command}: {params}")
         """
@@ -470,7 +469,6 @@ class BlaeckTCPy:
 
         return decorator
 
-    @property
     def on_client_connected(self):
         """Decorator to register a callback when a new client connects.
 
@@ -479,7 +477,7 @@ class BlaeckTCPy:
 
         Example::
 
-            @bltcp.on_client_connected
+            @bltcp.on_client_connected()
             def on_connect(client_no):
                 if client_no > 0:
                     bltcp.data_clients.discard(client_no)
@@ -491,7 +489,6 @@ class BlaeckTCPy:
 
         return decorator
 
-    @property
     def on_client_disconnected(self):
         """Decorator to register a callback when a client disconnects.
 
@@ -499,7 +496,7 @@ class BlaeckTCPy:
 
         Example::
 
-            @bltcp.on_client_disconnected
+            @bltcp.on_client_disconnected()
             def on_disconnect(client_id):
                 print(f"Client #{client_id} left")
         """
@@ -510,7 +507,6 @@ class BlaeckTCPy:
 
         return decorator
 
-    @property
     def on_before_write(self):
         """Decorator to register a callback that fires before data is written.
 
@@ -518,7 +514,7 @@ class BlaeckTCPy:
 
         Example::
 
-            @bltcp.on_before_write
+            @bltcp.on_before_write()
             def refresh_signals():
                 bltcp.signals[0].value = read_sensor()
         """

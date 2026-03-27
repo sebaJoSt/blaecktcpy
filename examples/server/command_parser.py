@@ -33,7 +33,7 @@ def on_activated(*params):
 
 
 # Exclude debug clients from receiving data — only first client gets BlaeckTCP data
-@bltcp.on_client_connected
+@bltcp.on_client_connected()
 def on_connect(client_no):
     if client_no > 0:
         bltcp.data_clients.discard(client_no)
@@ -41,7 +41,7 @@ def on_connect(client_no):
 
 
 # Catch-all — fires for every message (built-in and custom)
-@bltcp.on_read
+@bltcp.on_read()
 def log_all(command, *params):
     print(f"[LOG] {command} {params}")
 
