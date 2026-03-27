@@ -1,0 +1,727 @@
+"""BlaeckHub — multi-device signal aggregator.
+
+Connects to multiple upstream BlaeckTCP(y)/BlaeckSerial devices,
+discovers their signals, decodes incoming data frames, and serves
+all signals as a single merged device to Loggbok via a BlaeckTCPy
+downstream server.
+
+Example::
+
+    from blaecktcpy import BlaeckHub
+
+    hub = BlaeckHub("0.0.0.0", 23, "My Hub", "Python", "1.0")
+    hub.add_tcp("ESP32", "192.168.1.10", 23)
+    hub.add_tcp("Python", "127.0.0.1", 24)
+    hub.start()
+
+    while True:
+        hub.tick()
+"""
+
+import logging
+import time
+from dataclasses import dataclass, field
+
+from .._signal import Signal
+from .._server import BlaeckTCPy, LIB_VERSION, LIB_NAME
+from . import _decoder as decoder
+from ._upstream import UpstreamTCP, UpstreamSerial, _UpstreamBase
+
+# MasterSlaveConfig byte values
+_MSC_MASTER = b"\x01"
+_MSC_SLAVE = b"\x02"
+
+# Message IDs for data frames
+_MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B — client-controlled (BLAECK.ACTIVATE)
+_MSG_ID_HUB = 185273100  # 0x0B0B0B0C — hub-overridden interval
+
+logger = logging.getLogger("blaecktcpy")
+
+
+@dataclass
+class _UpstreamDevice:
+    """Internal bookkeeping for one upstream connection."""
+
+    name: str
+    transport: _UpstreamBase
+    symbol_table: list[decoder.DecodedSymbol] = field(default_factory=list)
+    index_map: dict[int, int] = field(default_factory=dict)
+    device_info: decoder.DecodedDeviceInfo | None = None
+    interval_ms: int = 0
+    was_connected: bool = True
+
+
+class BlaeckHub:
+    """Aggregates signals from multiple upstream BlaeckTCP(y) devices.
+
+    Connects to upstream devices during setup, discovers their signals,
+    then serves a merged signal list to downstream clients (e.g. Loggbok)
+    via an embedded BlaeckTCPy server.
+    """
+
+    def __init__(
+        self,
+        ip: str,
+        port: int,
+        device_name: str,
+        device_hw_version: str,
+        device_fw_version: str,
+    ):
+        self._device_name = device_name
+        self._device_hw_version = device_hw_version
+        self._device_fw_version = device_fw_version
+        self._ip = ip
+        self._port = port
+
+        self._upstreams: list[_UpstreamDevice] = []
+        self._local_signals: list[Signal] = []
+        self._server: BlaeckTCPy | None = None
+        self._started = False
+
+        self._local_interval_ms: int = 0
+        self._local_fixed_interval: bool = False
+        self._local_timer_base: int = 0
+        self._local_timer_setpoint: float = 0
+        self._local_first_time: bool = True
+
+        self._disconnect_callback = None
+
+    # ====================================================================
+    # Setup — call before start()
+    # ====================================================================
+
+    def set_local_interval(self, interval_ms: int) -> None:
+        """Set a fixed sending rate for local signals.
+
+        When set, local signals are sent at this hub-managed interval
+        and downstream clients cannot override the rate via ACTIVATE.
+        Without this call, local signals follow the downstream client's
+        ACTIVATE/DEACTIVATE commands — just like upstreams without
+        ``interval_ms``.
+
+        Must be called before :meth:`start`.
+
+        Args:
+            interval_ms: Interval in milliseconds.
+        """
+        if self._started:
+            raise RuntimeError("Cannot set local interval after start()")
+        self._local_interval_ms = interval_ms
+        self._local_fixed_interval = True
+
+    def add_signal(
+        self,
+        name: str,
+        datatype: str,
+        value: int | float = 0,
+    ) -> Signal:
+        """Add a local signal to the hub.
+
+        Local signals appear before upstream signals in the signal list.
+        Must be called before :meth:`start`.
+
+        Args:
+            name: Signal name
+            datatype: Signal datatype (e.g. 'float', 'int', 'bool')
+            value: Initial value
+
+        Returns:
+            The Signal object. Update its ``.value`` and ``.updated``
+            attributes in your main loop.
+        """
+        if self._started:
+            raise RuntimeError("Cannot add signals after start()")
+        sig = Signal(name, datatype, value)
+        self._local_signals.append(sig)
+        return sig
+
+    def add_tcp(
+        self,
+        ip: str,
+        port: int,
+        name: str = "",
+        timeout: float = 5.0,
+        interval_ms: int = 0,
+    ) -> None:
+        """Connect to an upstream TCP device and discover its signals.
+
+        Blocks until the symbol table is fetched or timeout expires.
+        Must be called before :meth:`start`.
+
+        Args:
+            ip: IP address of the upstream device
+            port: TCP port of the upstream device
+            name: Optional friendly name; defaults to upstream device name
+            timeout: Connection and discovery timeout in seconds
+            interval_ms: If > 0, activate timed data at this interval on
+                start.  The downstream client cannot override this rate.
+        """
+        if self._started:
+            raise RuntimeError("Cannot add upstreams after start()")
+
+        label = name or f"{ip}:{port}"
+        transport = UpstreamTCP(label, ip, port)
+        self._discover_upstream(name, transport, timeout, interval_ms)
+
+    def add_serial(
+        self,
+        port: str,
+        baudrate: int = 115200,
+        name: str = "",
+        timeout: float = 5.0,
+        dtr: bool = True,
+        interval_ms: int = 0,
+    ) -> None:
+        """Connect to an upstream serial device and discover its signals.
+
+        Requires pyserial: ``pip install blaecktcpy[serial]``
+        Must be called before :meth:`start`.
+
+        Args:
+            port: Serial port (e.g. 'COM3', '/dev/ttyUSB0')
+            baudrate: Serial baud rate
+            name: Optional friendly name; defaults to upstream device name
+            timeout: Connection and discovery timeout in seconds
+            dtr: Enable DTR (set False for Arduino Mega to prevent reset)
+            interval_ms: If > 0, activate timed data at this interval on
+                start.  The downstream client cannot override this rate.
+        """
+        if self._started:
+            raise RuntimeError("Cannot add upstreams after start()")
+
+        label = name or port
+        transport = UpstreamSerial(label, port, baudrate, dtr)
+        self._discover_upstream(name, transport, timeout, interval_ms)
+
+    def _discover_upstream(
+        self,
+        name: str,
+        transport: _UpstreamBase,
+        timeout: float,
+        interval_ms: int = 0,
+    ) -> None:
+        """Connect and fetch the symbol table from an upstream device."""
+        label = transport.name  # temporary label for error messages
+
+        if not transport.connect(timeout):
+            raise ConnectionError(
+                f"Failed to connect to upstream '{label}': {transport.last_error}"
+            )
+
+        # Stop any ongoing timed data transmission
+        transport.send_command("BLAECK.DEACTIVATE")
+
+        # Poll for symbol list with periodic retries (like Loggbok)
+        transport.send_command("BLAECK.WRITE_SYMBOLS")
+        frame = None
+        max_polls = int(timeout / 0.1)
+        for i in range(max_polls):
+            time.sleep(0.1)
+            frames = transport.read_frames()
+            for f in frames:
+                if len(f) > 0 and f[0] == decoder.MSGKEY_SYMBOL_LIST:
+                    frame = f
+                    break
+            if frame is not None:
+                break
+            # Retry every 1 second
+            if i > 0 and i % 10 == 0:
+                transport.send_command("BLAECK.WRITE_SYMBOLS")
+
+        if frame is None:
+            transport.close()
+            raise TimeoutError(f"Upstream '{label}' did not respond to WRITE_SYMBOLS")
+
+        symbols = decoder.parse_symbol_list(frame)
+        if not symbols:
+            transport.close()
+            raise ValueError(f"Upstream '{label}' reported no signals")
+
+        upstream = _UpstreamDevice(
+            name=name, transport=transport, interval_ms=interval_ms
+        )
+        upstream.symbol_table = symbols
+
+        # Fetch device info with polling retries
+        device_msgkeys = decoder.MSGKEY_DEVICES_ALL
+        transport.send_command("BLAECK.GET_DEVICES")
+        frame = None
+        for i in range(max_polls):
+            time.sleep(0.1)
+            frames = transport.read_frames()
+            for f in frames:
+                if len(f) > 0 and f[0] in device_msgkeys:
+                    frame = f
+                    break
+            if frame is not None:
+                break
+            if i > 0 and i % 10 == 0:
+                transport.send_command("BLAECK.GET_DEVICES")
+
+        if frame is not None:
+            try:
+                upstream.device_info = decoder.parse_devices(frame)
+            except Exception as e:
+                logger.debug(f"Upstream '{label}' device info parse error: {e}")
+
+        # Use upstream device name if no name was provided
+        if not name and upstream.device_info:
+            upstream.name = upstream.device_info.device_name
+
+        self._upstreams.append(upstream)
+
+        logger.info(f"Upstream '{upstream.name}': {len(symbols)} signals discovered")
+
+    # ====================================================================
+    # Lifecycle
+    # ====================================================================
+
+    def start(self) -> None:
+        """Create the downstream server and freeze the signal list.
+
+        Call after all :meth:`add_tcp` / :meth:`add_serial`
+        calls.  The signal list cannot change after this point.
+
+        Upstreams with a fixed ``interval_ms`` are activated
+        automatically.
+        """
+        if self._started:
+            raise RuntimeError("Already started")
+
+        self._server = BlaeckTCPy(
+            self._ip,
+            self._port,
+            self._device_name,
+            self._device_hw_version,
+            self._device_fw_version,
+        )
+
+        # Register local signals first
+        for sig in self._local_signals:
+            self._server.add_signal(sig)
+
+        # Register upstream signals and build index maps
+        offset = len(self._local_signals)
+        for upstream in self._upstreams:
+            for i, sym in enumerate(upstream.symbol_table):
+                sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(sym.datatype_code, "float")
+                self._server.add_signal(sym.name, sig_type)
+                upstream.index_map[i] = offset
+                offset += 1
+
+        self._started = True
+
+        # Activate upstreams with a fixed interval
+        for upstream in self._upstreams:
+            if upstream.interval_ms > 0:
+                b = upstream.interval_ms.to_bytes(4, "little")
+                params = ",".join(str(x) for x in b)
+                upstream.transport.send_command(f"BLAECK.ACTIVATE,{params}")
+
+        total = len(self._server.signals)
+        logger.info(f"BlaeckHub started with {total} signals")
+
+    def close(self) -> None:
+        """Shut down all upstream connections and the downstream server."""
+        for upstream in self._upstreams:
+            upstream.transport.close()
+        if self._server:
+            self._server.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    # ====================================================================
+    # Main loop
+    # ====================================================================
+
+    def tick(self) -> None:
+        """Main loop tick — poll upstreams, serve downstream.
+
+        Call this repeatedly in your main loop.
+        Reads commands from downstream clients and forwards them to upstreams.
+        Reads data from upstreams and immediately relays updated signals downstream.
+        """
+        self._read()
+        self._poll_upstreams()
+        self._tick_local()
+
+    def _read(self) -> None:
+        """Simplified read — no built-in data/timer handling.
+
+        Handles WRITE_SYMBOLS and GET_DEVICES locally.
+        Forwards ACTIVATE, DEACTIVATE, and WRITE_DATA to upstreams.
+        """
+        messages = self._server._tcp_read()
+
+        if messages:
+            logger.debug(f"_read() received {len(messages)} message(s)")
+        for command, params, conn in messages:
+            logger.debug(f"  command={command!r} params={params!r}")
+            self._server._active_client = conn
+
+            if command == "BLAECK.WRITE_SYMBOLS":
+                self._write_symbols(self._server._decode_four_byte(params))
+
+            elif command == "BLAECK.GET_DEVICES":
+                self._write_devices(self._server._decode_four_byte(params))
+
+            elif command in (
+                "BLAECK.ACTIVATE",
+                "BLAECK.DEACTIVATE",
+                "BLAECK.WRITE_DATA",
+            ):
+                if params:
+                    full_cmd = f"{command},{','.join(str(p) for p in params)}"
+                else:
+                    full_cmd = command
+
+                if command == "BLAECK.WRITE_DATA":
+                    # One-shot: forward to ALL upstreams
+                    for upstream in self._upstreams:
+                        if upstream.transport.connected:
+                            upstream.transport.send_command(full_cmd)
+                else:
+                    # ACTIVATE/DEACTIVATE: only forward to client-managed upstreams
+                    for upstream in self._upstreams:
+                        if upstream.interval_ms == 0 and upstream.transport.connected:
+                            upstream.transport.send_command(full_cmd)
+
+                # Local signals: respond to client when not hub-managed
+                if self._local_signals and not self._local_fixed_interval:
+                    if command == "BLAECK.ACTIVATE":
+                        self._local_interval_ms = self._server._decode_four_byte(params)
+                        self._local_first_time = True
+                    elif command == "BLAECK.DEACTIVATE":
+                        self._local_interval_ms = 0
+
+                # WRITE_DATA: one-shot send of local signals
+                if self._local_signals and command == "BLAECK.WRITE_DATA":
+                    msg_id = self._server._decode_four_byte(params)
+                    local_count = len(self._local_signals)
+                    header = (
+                        self._server.MSG_DATA
+                        + b":"
+                        + msg_id.to_bytes(4, "little")
+                        + b":"
+                    )
+                    data = (
+                        b"<BLAECK:"
+                        + self._server._build_data_msg(
+                            header, start=0, end=local_count - 1
+                        )
+                        + b"/BLAECK>\r\n"
+                    )
+                    self._server._tcp_send_data(data)
+
+    def _poll_upstreams(self) -> None:
+        """Read frames from all upstream devices, update signals, and relay immediately."""
+        for upstream in self._upstreams:
+            was_connected = upstream.was_connected
+
+            if not upstream.transport.connected:
+                if was_connected:
+                    upstream.was_connected = False
+                    self._zero_upstream_signals(upstream)
+                    if self._disconnect_callback is not None:
+                        self._disconnect_callback(upstream.name)
+                continue
+
+            frames = upstream.transport.read_frames()
+
+            # Detect disconnect that happened during read
+            if was_connected and not upstream.transport.connected:
+                upstream.was_connected = False
+                self._zero_upstream_signals(upstream)
+                if self._disconnect_callback is not None:
+                    self._disconnect_callback(upstream.name)
+                continue
+
+            for frame in frames:
+                if len(frame) == 0:
+                    continue
+                msg_key = frame[0]
+                if msg_key in decoder.MSGKEY_DATA_ALL:
+                    try:
+                        decoded = decoder.parse_data(frame, upstream.symbol_table)
+                        for sig_id, value in decoded.signals.items():
+                            hub_idx = upstream.index_map.get(sig_id)
+                            if hub_idx is not None and hub_idx < len(
+                                self._server.signals
+                            ):
+                                self._server.signals[hub_idx].value = value
+                                self._server.signals[hub_idx].updated = True
+                        # Forward upstream timestamp only with a single device
+                        single = len(self._upstreams) == 1 and not self._local_signals
+                        ts = decoded.timestamp if single else None
+                        # Replace msg_id only when hub overrides BLAECK.ACTIVATE
+                        msg_id = decoded.msg_id
+                        if upstream.interval_ms > 0 and msg_id == _MSG_ID_ACTIVATE:
+                            msg_id = _MSG_ID_HUB
+                        # Send only upstream signals (skip local range)
+                        local_count = len(self._local_signals)
+                        header = (
+                            self._server.MSG_DATA
+                            + b":"
+                            + msg_id.to_bytes(4, "little")
+                            + b":"
+                        )
+                        data = (
+                            b"<BLAECK:"
+                            + self._server._build_data_msg(
+                                header,
+                                start=local_count,
+                                only_updated=True,
+                                timestamp=ts,
+                            )
+                            + b"/BLAECK>\r\n"
+                        )
+                        self._server._tcp_send_data(data)
+                    except Exception as e:
+                        logger.debug(f"Upstream '{upstream.name}' decode error: {e}")
+
+    # ====================================================================
+    # Local signal timing
+    # ====================================================================
+
+    def _tick_local(self) -> None:
+        """Send local signals at the configured interval."""
+        if self._local_interval_ms <= 0 or not self._local_signals:
+            return
+        if not self._server or not self._server.connected:
+            return
+        if not self._local_timer_elapsed():
+            return
+
+        msg_id = _MSG_ID_HUB if self._local_fixed_interval else _MSG_ID_ACTIVATE
+        local_count = len(self._local_signals)
+        header = self._server.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
+        data = (
+            b"<BLAECK:"
+            + self._server._build_data_msg(header, start=0, end=local_count - 1)
+            + b"/BLAECK>\r\n"
+        )
+        self._server._tcp_send_data(data)
+
+    def _local_timer_elapsed(self) -> bool:
+        """Check if the local signal interval has elapsed."""
+        now = time.time_ns()
+        if self._local_first_time:
+            self._local_timer_base = now
+            self._local_timer_setpoint = self._local_interval_ms
+            self._local_first_time = False
+            return True
+        elapsed_ms = (now - self._local_timer_base) / 1_000_000
+        if elapsed_ms < self._local_timer_setpoint:
+            return False
+        self._local_timer_setpoint += self._local_interval_ms
+        return True
+
+    # ====================================================================
+    # Upstream command forwarding
+    # ====================================================================
+
+    def _forward_to_upstreams(self, command: str) -> None:
+        """Forward a command to all connected upstream devices."""
+        for upstream in self._upstreams:
+            if upstream.transport.connected:
+                upstream.transport.send_command(command)
+
+    def _zero_upstream_signals(self, upstream: _UpstreamDevice) -> None:
+        """Reset all signals from a disconnected upstream to zero."""
+        for hub_idx in upstream.index_map.values():
+            if hub_idx < len(self._server.signals):
+                self._server.signals[hub_idx].value = 0
+
+    def _write_symbols(self, msg_id: int) -> None:
+        """Send symbol list with hub as master, then upstream slaves."""
+        if not self._server.connected:
+            return
+
+        header = (
+            self._server.MSG_SYMBOL_LIST + b":" + msg_id.to_bytes(4, "little") + b":"
+        )
+
+        payload = b""
+        # Local (master) signals first
+        for sig in self._local_signals:
+            payload += (
+                _MSC_MASTER
+                + b"\x00"
+                + sig.signal_name.encode()
+                + b"\0"
+                + sig.get_dtype_byte()
+            )
+
+        # Upstream (slave) signals
+        for idx, upstream in enumerate(self._upstreams):
+            slave_id = bytes([idx + 1])
+            for sym in upstream.symbol_table:
+                dtype_code = sym.datatype_code.to_bytes(1, "little")
+                payload += (
+                    _MSC_SLAVE + slave_id + sym.name.encode() + b"\0" + dtype_code
+                )
+
+        data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
+        logger.debug(f"WRITE_SYMBOLS frame ({len(data)} bytes): {data.hex(' ')}")
+        # Human-readable symbol dump
+        for sig in self._local_signals:
+            logger.debug(
+                f"  SlaveID=0 (local) name={sig.signal_name!r} dtype={sig.datatype}"
+            )
+        for idx, upstream in enumerate(self._upstreams):
+            for sym in upstream.symbol_table:
+                logger.debug(
+                    f"  SlaveID={idx+1} name={sym.name!r} dtype={sym.datatype_code}"
+                )
+        self._server._tcp_send(data)
+
+    def _write_devices(self, msg_id: int) -> None:
+        """Send hub as master device, then upstream slaves."""
+        if not self._server.connected:
+            return
+
+        header = self._server.MSG_DEVICES + b":" + msg_id.to_bytes(4, "little") + b":"
+
+        for client_id, conn in list(self._server._clients.items()):
+            # Hub itself as master device
+            payload = (
+                _MSC_MASTER
+                + b"\x00"  # SlaveID 0 for master
+                + self._device_name.encode()
+                + b"\0"
+                + self._device_hw_version.encode()
+                + b"\0"
+                + self._device_fw_version.encode()
+                + b"\0"
+                + LIB_VERSION.encode()
+                + b"\0"
+                + LIB_NAME.encode()
+                + b"\0"
+                + str(client_id).encode()
+                + b"\0"
+                + (b"1" if client_id in self._server.data_clients else b"0")
+                + b"\0"
+                + b"0\0"  # server_restarted
+            )
+
+            # Upstream devices as slaves
+            for idx, upstream in enumerate(self._upstreams):
+                info = upstream.device_info
+                if info is None:
+                    continue
+                slave_id = bytes([idx + 1])
+                payload += (
+                    _MSC_SLAVE
+                    + slave_id
+                    + upstream.name.encode()
+                    + b"\0"
+                    + info.hw_version.encode()
+                    + b"\0"
+                    + info.fw_version.encode()
+                    + b"\0"
+                    + info.lib_version.encode()
+                    + b"\0"
+                    + info.lib_name.encode()
+                    + b"\0"
+                    + str(client_id).encode()
+                    + b"\0"
+                    + (b"1" if client_id in self._server.data_clients else b"0")
+                    + b"\0"
+                    + b"0\0"  # server_restarted
+                )
+
+            data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
+            logger.debug(f"WRITE_DEVICES frame ({len(data)} bytes): {data.hex(' ')}")
+            # Human-readable device dump
+            logger.debug(f"  Master: SlaveID=0 name={self._device_name!r}")
+            for idx, upstream in enumerate(self._upstreams):
+                info = upstream.device_info
+                if info is not None:
+                    logger.debug(
+                        f"  Slave:  SlaveID={idx+1} name={upstream.name!r} hw={info.hw_version!r} fw={info.fw_version!r} lib={info.lib_version!r} lib_name={info.lib_name!r}"
+                    )
+            try:
+                conn.sendall(data)
+            except OSError as e:
+                logger.debug(f"Send error: {e}")
+                self._server._disconnect_client(conn)
+
+    # ====================================================================
+    # Callbacks
+    # ====================================================================
+
+    @property
+    def on_upstream_disconnected(self):
+        """Decorator to register a callback when an upstream device disconnects.
+
+        Example::
+
+            @hub.on_upstream_disconnected
+            def handle(name):
+                print(f"Lost connection to {name}")
+        """
+
+        def decorator(func):
+            self._disconnect_callback = func
+            return func
+
+        return decorator
+
+    # ====================================================================
+    # Status & properties
+    # ====================================================================
+
+    @property
+    def signals(self) -> list:
+        """All signals in the hub (upstream + local)."""
+        if self._server:
+            return self._server.signals
+        return []
+
+    @property
+    def connected(self) -> bool:
+        """True if any downstream client (e.g. Loggbok) is connected."""
+        if self._server:
+            return self._server.connected
+        return False
+
+    @property
+    def server(self) -> BlaeckTCPy | None:
+        """The underlying BlaeckTCPy server instance (available after start)."""
+        return self._server
+
+    def upstream_status(self, name: str | None = None) -> dict:
+        """Get connection status for upstream devices.
+
+        Args:
+            name: Specific upstream name, or None for all.
+
+        Returns:
+            Dict with 'connected', 'last_seen', 'signals' keys.
+            If name is None, returns {name: status_dict, ...}.
+        """
+
+        def _status(u: _UpstreamDevice) -> dict:
+            return {
+                "connected": u.transport.connected,
+                "last_seen": u.transport.last_seen,
+                "signals": len(u.symbol_table),
+            }
+
+        if name is not None:
+            for u in self._upstreams:
+                if u.name == name:
+                    return _status(u)
+            raise KeyError(f"No upstream named '{name}'")
+
+        return {u.name: _status(u) for u in self._upstreams}
+
+    def __repr__(self):
+        n_up = len(self._upstreams)
+        n_sig = len(self.signals)
+        started = "started" if self._started else "not started"
+        return f"BlaeckHub [{n_up} upstreams] [{n_sig} signals] [{started}]"

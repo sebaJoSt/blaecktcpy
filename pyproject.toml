@@ -24,3 +24,6 @@ classifiers = [
 Homepage = "https://github.com/sebaJoSt/blaecktcpy"
 "Bug Reports" = "https://github.com/sebaJoSt/blaecktcpy/issues"
 "Source" = "https://github.com/sebaJoSt/blaecktcpy"
+
+[project.optional-dependencies]
+serial = ["pyserial"]

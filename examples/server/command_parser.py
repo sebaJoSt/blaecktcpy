@@ -5,7 +5,7 @@ EXAMPLE_VERSION = "1.0"
 ip = "127.0.0.1"
 port = 23
 
-bltcp = BlaeckTCPy("Command Parser Example", "Python Script", EXAMPLE_VERSION, ip, port)
+bltcp = BlaeckTCPy(ip, port, "Command Parser Example", "Python Script", EXAMPLE_VERSION)
 
 bltcp.add_signal("LED_State", "bool")
 bltcp.add_signal("Motor_Speed", "float")

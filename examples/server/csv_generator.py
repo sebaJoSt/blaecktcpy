@@ -57,6 +57,7 @@ def main():
         start = time.time()
         row_count = 0
         print("Generating data... (Ctrl+C to stop)")
+        print("##LOGGBOK:READY##")
 
         try:
             while True:

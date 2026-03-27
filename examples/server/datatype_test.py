@@ -6,7 +6,7 @@ EXAMPLE_VERSION = "1.0"
 ip = "127.0.0.1"
 port = 23
 
-bltcp = BlaeckTCPy("Datatype Test", "Python Script", EXAMPLE_VERSION, ip, port)
+bltcp = BlaeckTCPy(ip, port, "Datatype Test", "Python Script", EXAMPLE_VERSION)
 
 bltcp.add_signal("Bool_false", "bool", False)
 bltcp.add_signal("Bool_true", "bool", True)
@@ -39,4 +39,3 @@ print("##LOGGBOK:READY##")
 
 while True:
     bltcp.tick()
-    time.sleep(0.001)

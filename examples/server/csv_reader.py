@@ -56,7 +56,7 @@ def main():
     print(f"Signals:     {signal_names}")
 
     bltcp = BlaeckTCPy(
-        "CSV Tail Reader", "Python Script", EXAMPLE_VERSION, "127.0.0.1", PORT
+        "127.0.0.1", PORT, "CSV Tail Reader", "Python Script", EXAMPLE_VERSION
     )
 
     for name in signal_names:
