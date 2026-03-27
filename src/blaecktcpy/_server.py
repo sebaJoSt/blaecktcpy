@@ -63,7 +63,7 @@ class BlaeckTCPy:
                 f"\033[33m[WARNING]\033[0m Something is already running on port {port}."
             )
             answer = input(
-                f"\nWould you like to run blaecktcpy on port {alt_port} instead? \033[1m(Y/n)\033[0m "
+                f"Would you like to run blaecktcpy on port {alt_port} instead? \033[1m(Y/n)\033[0m "
             ).strip()
             if answer.lower() in ("", "y", "yes"):
                 port = alt_port

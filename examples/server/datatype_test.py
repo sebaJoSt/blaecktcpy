@@ -1,4 +1,3 @@
-import time
 from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
