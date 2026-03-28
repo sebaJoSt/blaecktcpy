@@ -60,6 +60,8 @@ class BlaeckTCPy:
             self._bind_socket(ip, port)
         except OSError:
             self._server_socket.close()
+            if not self._stdin_is_interactive():
+                raise OSError(f"Port {port} is already in use")
             alt_port = self._find_free_port(ip, port)
             print(
                 f"\033[33m[WARNING]\033[0m Something is already running on port {port}."
@@ -117,6 +119,12 @@ class BlaeckTCPy:
                 except OSError:
                     continue
         raise OSError("No free port found")
+
+    @staticmethod
+    def _stdin_is_interactive() -> bool:
+        """Return True when stdin is attached to an interactive terminal."""
+        stdin = sys.stdin
+        return bool(stdin and hasattr(stdin, "isatty") and stdin.isatty())
 
     def _start_listening(self):
         """Step 4: Start listening for connections"""
