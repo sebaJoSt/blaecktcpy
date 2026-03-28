@@ -2,17 +2,17 @@
 
 import struct
 from typing import Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(init=False)
 class Signal:
     """Represents a BlaeckTCP signal with typed data"""
 
     signal_name: str
     datatype: str
-    value: Union[int, float] = 0
     updated: bool = False
+    _value: Union[int, float, bool] = field(init=False, repr=False)
 
     # Class-level mappings
     DATATYPE_TO_CODE = {
@@ -44,14 +44,68 @@ class Signal:
     SIGNED_TYPES = {"short", "int", "long"}
     FLOAT_TYPES = {"float", "double"}
 
-    def __post_init__(self):
-        """Validate datatype on initialization"""
-        if self.datatype not in self.DATATYPE_TO_CODE:
-            raise ValueError(f"Invalid datatype: {self.datatype}")
+    def __init__(
+        self,
+        signal_name: str,
+        datatype: str,
+        value: Union[int, float] = 0,
+        updated: bool = False,
+    ):
+        self.signal_name = signal_name
+        self.datatype = datatype
+        self.updated = updated
+        self._validate_datatype(datatype)
+        self.value = value
 
-        # Auto-convert to proper type
-        if self.datatype not in self.FLOAT_TYPES and not isinstance(self.value, int):
-            self.value = int(self.value)
+    @classmethod
+    def _validate_datatype(cls, datatype: str) -> None:
+        if datatype not in cls.DATATYPE_TO_CODE:
+            raise ValueError(f"Invalid datatype: {datatype}")
+
+    @classmethod
+    def _integer_range(cls, datatype: str) -> tuple[int, int]:
+        if datatype == "bool":
+            return 0, 1
+
+        bits = cls.DATATYPE_SIZES[datatype] * 8
+        if datatype in cls.SIGNED_TYPES:
+            return -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+        return 0, (1 << bits) - 1
+
+    def _normalize_value(self, value: Union[int, float]) -> Union[int, float, bool]:
+        if self.datatype in self.FLOAT_TYPES:
+            try:
+                return float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Invalid value for {self.datatype} signal '{self.signal_name}': {value!r}"
+                ) from exc
+
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid value for {self.datatype} signal '{self.signal_name}': {value!r}"
+            ) from exc
+
+        min_value, max_value = self._integer_range(self.datatype)
+        if not min_value <= normalized <= max_value:
+            raise ValueError(
+                f"Value {normalized} out of range for {self.datatype} "
+                f"signal '{self.signal_name}' [{min_value}, {max_value}]"
+            )
+
+        if self.datatype == "bool":
+            return bool(normalized)
+        return normalized
+
+    @property
+    def value(self) -> Union[int, float, bool]:
+        return self._value
+
+    @value.setter
+    def value(self, value: Union[int, float]) -> None:
+        self._value = self._normalize_value(value)
 
     def to_bytes(self) -> bytes:
         """Convert signal value to bytes based on datatype"""
@@ -60,7 +114,7 @@ class Signal:
             return struct.pack(fmt, self.value)
         else:
             signed = self.datatype in self.SIGNED_TYPES
-            return self.value.to_bytes(
+            return int(self.value).to_bytes(
                 self.DATATYPE_SIZES[self.datatype], "little", signed=signed
             )
 
