@@ -110,7 +110,7 @@ class Signal:
     def to_bytes(self) -> bytes:
         """Convert signal value to bytes based on datatype"""
         if self.datatype in self.FLOAT_TYPES:
-            fmt = "f" if self.datatype == "float" else "d"
+            fmt = "<f" if self.datatype == "float" else "<d"
             return struct.pack(fmt, self.value)
         else:
             signed = self.datatype in self.SIGNED_TYPES
