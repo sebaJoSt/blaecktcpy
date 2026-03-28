@@ -81,7 +81,7 @@ def handle_led(state):
 
 ## BlaeckHub
 
-`BlaeckHub` aggregates signals from multiple upstream BlaeckTCP(y) or BlaeckSerial devices and serves them as a single merged device. It can also add local signals computed in Python.
+`BlaeckHub` aggregates signals from multiple upstream BlaeckTCP(y) or BlaeckSerial devices and serves them as a single merged device. It can also add local signals.
 
 ```python
 from blaecktcpy import BlaeckHub
@@ -93,12 +93,12 @@ hub.add_tcp("192.168.1.10", 24, name="ESP32")
 hub.add_tcp("127.0.0.1", 25, name="Sine")
 
 # Add a local signal
-temperature = hub.add_signal("DewPoint", "float")
+dew_point = hub.add_signal("DewPoint", "float")
 
 hub.start()
 
 while True:
-    temperature.value = compute_dew_point()
+    dew_point.value = compute_dew_point()
     hub.tick()
 ```
 
