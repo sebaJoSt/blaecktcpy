@@ -345,6 +345,8 @@ class BlaeckHub:
         Reads commands from downstream clients and forwards them to upstreams.
         Reads data from upstreams and immediately relays updated signals downstream.
         """
+        if not self._started or self._server is None:
+            raise RuntimeError("Must call start() before tick()")
         self._read()
         self._poll_upstreams()
         self._tick_local()
