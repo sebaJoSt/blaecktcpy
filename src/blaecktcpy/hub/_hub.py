@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 
 from .._signal import Signal
-from .._server import BlaeckTCPy, LIB_VERSION, LIB_NAME
+from .._server import BlaeckTCPy, LIB_VERSION, LIB_NAME, STATUS_UPSTREAM_LOST
 from . import _decoder as decoder
 from ._upstream import UpstreamTCP, UpstreamSerial, _UpstreamBase
 
@@ -427,6 +427,8 @@ class BlaeckHub:
             if not upstream.transport.connected:
                 if was_connected:
                     upstream.was_connected = False
+                    self._zero_upstream_signals(upstream)
+                    self._send_upstream_lost_frame(upstream)
                     if self._disconnect_callback is not None:
                         self._disconnect_callback(upstream.name)
                 continue
@@ -436,6 +438,8 @@ class BlaeckHub:
             # Detect disconnect that happened during read
             if was_connected and not upstream.transport.connected:
                 upstream.was_connected = False
+                self._zero_upstream_signals(upstream)
+                self._send_upstream_lost_frame(upstream)
                 if self._disconnect_callback is not None:
                     self._disconnect_callback(upstream.name)
                 continue
@@ -484,6 +488,36 @@ class BlaeckHub:
                         logger.warning(
                             f"Upstream '{upstream.name}' frame dropped: {e}"
                         )
+
+    def _zero_upstream_signals(self, upstream: _UpstreamDevice) -> None:
+        """Reset all signals from a disconnected upstream to zero."""
+        for hub_idx in upstream.index_map.values():
+            if hub_idx < len(self._server.signals):
+                self._server.signals[hub_idx].value = 0
+                self._server.signals[hub_idx].updated = True
+
+    def _send_upstream_lost_frame(self, upstream: _UpstreamDevice) -> None:
+        """Send one data frame with STATUS_UPSTREAM_LOST for a disconnected upstream."""
+        if not self._server.connected:
+            return
+        local_count = len(self._local_signals)
+        header = (
+            self._server.MSG_DATA
+            + b":"
+            + _MSG_ID_HUB.to_bytes(4, "little")
+            + b":"
+        )
+        data = (
+            b"<BLAECK:"
+            + self._server._build_data_msg(
+                header,
+                start=local_count,
+                only_updated=True,
+                status=STATUS_UPSTREAM_LOST,
+            )
+            + b"/BLAECK>\r\n"
+        )
+        self._server._tcp_send_data(data)
 
     # ====================================================================
     # Local signal timing

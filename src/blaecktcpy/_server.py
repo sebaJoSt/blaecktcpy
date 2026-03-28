@@ -21,6 +21,11 @@ LIB_NAME = "blaecktcpy"
 
 _MAX_RECV_BUFFER = 65536  # 64 KB per-client receive buffer limit
 
+# Status byte values for data frames
+# 0x00: normal, 0x01: I2C CRC error (BlaeckSerial)
+STATUS_OK = 0x00
+STATUS_UPSTREAM_LOST = 0x02
+
 logger = logging.getLogger("blaecktcpy")
 
 
@@ -749,6 +754,7 @@ class BlaeckTCPy:
         end: int = -1,
         only_updated: bool = False,
         timestamp: int | None = None,
+        status: int = STATUS_OK,
     ) -> bytes:
         """Build data message with CRC32 checksum (v5 format).
 
@@ -758,6 +764,7 @@ class BlaeckTCPy:
             end: Last signal index (inclusive), -1 = last signal
             only_updated: If True, include only signals with updated=True
             timestamp: Optional upstream timestamp (millis) to forward
+            status: Status byte (STATUS_OK or STATUS_UPSTREAM_LOST)
         """
         if end == -1:
             end = len(self.signals) - 1
@@ -792,7 +799,7 @@ class BlaeckTCPy:
         crc_input = header + meta + payload
         crc = binascii.crc32(crc_input).to_bytes(4, "little")
 
-        return crc_input + b"\x00" + crc
+        return crc_input + status.to_bytes(1, "little") + crc
 
     def _get_symbols(self) -> bytes:
         """Build symbol list message"""
