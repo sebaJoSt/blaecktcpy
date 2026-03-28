@@ -81,12 +81,20 @@ class Signal:
                     f"Invalid value for {self.datatype} signal '{self.signal_name}': {value!r}"
                 ) from exc
 
-        try:
+        if isinstance(value, bool):
             normalized = int(value)
-        except (TypeError, ValueError) as exc:
+        elif isinstance(value, int):
+            normalized = value
+        elif isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError(
+                    f"Invalid value for {self.datatype} signal '{self.signal_name}': {value!r}"
+                )
+            normalized = int(value)
+        else:
             raise ValueError(
                 f"Invalid value for {self.datatype} signal '{self.signal_name}': {value!r}"
-            ) from exc
+            )
 
         min_value, max_value = self._integer_range(self.datatype)
         if not min_value <= normalized <= max_value:
