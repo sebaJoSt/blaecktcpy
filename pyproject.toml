@@ -27,3 +27,7 @@ Homepage = "https://github.com/sebaJoSt/blaecktcpy"
 
 [project.optional-dependencies]
 serial = ["pyserial"]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
