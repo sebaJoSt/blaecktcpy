@@ -425,7 +425,6 @@ class BlaeckHub:
             if not upstream.transport.connected:
                 if was_connected:
                     upstream.was_connected = False
-                    self._zero_upstream_signals(upstream)
                     if self._disconnect_callback is not None:
                         self._disconnect_callback(upstream.name)
                 continue
@@ -435,7 +434,6 @@ class BlaeckHub:
             # Detect disconnect that happened during read
             if was_connected and not upstream.transport.connected:
                 upstream.was_connected = False
-                self._zero_upstream_signals(upstream)
                 if self._disconnect_callback is not None:
                     self._disconnect_callback(upstream.name)
                 continue
@@ -481,7 +479,9 @@ class BlaeckHub:
                         )
                         self._server._tcp_send_data(data)
                     except Exception as e:
-                        logger.debug(f"Upstream '{upstream.name}' decode error: {e}")
+                        logger.warning(
+                            f"Upstream '{upstream.name}' frame dropped: {e}"
+                        )
 
     # ====================================================================
     # Local signal timing
@@ -529,12 +529,6 @@ class BlaeckHub:
         for upstream in self._upstreams:
             if upstream.transport.connected:
                 upstream.transport.send_command(command)
-
-    def _zero_upstream_signals(self, upstream: _UpstreamDevice) -> None:
-        """Reset all signals from a disconnected upstream to zero."""
-        for hub_idx in upstream.index_map.values():
-            if hub_idx < len(self._server.signals):
-                self._server.signals[hub_idx].value = 0
 
     def _write_symbols(self, msg_id: int) -> None:
         """Send symbol list with hub as master, then upstream slaves."""

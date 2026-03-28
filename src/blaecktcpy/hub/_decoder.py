@@ -5,6 +5,7 @@ Supports B0 (symbol list), D1 (v5 data), B1 (v4 legacy data),
 and B5 (device info) message types.
 """
 
+import binascii
 import struct
 from dataclasses import dataclass, field
 
@@ -167,6 +168,7 @@ def parse_data(content: bytes, symbol_table: list[DecodedSymbol]) -> DecodedData
         DecodedData with signal index → value mapping.
     """
     msg_key, msg_id, data = _parse_header(content)
+    _validate_data_frame(content)
 
     match msg_key:
         case 0xD1:  # MSGKEY_DATA (v5+)
@@ -175,6 +177,19 @@ def parse_data(content: bytes, symbol_table: list[DecodedSymbol]) -> DecodedData
             return _parse_data_b1(msg_id, data, symbol_table)
         case _:
             raise ValueError(f"Expected D1 or B1 data frame, got {msg_key:#x}")
+
+
+def _validate_data_frame(content: bytes) -> None:
+    """Validate minimum structure and CRC for a D1/B1 data frame."""
+    if len(content) < 12:
+        raise ValueError(f"Data frame too short: {len(content)} bytes")
+
+    expected_crc = int.from_bytes(content[-4:], "little")
+    actual_crc = binascii.crc32(content[:-5]) & 0xFFFFFFFF
+    if actual_crc != expected_crc:
+        raise ValueError(
+            f"CRC mismatch: expected 0x{expected_crc:08x}, got 0x{actual_crc:08x}"
+        )
 
 
 def _parse_data_d1(
