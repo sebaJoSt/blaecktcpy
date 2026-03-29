@@ -35,7 +35,7 @@ class BlaeckServer:
     # Message type keys (pre-computed bytes for wire encoding)
     MSG_SYMBOL_LIST = b"\xb0"
     MSG_DATA = b"\xd1"
-    MSG_DEVICES = b"\xb5"
+    MSG_DEVICES = b"\xb6"
 
     def __init__(
         self,
@@ -700,6 +700,7 @@ class BlaeckServer:
                 + b"\0"
                 + (b"1" if self._server_restarted else b"0")
                 + b"\0"
+                + b"server\0"
             )
 
             data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"

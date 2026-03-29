@@ -487,3 +487,80 @@ class TestCallbackExceptionResilience:
         with pytest.raises(ValueError, match="oops"):
             self.hub._fire_data_received(upstream)
         assert calls == []
+
+
+# ── B6 device type ─────────────────────────────────────────────────────
+
+
+class TestB6DeviceType:
+    """B6 message key includes device_type field."""
+
+    def test_server_msg_devices_is_b6(self):
+        from blaecktcpy._server import BlaeckServer
+
+        assert BlaeckServer.MSG_DEVICES == b"\xb6"
+
+    def test_parse_b6_includes_device_type(self):
+        """B6 frame parsed by decoder returns device_type."""
+        msg_key = b"\xb6"
+        msg_id = (1).to_bytes(4, "little")
+        msc_slave_id = b"\x00\x00"
+        payload = (
+            msc_slave_id
+            + b"TestDevice\0"
+            + b"1.0\0"
+            + b"2.0\0"
+            + b"3.0\0"
+            + b"blaecktcpy\0"
+            + b"1\0"
+            + b"1\0"
+            + b"0\0"
+            + b"server\0"
+        )
+        content = msg_key + b":" + msg_id + b":" + payload
+        info = decoder.parse_devices(content)
+        assert info.device_type == "server"
+        assert info.device_name == "TestDevice"
+        assert info.server_restarted == "0"
+
+    def test_parse_b6_hub_device_type(self):
+        """B6 frame with device_type='hub'."""
+        msg_key = b"\xb6"
+        msg_id = (1).to_bytes(4, "little")
+        msc_slave_id = b"\x00\x00"
+        payload = (
+            msc_slave_id
+            + b"MyHub\0"
+            + b"1.0\0"
+            + b"2.0\0"
+            + b"3.0\0"
+            + b"blaecktcpy\0"
+            + b"1\0"
+            + b"1\0"
+            + b"0\0"
+            + b"hub\0"
+        )
+        content = msg_key + b":" + msg_id + b":" + payload
+        info = decoder.parse_devices(content)
+        assert info.device_type == "hub"
+
+    def test_parse_b5_has_no_device_type(self):
+        """B5 (legacy) frame has empty device_type."""
+        msg_key = b"\xb5"
+        msg_id = (1).to_bytes(4, "little")
+        msc_slave_id = b"\x00\x00"
+        payload = (
+            msc_slave_id
+            + b"OldDevice\0"
+            + b"1.0\0"
+            + b"2.0\0"
+            + b"3.0\0"
+            + b"blaecktcpy\0"
+            + b"1\0"
+            + b"1\0"
+            + b"0\0"
+        )
+        content = msg_key + b":" + msg_id + b":" + payload
+        info = decoder.parse_devices(content)
+        assert info.device_type == ""
+        assert info.server_restarted == "0"

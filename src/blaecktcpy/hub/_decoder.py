@@ -17,12 +17,14 @@ MSGKEY_DATA = 0xD1  # v5+
 MSGKEY_DEVICES_LEGACY = 0xB2  # BlaeckSerial v3.0.3 or older
 MSGKEY_DEVICES_V1 = 0xB3  # BlaeckSerial v3+ / BlaeckTCP v1
 MSGKEY_DEVICES_V2 = 0xB4  # BlaeckTCP v2
-MSGKEY_DEVICES = 0xB5  # BlaeckTCP v3+
+MSGKEY_DEVICES_V4 = 0xB5  # BlaeckTCP v3
+MSGKEY_DEVICES = 0xB6  # BlaeckTCP v4+
 
 # Grouped sets for dispatch
 MSGKEY_DATA_ALL = {MSGKEY_DATA, MSGKEY_DATA_LEGACY}
 MSGKEY_DEVICES_ALL = {
     MSGKEY_DEVICES,
+    MSGKEY_DEVICES_V4,
     MSGKEY_DEVICES_V2,
     MSGKEY_DEVICES_V1,
     MSGKEY_DEVICES_LEGACY,
@@ -82,7 +84,7 @@ class DecodedData:
 
 @dataclass
 class DecodedDeviceInfo:
-    """Device info from a B3/B5 devices frame."""
+    """Device info from a B3/B6 devices frame."""
 
     msg_id: int
     device_name: str
@@ -93,6 +95,7 @@ class DecodedDeviceInfo:
     client_no: str = ""
     data_enabled: str = ""
     server_restarted: str = ""
+    device_type: str = ""
 
 
 def _parse_header(content: bytes) -> tuple[int, int, bytes]:
@@ -287,7 +290,7 @@ def _unpack_signals(
 
 
 def parse_devices(content: bytes) -> DecodedDeviceInfo:
-    """Parse a B2/B3 (BlaeckSerial) or B5 (BlaeckTCP) devices frame.
+    """Parse a B2/B3 (BlaeckSerial) or B5/B6 (BlaeckTCP) devices frame.
 
     Args:
         content: bytes between <BLAECK: and /BLAECK>
@@ -329,10 +332,16 @@ def parse_devices(content: bytes) -> DecodedDeviceInfo:
             info.lib_name = read_string()
             info.client_no = read_string()
             info.data_enabled = read_string()
-        case 0xB5:  # MSGKEY_DEVICES
+        case 0xB5:  # MSGKEY_DEVICES_V4
             info.lib_name = read_string()
             info.client_no = read_string()
             info.data_enabled = read_string()
             info.server_restarted = read_string()
+        case 0xB6:  # MSGKEY_DEVICES
+            info.lib_name = read_string()
+            info.client_no = read_string()
+            info.data_enabled = read_string()
+            info.server_restarted = read_string()
+            info.device_type = read_string()
 
     return info

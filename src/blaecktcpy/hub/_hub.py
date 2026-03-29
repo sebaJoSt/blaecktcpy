@@ -775,6 +775,7 @@ class BlaeckHub:
                 + (b"1" if client_id in self._server.data_clients else b"0")
                 + b"\0"
                 + b"0\0"  # server_restarted
+                + b"hub\0"
             )
 
             # Upstream devices as slaves — only relayed upstreams
@@ -806,6 +807,7 @@ class BlaeckHub:
                     + (b"1" if client_id in self._server.data_clients else b"0")
                     + b"\0"
                     + b"0\0"  # server_restarted
+                    + b"server\0"
                 )
 
             data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
