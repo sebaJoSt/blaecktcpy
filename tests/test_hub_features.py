@@ -894,6 +894,39 @@ class TestMultiSlavePassThrough:
             ("ServerD", 7, 0),
         ]
 
+    def test_parent_tree_reconstruction(self):
+        """Loggbok can reconstruct the full device tree from parent fields.
+
+        Takes the complex case (10) output and rebuilds a tree,
+        proving the parent field is unambiguous.
+        """
+        # Flat B6 list as Loggbok would receive it (slave_id, name, parent)
+        flat = [
+            (0, "Hub_A", 0),       # master
+            (1, "Hub_B", 0),
+            (2, "BlaeckMaster", 1),
+            (3, "Slave8", 2),
+            (4, "Hub_C", 0),
+            (5, "Arduino1", 4),
+            (6, "Arduino2", 4),
+            (7, "ServerD", 0),
+        ]
+
+        # Reconstruct tree: parent_sid → list of child names
+        children: dict[int, list[str]] = {}
+        for sid, name, parent in flat:
+            if sid == parent:
+                continue  # skip master self-reference
+            children.setdefault(parent, []).append(name)
+
+        assert children[0] == ["Hub_B", "Hub_C", "ServerD"]  # Hub_A's children
+        assert children[1] == ["BlaeckMaster"]                # Hub_B's children
+        assert children[2] == ["Slave8"]                      # BlaeckMaster's children
+        assert children[4] == ["Arduino1", "Arduino2"]        # Hub_C's children
+        assert 3 not in children  # Slave8 has no children
+        assert 5 not in children  # Arduino1 has no children
+        assert 7 not in children  # ServerD has no children
+
 
 # ========================================================================
 # Restart flag relay tests
