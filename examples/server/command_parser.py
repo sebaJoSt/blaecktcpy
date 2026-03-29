@@ -41,7 +41,7 @@ def on_connect(client_no):
 
 
 # Catch-all — fires for every message (built-in and custom)
-@bltcp.on_read()
+@bltcp.on_command()
 def log_all(command, *params):
     print(f"[LOG] {command} {params}")
 

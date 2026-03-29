@@ -441,10 +441,15 @@ class BlaeckTCPy:
     # ========================================================================
     # Command Parser
     # ========================================================================
-    def on_command(self, command: str):
-        """Decorator to register a handler for a specific command.
+    def on_command(self, command: str | None = None):
+        """Decorator to register a command handler.
 
-        Parameters from the message are unpacked as positional string arguments.
+        With a command name, registers a handler for that specific command.
+        Parameters are unpacked as positional string arguments.
+
+        Without a command name, registers a catch-all that fires for every
+        message after built-in and specific handlers.  Receives the command
+        name as the first argument followed by parameters.
 
         Example::
 
@@ -452,32 +457,16 @@ class BlaeckTCPy:
             def handle_led(state):
                 print(f"LED = {state}")
 
-            @bltcp.on_command("MOTOR")
-            def handle_motor(speed, direction):
-                print(f"{direction} at {speed}")
-        """
-
-        def decorator(func):
-            self._command_handlers[command] = func
-            return func
-
-        return decorator
-
-    def on_read(self):
-        """Decorator to register a catch-all callback for every message.
-
-        Fires after built-in command handling and specific @on handlers.
-        Receives command name and all parameters as positional string arguments.
-
-        Example::
-
-            @bltcp.on_read()
+            @bltcp.on_command()
             def log_all(command, *params):
                 print(f"{command}: {params}")
         """
 
         def decorator(func):
-            self._read_callback = func
+            if command is None:
+                self._read_callback = func
+            else:
+                self._command_handlers[command] = func
             return func
 
         return decorator
