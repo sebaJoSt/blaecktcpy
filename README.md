@@ -124,10 +124,6 @@ Messages use the [BlaeckTCP binary protocol](https://github.com/sebaJoSt/BlaeckT
 | `StatusByte` | byte | `0x00` = normal, `0x02` = upstream connection lost (hub only) |
 | `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |
 
-### Backward Compatibility
-
-blaecktcpy can decode upstream frames using older message keys (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream.
-
 ## BlaeckHub
 
 `BlaeckHub` aggregates signals from multiple upstream TCP or serial devices and serves them as a single merged device. It can also add local signals.
@@ -156,6 +152,8 @@ Serial upstreams are also supported (`pip install blaecktcpy[serial]`):
 ```python
 hub.add_serial("COM3", 115200, name="Arduino")
 ```
+
+The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream to clients.
 
 ## Examples
 
