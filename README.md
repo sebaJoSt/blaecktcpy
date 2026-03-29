@@ -79,6 +79,55 @@ def handle_led(state):
 | `float`          | 8     | 4     |
 | `double`         | 9     | 8     |
 
+## Protocol
+
+Messages use the [BlaeckTCP binary protocol](https://github.com/sebaJoSt/BlaeckTCP#messages):
+
+```
+|Header|--       Message        --||-- EOT  --|
+<BLAECK:<MSGKEY>:<MSGID>:<ELEMENTS>/BLAECK>\r\n
+```
+
+### Message Keys
+
+| Type | MSGKEY | Elements | Description |
+|------|--------|----------|-------------|
+| Symbol List | `B0` | **`<MSC><SlaveID><SymbolName><DTYPE>`** | **Up to n symbols.** Response to `<BLAECK.WRITE_SYMBOLS>` |
+| Data | `D1` | `<RestartFlag>:<TimestampMode><Timestamp>:`**`<SymbolID><DATA>`**`<StatusByte><CRC32>` | **Up to n data items.** Response to `<BLAECK.WRITE_DATA>` |
+| Data | `B1` | **`<SymbolID><DATA>`**`<StatusByte><CRC32>` | Deprecated (BlaeckTCP v4.0.1 or older) |
+| Devices | `B6` | `<MSC><SlaveID><DeviceName><DeviceHWVersion><DeviceFWVersion><LibraryVersion><LibraryName><Client#><ClientDataEnabled><ServerRestarted><DeviceType>` | **Up to n devices.** Response to `<BLAECK.GET_DEVICES>` |
+
+### Elements
+
+| Element | Type | Description |
+|---------|------|-------------|
+| `MSGKEY` | byte | Message key identifying the type of message |
+| `MSGID` | ulong | Message ID echoed back to identify the response (4 bytes, little-endian) |
+| `MSC` | byte | MasterSlaveConfig: `0x01` = master, `0x02` = slave |
+| `SlaveID` | byte | Slave address: `0` for master, `1`–`n` for slaves |
+| `SymbolName` | String0 | Signal name, null-terminated |
+| `DTYPE` | byte | Datatype code (see [Supported datatypes](#supported-datatypes)) |
+| `SymbolID` | uint | Signal index (2 bytes, little-endian) |
+| `DATA` | (varying) | Signal value, size depends on datatype |
+| `DeviceName` | String0 | Device name, null-terminated |
+| `DeviceHWVersion` | String0 | Hardware version |
+| `DeviceFWVersion` | String0 | Firmware version |
+| `LibraryVersion` | String0 | Library version |
+| `LibraryName` | String0 | Library name (`blaecktcpy`) |
+| `Client#` | String0 | Client number of the connected client |
+| `ClientDataEnabled` | String0 | `0` or `1`: client is allowed to receive data |
+| `ServerRestarted` | String0 | `0` or `1`: first response after a restart is `1` |
+| `DeviceType` | String0 | `server` for BlaeckServer, `hub` for BlaeckHub |
+| `RestartFlag` | byte | `1` if device restarted since last transmission, `0` otherwise |
+| `TimestampMode` | byte | `0` = no timestamp, `1` = microseconds, `2` = Unix time |
+| `Timestamp` | ulong | Timestamp value (only present if TimestampMode > 0), 4 bytes |
+| `StatusByte` | byte | `0x00` = normal, `0x02` = upstream connection lost (hub only) |
+| `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |
+
+### Backward Compatibility
+
+blaecktcpy can decode upstream frames using older message keys (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream.
+
 ## BlaeckHub
 
 `BlaeckHub` aggregates signals from multiple upstream TCP or serial devices and serves them as a single merged device. It can also add local signals.
