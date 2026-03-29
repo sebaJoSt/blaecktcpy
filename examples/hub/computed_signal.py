@@ -48,7 +48,7 @@ dew_point = hub.add_signal("dew_point", "float")
 
 # Connect to Arduino over serial (relay=False: Loggbok won't see raw signals)
 # Set dtr=False for Arduino Mega to prevent reset on connect
-arduino = hub.add_serial("COM3", 9600, "Arduino", relay=False)
+arduino = hub.add_serial("COM3", 9600, "Arduino", relay=False, interval_ms=1000)
 
 
 @hub.on_data_received("Arduino")
