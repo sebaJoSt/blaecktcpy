@@ -121,7 +121,7 @@ Messages use the following binary format:
 | `RestartFlag` | byte | `1` on the first data frame after startup, `0` otherwise |
 | `TimestampMode` | byte | Always `0` in blaecktcpy (timestamps not implemented) |
 | `Timestamp` | ulong | Timestamp value (only present if TimestampMode > 0); not sent by blaecktcpy |
-| `StatusByte` | byte | `0x00` = normal, `0x02` = upstream connection lost (hub only) |
+| `StatusByte` | byte | `0x00` = normal, `0x01` = I2C CRC error, `0x02` = upstream connection lost |
 | `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |
 
 ## BlaeckHub
