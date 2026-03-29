@@ -96,8 +96,10 @@ class _UpstreamDevice:
 
     @property
     def signals(self) -> UpstreamSignals:
-        if self._upstream_signals is None or self._upstream_signals._signals is not self._signals:
-            self._upstream_signals = UpstreamSignals(self._signals)
+        if self._upstream_signals is None:
+            raise RuntimeError(
+                "Signals not available yet — call hub.start() first"
+            )
         return self._upstream_signals
 
     def __getitem__(self, key: int | str) -> Signal:
@@ -380,6 +382,7 @@ class BlaeckHub:
                         sym.datatype_code, "float"
                     )
                     self._server.add_signal(sym.name, sig_type)
+                    upstream._signals.append(self._server.signals[offset])
                     upstream.index_map[i] = offset
                     offset += 1
             else:
@@ -391,6 +394,9 @@ class BlaeckHub:
                     sig = Signal(sym.name, sig_type)
                     upstream._signals.append(sig)
                     upstream.index_map[i] = i
+
+            # Freeze signal collection now that _signals is fully populated
+            upstream._upstream_signals = UpstreamSignals(upstream._signals)
 
         self._started = True
 
@@ -561,6 +567,9 @@ class BlaeckHub:
                             ):
                                 self._server.signals[hub_idx].value = value
                                 self._server.signals[hub_idx].updated = True
+                        # Fire callback before relay so transforms can
+                        # modify signal values before they go downstream
+                        self._fire_data_received(upstream)
                         # Forward upstream timestamp only with a single relayed device
                         relayed_count = sum(1 for u in self._upstreams if u.relay)
                         single = relayed_count == 1 and not self._local_signals
@@ -588,7 +597,6 @@ class BlaeckHub:
                             + b"/BLAECK>\r\n"
                         )
                         self._server._tcp_send_data(data)
-                        self._fire_data_received(upstream)
                     except Exception as e:
                         logger.warning(
                             f"Upstream '{upstream.name}' frame dropped: {e}"
