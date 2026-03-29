@@ -81,7 +81,7 @@ def handle_led(state):
 
 ## BlaeckHub
 
-`BlaeckHub` aggregates signals from multiple upstream BlaeckTCP(y) or BlaeckSerial devices and serves them as a single merged device. It can also add local signals.
+`BlaeckHub` aggregates signals from multiple upstream TCP or serial devices and serves them as a single merged device. It can also add local signals.
 
 ```python
 from blaecktcpy import BlaeckHub
