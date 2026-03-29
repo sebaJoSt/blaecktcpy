@@ -7,6 +7,8 @@ only the dew point to Loggbok on port 23.
 
 This demonstrates ``relay=False``: the Arduino's raw signals are
 decoded hub-side for computation but hidden from Loggbok.
+The ``on_data_received`` callback recomputes the dew point only
+when fresh data arrives from the Arduino.
 
   ┌──────────────┐
   │ Arduino COM3 │   ← upstream (temperature, humidity) — not relayed
@@ -48,18 +50,12 @@ dew_point = hub.add_signal("dew_point", "float")
 # Set dtr=False for Arduino Mega to prevent reset on connect
 arduino = hub.add_serial("COM3", 9600, "Arduino", relay=False)
 
-# Start the hub (signal list is now frozen)
-hub.start()
 
-print("##LOGGBOK:READY##")
-
-while True:
-    # Access Arduino signals via the upstream handle
-    temp_val = arduino.signals["temperature"].value
-    rh_val = arduino.signals["humidity"].value
-
-    # Alternative access via hub subscript:
-    # temp_val = hub["Arduino"]["temperature"].value
+@hub.on_data_received("Arduino")
+def on_arduino_data(upstream):
+    """Recompute dew point when fresh data arrives."""
+    temp_val = upstream.signals["temperature"].value
+    rh_val = upstream.signals["humidity"].value
 
     if rh_val > 0:
         # Magnus formula for dew point
@@ -67,4 +63,11 @@ while True:
         alpha = (a * temp_val) / (b + temp_val) + math.log(rh_val / 100.0)
         dew_point.value = (b * alpha) / (a - alpha)
 
+
+# Start the hub (signal list is now frozen)
+hub.start()
+
+print("##LOGGBOK:READY##")
+
+while True:
     hub.tick()

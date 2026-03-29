@@ -138,6 +138,9 @@ class BlaeckHub:
         self._local_first_time: bool = True
 
         self._disconnect_callback = None
+        self._client_connect_callback = None
+        self._client_disconnect_callback = None
+        self._data_received_callbacks: list[tuple[str | None, object]] = []
 
     # ====================================================================
     # Setup — call before start()
@@ -391,6 +394,12 @@ class BlaeckHub:
 
         self._started = True
 
+        # Wire up server client callbacks
+        if self._client_connect_callback is not None:
+            self._server._connect_callback = self._client_connect_callback
+        if self._client_disconnect_callback is not None:
+            self._server._disconnect_callback = self._client_disconnect_callback
+
         # Activate upstreams with a fixed interval
         for upstream in self._upstreams:
             if upstream.interval_ms > 0:
@@ -542,6 +551,7 @@ class BlaeckHub:
                                 idx = upstream.index_map.get(sig_id)
                                 if idx is not None and idx < len(upstream._signals):
                                     upstream._signals[idx].value = value
+                            self._fire_data_received(upstream)
                             continue
 
                         for sig_id, value in decoded.signals.items():
@@ -578,6 +588,7 @@ class BlaeckHub:
                             + b"/BLAECK>\r\n"
                         )
                         self._server._tcp_send_data(data)
+                        self._fire_data_received(upstream)
                     except Exception as e:
                         logger.warning(
                             f"Upstream '{upstream.name}' frame dropped: {e}"
@@ -814,6 +825,72 @@ class BlaeckHub:
             return func
 
         return decorator
+
+    def on_client_connected(self):
+        """Decorator to register a callback when a downstream client connects.
+
+        Example::
+
+            @hub.on_client_connected()
+            def handle(client_id):
+                print(f"Client #{client_id} connected")
+        """
+
+        def decorator(func):
+            self._client_connect_callback = func
+            if self._server is not None:
+                self._server._connect_callback = func
+            return func
+
+        return decorator
+
+    def on_client_disconnected(self):
+        """Decorator to register a callback when a downstream client disconnects.
+
+        Example::
+
+            @hub.on_client_disconnected()
+            def handle(client_id):
+                print(f"Client #{client_id} disconnected")
+        """
+
+        def decorator(func):
+            self._client_disconnect_callback = func
+            if self._server is not None:
+                self._server._disconnect_callback = func
+            return func
+
+        return decorator
+
+    def on_data_received(self, upstream_name: str | None = None):
+        """Decorator to register a callback when upstream data arrives.
+
+        Args:
+            upstream_name: If provided, only fires for that upstream.
+                If None, fires for any upstream.
+
+        Example::
+
+            @hub.on_data_received("Arduino")
+            def handle(upstream):
+                temp = upstream.signals["temperature"].value
+
+            @hub.on_data_received()
+            def handle_all(upstream):
+                print(f"Data from {upstream.name}")
+        """
+
+        def decorator(func):
+            self._data_received_callbacks.append((upstream_name, func))
+            return func
+
+        return decorator
+
+    def _fire_data_received(self, upstream: _UpstreamDevice) -> None:
+        """Invoke all matching on_data_received callbacks."""
+        for name_filter, func in self._data_received_callbacks:
+            if name_filter is None or name_filter == upstream.name:
+                func(upstream)
 
     # ====================================================================
     # Status & properties
