@@ -81,6 +81,7 @@ class DecodedData:
     restart_flag: bool
     timestamp_mode: int
     timestamp: int | None
+    status_byte: int = 0
     signals: dict[int, float | int | bool] = field(default_factory=dict)
 
 
@@ -231,6 +232,7 @@ def _parse_data_d1(
 
     # Signal data ends before StatusByte(1) + CRC32(4)
     signal_data_end = len(data) - 5
+    status_byte = data[signal_data_end]
 
     signals = _unpack_signals(data, pos, signal_data_end, symbol_table)
 
@@ -239,6 +241,7 @@ def _parse_data_d1(
         restart_flag=restart_flag,
         timestamp_mode=timestamp_mode,
         timestamp=timestamp,
+        status_byte=status_byte,
         signals=signals,
     )
 
@@ -252,6 +255,7 @@ def _parse_data_b1(
     (no SymbolID prefix per value, unlike D1).
     """
     signal_data_end = len(data) - 5
+    status_byte = data[signal_data_end] if len(data) >= 5 else 0
     signals: dict[int, float | int | bool] = {}
     pos = 0
     for i, symbol in enumerate(symbol_table):
@@ -268,6 +272,7 @@ def _parse_data_b1(
         restart_flag=False,
         timestamp_mode=0,
         timestamp=None,
+        status_byte=status_byte,
         signals=signals,
     )
 

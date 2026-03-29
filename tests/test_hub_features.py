@@ -728,7 +728,12 @@ class TestMultiSlavePassThrough:
 class TestRestartFlagRelay:
     """Hub relays upstream RestartFlag to downstream."""
 
-    def _build_d1_frame(self, restart_flag: bool, signal_values: list[float]):
+    def _build_d1_frame(
+        self,
+        restart_flag: bool,
+        signal_values: list[float],
+        status: int = 0,
+    ):
         """Build a valid D1 data frame with CRC."""
         import struct
 
@@ -742,10 +747,9 @@ class TestRestartFlagRelay:
         for idx, val in enumerate(signal_values):
             payload += idx.to_bytes(2, "little") + struct.pack("<f", val)
 
-        status = b"\x00"
         crc_input = msg_key + b":" + msg_id + b":" + meta + payload
         crc = binascii.crc32(crc_input).to_bytes(4, "little")
-        return msg_key + b":" + msg_id + b":" + meta + payload + status + crc
+        return msg_key + b":" + msg_id + b":" + meta + payload + bytes([status]) + crc
 
     def test_upstream_restart_flag_sets_server_flag(self):
         """When upstream sends restart_flag=1, hub sets its own flag."""
@@ -809,3 +813,49 @@ class TestRestartFlagRelay:
             assert server._send_restart_flag is False
         finally:
             server.close()
+
+
+# ========================================================================
+# Status byte relay tests
+# ========================================================================
+
+
+class TestStatusByteRelay:
+    """Hub relays upstream status byte downstream."""
+
+    def _build_d1_frame(self, status: int, signal_values: list[float]):
+        """Build a valid D1 data frame with a specific status byte."""
+        import struct
+
+        msg_key = b"\xd1"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x00:"  # no restart, no timestamp
+
+        payload = b""
+        for idx, val in enumerate(signal_values):
+            payload += idx.to_bytes(2, "little") + struct.pack("<f", val)
+
+        crc_input = msg_key + b":" + msg_id + b":" + meta + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        return msg_key + b":" + msg_id + b":" + meta + payload + bytes([status]) + crc
+
+    def test_decoder_reads_status_byte_ok(self):
+        """D1 parser captures status_byte = 0 (OK)."""
+        frame = self._build_d1_frame(status=0x00, signal_values=[1.0])
+        symbol_table = [decoder.DecodedSymbol("sig", 8, "float", 4)]
+        decoded = decoder.parse_data(frame, symbol_table)
+        assert decoded.status_byte == 0x00
+
+    def test_decoder_reads_status_byte_i2c_crc_error(self):
+        """D1 parser captures status_byte = 1 (I2C CRC error)."""
+        frame = self._build_d1_frame(status=0x01, signal_values=[1.0])
+        symbol_table = [decoder.DecodedSymbol("sig", 8, "float", 4)]
+        decoded = decoder.parse_data(frame, symbol_table)
+        assert decoded.status_byte == 0x01
+
+    def test_decoder_reads_status_byte_upstream_lost(self):
+        """D1 parser captures status_byte = 2 (upstream lost)."""
+        frame = self._build_d1_frame(status=0x02, signal_values=[1.0])
+        symbol_table = [decoder.DecodedSymbol("sig", 8, "float", 4)]
+        decoded = decoder.parse_data(frame, symbol_table)
+        assert decoded.status_byte == 0x02

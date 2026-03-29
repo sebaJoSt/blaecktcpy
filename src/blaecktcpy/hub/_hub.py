@@ -628,6 +628,7 @@ class BlaeckHub:
                                 start=local_count,
                                 only_updated=True,
                                 timestamp=ts,
+                                status=decoded.status_byte,
                             )
                             + b"/BLAECK>\r\n"
                         )
