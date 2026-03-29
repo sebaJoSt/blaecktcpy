@@ -722,103 +722,177 @@ class TestMultiSlavePassThrough:
         assert upstream_a.slave_id_map == {(1, 0): 1, (2, 5): 2}
         assert upstream_b.slave_id_map == {(1, 0): 3}
 
-    def test_parent_remapping_hub_chain(self):
-        """Hub remaps parent field when relaying upstream device entries."""
-        # Simulate Hub_A receiving from Hub_B which has Arduino1
-        # Hub_B sent: SlaveID=0 Hub_B(parent=0), SlaveID=1 Arduino1(parent=0)
-        hub = BlaeckHub("127.0.0.1", 0, "Hub_A", "1.0", "1.0")
-        upstream = _UpstreamDevice(
-            name="Hub_B", transport=None, relay=True
-        )
-        upstream.symbol_table = [
-            decoder.DecodedSymbol("temp", 8, "float", 4, msc=1, slave_id=0),
-            decoder.DecodedSymbol("pressure", 8, "float", 4, msc=2, slave_id=1),
-        ]
-        upstream.device_infos = [
-            decoder.DecodedDeviceInfo(
-                msg_id=1, device_name="Hub_B", hw_version="1.0",
-                fw_version="1.0", lib_version="1.0", device_type="hub",
-                parent="0", msc=1, slave_id=0,
-            ),
-            decoder.DecodedDeviceInfo(
-                msg_id=1, device_name="Arduino1", hw_version="1.0",
-                fw_version="1.0", lib_version="1.0", device_type="server",
-                parent="0", msc=2, slave_id=1,
-            ),
-        ]
-        upstream.slave_id_map = {(1, 0): 1, (2, 1): 2}
-        hub._upstreams.append(upstream)
+    def _remap_parents(self, upstreams):
+        """Apply parent remapping logic across multiple upstreams.
 
-        # Build old_sid_to_new and verify parent remapping logic
-        old_sid_to_new: dict[int, int] = {}
-        for (msc, sid), hub_sid in upstream.slave_id_map.items():
-            old_sid_to_new[sid] = hub_sid
-
+        Each upstream is a tuple of (device_infos, slave_id_map).
+        Returns list of (device_name, hub_slave_id, parent_slave_id).
+        """
         results = []
-        first_entry = True
-        for info in upstream.device_infos:
-            key = (info.msc, info.slave_id)
-            hub_sid = upstream.slave_id_map.get(key)
-            if first_entry:
-                parent_sid = 0
-                first_entry = False
-            else:
-                orig_parent = int(info.parent) if info.parent else 0
-                parent_sid = old_sid_to_new.get(orig_parent, 0)
-            results.append((info.device_name, hub_sid, parent_sid))
+        for device_infos, slave_id_map in upstreams:
+            old_sid_to_new: dict[int, int] = {}
+            for (msc, sid), hub_sid in slave_id_map.items():
+                old_sid_to_new[sid] = hub_sid
+            first_entry = True
+            for info in device_infos:
+                key = (info.msc, info.slave_id)
+                hub_sid = slave_id_map.get(key)
+                if hub_sid is None:
+                    continue
+                if first_entry:
+                    parent_sid = 0
+                    first_entry = False
+                else:
+                    orig_parent = int(info.parent) if info.parent else 0
+                    parent_sid = old_sid_to_new.get(orig_parent, 0)
+                results.append((info.device_name, hub_sid, parent_sid))
+        return results
 
-        # Hub_B → slave 1, parent=0 (belongs to Hub_A master)
-        assert results[0] == ("Hub_B", 1, 0)
-        # Arduino1 → slave 2, parent=1 (belongs to Hub_B)
-        assert results[1] == ("Arduino1", 2, 1)
+    def _dev(self, name, dtype="server", parent="0", msc=2, sid=0):
+        """Shorthand for creating a DecodedDeviceInfo."""
+        return decoder.DecodedDeviceInfo(
+            msg_id=1, device_name=name, hw_version="1.0",
+            fw_version="1.0", lib_version="1.0", device_type=dtype,
+            parent=parent, msc=msc, slave_id=sid,
+        )
+
+    def test_parent_remapping_hub_chain(self):
+        """Case 3: Hub_A ← Hub_B ← Arduino1."""
+        infos = [
+            self._dev("Hub_B", "hub", "0", msc=1, sid=0),
+            self._dev("Arduino1", "server", "0", msc=2, sid=1),
+        ]
+        sid_map = {(1, 0): 1, (2, 1): 2}
+        results = self._remap_parents([(infos, sid_map)])
+        assert results == [("Hub_B", 1, 0), ("Arduino1", 2, 1)]
+
+    def test_parent_remapping_two_hubs(self):
+        """Case 4: Hub_A ← Hub_B(Arduino1), Hub_C(Arduino2)."""
+        hub_b = [
+            self._dev("Hub_B", "hub", "0", msc=1, sid=0),
+            self._dev("Arduino1", "server", "0", msc=2, sid=1),
+        ]
+        hub_c = [
+            self._dev("Hub_C", "hub", "0", msc=1, sid=0),
+            self._dev("Arduino2", "server", "0", msc=2, sid=1),
+        ]
+        results = self._remap_parents([
+            (hub_b, {(1, 0): 1, (2, 1): 2}),
+            (hub_c, {(1, 0): 3, (2, 1): 4}),
+        ])
+        assert results == [
+            ("Hub_B", 1, 0), ("Arduino1", 2, 1),
+            ("Hub_C", 3, 0), ("Arduino2", 4, 3),
+        ]
+
+    def test_parent_remapping_hub_plus_direct_server(self):
+        """Case 5: Hub_A ← Hub_B(Arduino1), ServerA — the original ambiguity."""
+        hub_b = [
+            self._dev("Hub_B", "hub", "0", msc=1, sid=0),
+            self._dev("Arduino1", "server", "0", msc=2, sid=1),
+        ]
+        server_a = [
+            self._dev("ServerA", "server", "0", msc=1, sid=0),
+        ]
+        results = self._remap_parents([
+            (hub_b, {(1, 0): 1, (2, 1): 2}),
+            (server_a, {(1, 0): 3}),
+        ])
+        assert results == [
+            ("Hub_B", 1, 0), ("Arduino1", 2, 1),
+            ("ServerA", 3, 0),  # belongs to Hub_A, NOT Hub_B
+        ]
 
     def test_parent_remapping_three_level_chain(self):
-        """Parent remapping through a 3-level hub chain."""
-        # Hub_A receives from Hub_B which relayed Hub_C + Arduino1
-        # Hub_B sent: SlaveID=0 Hub_B(parent=0), SlaveID=1 Hub_C(parent=0),
-        #             SlaveID=2 Arduino1(parent=1)
-        upstream = _UpstreamDevice(
-            name="Hub_B", transport=None, relay=True
-        )
-        upstream.device_infos = [
-            decoder.DecodedDeviceInfo(
-                msg_id=1, device_name="Hub_B", hw_version="1.0",
-                fw_version="1.0", lib_version="1.0", device_type="hub",
-                parent="0", msc=1, slave_id=0,
-            ),
-            decoder.DecodedDeviceInfo(
-                msg_id=1, device_name="Hub_C", hw_version="1.0",
-                fw_version="1.0", lib_version="1.0", device_type="hub",
-                parent="0", msc=2, slave_id=1,
-            ),
-            decoder.DecodedDeviceInfo(
-                msg_id=1, device_name="Arduino1", hw_version="1.0",
-                fw_version="1.0", lib_version="1.0", device_type="server",
-                parent="1", msc=2, slave_id=2,
-            ),
+        """Case 6: Hub_A ← Hub_B ← Hub_C ← Arduino1."""
+        infos = [
+            self._dev("Hub_B", "hub", "0", msc=1, sid=0),
+            self._dev("Hub_C", "hub", "0", msc=2, sid=1),
+            self._dev("Arduino1", "server", "1", msc=2, sid=2),
         ]
-        upstream.slave_id_map = {(1, 0): 1, (2, 1): 2, (2, 2): 3}
+        sid_map = {(1, 0): 1, (2, 1): 2, (2, 2): 3}
+        results = self._remap_parents([(infos, sid_map)])
+        assert results == [
+            ("Hub_B", 1, 0), ("Hub_C", 2, 1), ("Arduino1", 3, 2),
+        ]
 
-        old_sid_to_new: dict[int, int] = {}
-        for (msc, sid), hub_sid in upstream.slave_id_map.items():
-            old_sid_to_new[sid] = hub_sid
+    def test_parent_remapping_mixed_order(self):
+        """Case 7: Hub_A ← ServerA, Hub_B(Arduino1), ServerB."""
+        server_a = [self._dev("ServerA", "server", "0", msc=1, sid=0)]
+        hub_b = [
+            self._dev("Hub_B", "hub", "0", msc=1, sid=0),
+            self._dev("Arduino1", "server", "0", msc=2, sid=1),
+        ]
+        server_b = [self._dev("ServerB", "server", "0", msc=1, sid=0)]
+        results = self._remap_parents([
+            (server_a, {(1, 0): 1}),
+            (hub_b, {(1, 0): 2, (2, 1): 3}),
+            (server_b, {(1, 0): 4}),
+        ])
+        assert results == [
+            ("ServerA", 1, 0),
+            ("Hub_B", 2, 0), ("Arduino1", 3, 2),
+            ("ServerB", 4, 0),  # NOT under Hub_B
+        ]
 
-        results = []
-        first_entry = True
-        for info in upstream.device_infos:
-            key = (info.msc, info.slave_id)
-            hub_sid = upstream.slave_id_map.get(key)
-            if first_entry:
-                parent_sid = 0
-                first_entry = False
-            else:
-                orig_parent = int(info.parent) if info.parent else 0
-                parent_sid = old_sid_to_new.get(orig_parent, 0)
-            results.append((info.device_name, hub_sid, parent_sid))
+    def test_parent_remapping_i2c_slaves(self):
+        """Case 8: Hub_A ← BlaeckSerial(Master + Slave8 + Slave42)."""
+        # BlaeckSerial sends B3 — no parent field, defaults to "0"
+        infos = [
+            self._dev("Master", "server", "0", msc=1, sid=0),
+            self._dev("Slave8", "server", "0", msc=2, sid=8),
+            self._dev("Slave42", "server", "0", msc=2, sid=42),
+        ]
+        sid_map = {(1, 0): 1, (2, 8): 2, (2, 42): 3}
+        results = self._remap_parents([(infos, sid_map)])
+        assert results == [
+            ("Master", 1, 0),
+            ("Slave8", 2, 1),   # parent=1 (Master)
+            ("Slave42", 3, 1),  # parent=1 (Master)
+        ]
 
-        assert results[0] == ("Hub_B", 1, 0)   # belongs to Hub_A
-        assert results[1] == ("Hub_C", 2, 1)    # belongs to Hub_B
-        assert results[2] == ("Arduino1", 3, 2)  # belongs to Hub_C
+    def test_parent_remapping_i2c_through_hub_chain(self):
+        """Case 9: Hub_A ← Hub_B ← BlaeckSerial(Master + Slave8)."""
+        infos = [
+            self._dev("Hub_B", "hub", "0", msc=1, sid=0),
+            self._dev("BlaeckMaster", "server", "0", msc=2, sid=1),
+            self._dev("Slave8", "server", "1", msc=2, sid=2),
+        ]
+        sid_map = {(1, 0): 1, (2, 1): 2, (2, 2): 3}
+        results = self._remap_parents([(infos, sid_map)])
+        assert results == [
+            ("Hub_B", 1, 0),
+            ("BlaeckMaster", 2, 1),
+            ("Slave8", 3, 2),  # belongs to BlaeckMaster, not Hub_B
+        ]
+
+    def test_parent_remapping_complex(self):
+        """Case 10: Hub_A ← Hub_B(BlaeckSerial+Slave8), Hub_C(Ard1,Ard2), ServerD."""
+        hub_b = [
+            self._dev("Hub_B", "hub", "0", msc=1, sid=0),
+            self._dev("BlaeckMaster", "server", "0", msc=2, sid=1),
+            self._dev("Slave8", "server", "1", msc=2, sid=2),
+        ]
+        hub_c = [
+            self._dev("Hub_C", "hub", "0", msc=1, sid=0),
+            self._dev("Arduino1", "server", "0", msc=2, sid=1),
+            self._dev("Arduino2", "server", "0", msc=2, sid=2),
+        ]
+        server_d = [self._dev("ServerD", "server", "0", msc=1, sid=0)]
+        results = self._remap_parents([
+            (hub_b, {(1, 0): 1, (2, 1): 2, (2, 2): 3}),
+            (hub_c, {(1, 0): 4, (2, 1): 5, (2, 2): 6}),
+            (server_d, {(1, 0): 7}),
+        ])
+        assert results == [
+            ("Hub_B", 1, 0),
+            ("BlaeckMaster", 2, 1),
+            ("Slave8", 3, 2),
+            ("Hub_C", 4, 0),
+            ("Arduino1", 5, 4),
+            ("Arduino2", 6, 4),
+            ("ServerD", 7, 0),
+        ]
 
 
 # ========================================================================
