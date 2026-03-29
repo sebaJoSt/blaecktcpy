@@ -2,7 +2,7 @@
 
 Connects to multiple upstream BlaeckTCP(y)/BlaeckSerial devices,
 discovers their signals, decodes incoming data frames, and serves
-all signals as a single merged device to Loggbok via a BlaeckTCPy
+all signals as a single merged device to Loggbok via a BlaeckServer
 downstream server.
 
 Example::
@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 
 from .._signal import Signal
-from .._server import BlaeckTCPy, LIB_VERSION, LIB_NAME, STATUS_UPSTREAM_LOST
+from .._server import BlaeckServer, LIB_VERSION, LIB_NAME, STATUS_UPSTREAM_LOST
 from . import _decoder as decoder
 from ._upstream import UpstreamTCP, UpstreamSerial, _UpstreamBase
 
@@ -111,7 +111,7 @@ class BlaeckHub:
 
     Connects to upstream devices during setup, discovers their signals,
     then serves a merged signal list to downstream clients (e.g. Loggbok)
-    via an embedded BlaeckTCPy server.
+    via an embedded BlaeckServer server.
     """
 
     def __init__(
@@ -130,7 +130,7 @@ class BlaeckHub:
 
         self._upstreams: list[_UpstreamDevice] = []
         self._local_signals: list[Signal] = []
-        self._server: BlaeckTCPy | None = None
+        self._server: BlaeckServer | None = None
         self._started = False
 
         self._local_interval_ms: int = 0
@@ -362,7 +362,7 @@ class BlaeckHub:
         if self._started:
             raise RuntimeError("Already started")
 
-        self._server = BlaeckTCPy(
+        self._server = BlaeckServer(
             self._ip,
             self._port,
             self._device_name,
@@ -976,8 +976,8 @@ class BlaeckHub:
         return False
 
     @property
-    def server(self) -> BlaeckTCPy | None:
-        """The underlying BlaeckTCPy server instance (available after start)."""
+    def server(self) -> BlaeckServer | None:
+        """The underlying BlaeckServer server instance (available after start)."""
         return self._server
 
     def upstream_status(self, name: str | None = None) -> dict:

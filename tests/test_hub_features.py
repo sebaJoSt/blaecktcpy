@@ -1,4 +1,4 @@
-"""Tests for features added to BlaeckHub and BlaeckTCPy.
+"""Tests for features added to BlaeckHub and BlaeckServer.
 
 Covers:
 - STATUS_OK / STATUS_UPSTREAM_LOST in _build_data_msg
@@ -35,18 +35,18 @@ from blaecktcpy.hub import _decoder as decoder
 
 
 def _make_server_on_free_port():
-    """Create a BlaeckTCPy server on a random free port."""
+    """Create a BlaeckServer on a random free port."""
     import socket
     import random
 
-    from blaecktcpy import BlaeckTCPy
+    from blaecktcpy import BlaeckServer
 
     for _ in range(10):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind(("127.0.0.1", 0))
                 port = s.getsockname()[1]
-            server = BlaeckTCPy("127.0.0.1", port, "Test", "HW", "1.0")
+            server = BlaeckServer("127.0.0.1", port, "Test", "HW", "1.0")
             return server
         except OSError:
             continue

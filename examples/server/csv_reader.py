@@ -21,7 +21,7 @@ import os
 import sys
 import time
 
-from blaecktcpy import BlaeckTCPy
+from blaecktcpy import BlaeckServer
 
 CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else "test_data.csv"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 23
@@ -55,7 +55,7 @@ def main():
     print(f"CSV columns: {header}")
     print(f"Signals:     {signal_names}")
 
-    bltcp = BlaeckTCPy(
+    bltcp = BlaeckServer(
         "127.0.0.1", PORT, "CSV Tail Reader", "Python Script", EXAMPLE_VERSION
     )
 

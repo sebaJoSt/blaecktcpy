@@ -42,8 +42,8 @@ _DTYPE_INFO = {
     9: ("double", 8, "<d"),
 }
 
-# Maps upstream DTYPE codes to BlaeckTCPy-compatible datatype strings.
-# AVR int/uint (2 bytes) map to short/unsigned short since BlaeckTCPy
+# Maps upstream DTYPE codes to BlaeckServer-compatible datatype strings.
+# AVR int/uint (2 bytes) map to short/unsigned short since BlaeckServer
 # always treats int as 4 bytes (running on 32/64-bit Python).
 DTYPE_TO_SIGNAL_TYPE = {
     0: "bool",

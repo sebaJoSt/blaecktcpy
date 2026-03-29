@@ -10,12 +10,12 @@ Install the library from PyPI:
 pip install blaecktcpy
 ```
 
-### Create a BlaeckTCPy instance
+### Create a BlaeckServer instance
 
 ```python
-from blaecktcpy import BlaeckTCPy, Signal
+from blaecktcpy import BlaeckServer, Signal
 
-bltcp = BlaeckTCPy(
+bltcp = BlaeckServer(
     ip='127.0.0.1',
     port=23,
     device_name='My Device',

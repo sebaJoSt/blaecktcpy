@@ -34,9 +34,11 @@ if not logger.handlers:
 
 # -- Eager re-exports -------------------------------------------------------
 from ._signal import Signal  # noqa: E402
-from ._server import BlaeckTCPy, LIB_VERSION, LIB_NAME, STATUS_OK, STATUS_UPSTREAM_LOST  # noqa: E402
+from ._server import BlaeckServer, LIB_VERSION, LIB_NAME, STATUS_OK, STATUS_UPSTREAM_LOST  # noqa: E402
 
-__all__ = ["Signal", "BlaeckTCPy", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST", "BlaeckHub"]
+BlaeckTCPy = BlaeckServer  # backward-compatible alias
+
+__all__ = ["Signal", "BlaeckServer", "BlaeckTCPy", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST", "BlaeckHub"]
 
 
 # -- Lazy imports (avoid pulling in hub dependencies on simple usage) --------

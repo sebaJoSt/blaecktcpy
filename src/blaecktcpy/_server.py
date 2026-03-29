@@ -1,4 +1,4 @@
-"""BlaeckTCPy — BlaeckTCP Protocol Implementation (TCP Server Mode)."""
+"""BlaeckServer — BlaeckTCP Protocol Implementation (TCP Server Mode)."""
 
 import atexit
 import binascii
@@ -12,7 +12,7 @@ from typing import Union
 
 from ._signal import Signal
 
-__all__ = ["BlaeckTCPy"]
+__all__ = ["BlaeckServer"]
 
 from importlib.metadata import version as _pkg_version
 
@@ -29,7 +29,7 @@ STATUS_UPSTREAM_LOST = 0x02
 logger = logging.getLogger("blaecktcpy")
 
 
-class BlaeckTCPy:
+class BlaeckServer:
     """blaecktcpy — BlaeckTCP Protocol Implementation (TCP Server Mode)"""
 
     # Message type keys (pre-computed bytes for wire encoding)
@@ -46,7 +46,7 @@ class BlaeckTCPy:
         device_fw_version: str,
     ):
         """
-        Initialize BlaeckTCPy server.
+        Initialize BlaeckServer.
 
         Args:
             ip: IP address to bind to (e.g. '127.0.0.1' = localhost)

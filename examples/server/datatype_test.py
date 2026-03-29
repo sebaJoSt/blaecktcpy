@@ -1,11 +1,11 @@
-from blaecktcpy import BlaeckTCPy
+from blaecktcpy import BlaeckServer
 
 EXAMPLE_VERSION = "1.0"
 
 ip = "127.0.0.1"
 port = 23
 
-bltcp = BlaeckTCPy(ip, port, "Datatype Test", "Python Script", EXAMPLE_VERSION)
+bltcp = BlaeckServer(ip, port, "Datatype Test", "Python Script", EXAMPLE_VERSION)
 
 bltcp.add_signal("Bool_false", "bool", False)
 bltcp.add_signal("Bool_true", "bool", True)

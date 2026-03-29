@@ -1,7 +1,7 @@
 """
 BlaeckHub Example: Basic Hub
 
-Aggregates signals from two upstream BlaeckTCPy servers and one local
+Aggregates signals from two upstream BlaeckServer servers and one local
 signal, then serves everything as a single merged device on port 23.
 
   ┌──────────────┐   ┌──────────────┐

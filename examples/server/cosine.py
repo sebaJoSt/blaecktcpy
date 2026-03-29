@@ -2,11 +2,11 @@
 
 import math
 import time
-from blaecktcpy import BlaeckTCPy
+from blaecktcpy import BlaeckServer
 
 EXAMPLE_VERSION = "1.0"
 
-bltcp = BlaeckTCPy(
+bltcp = BlaeckServer(
     "127.0.0.1", 25, "Cosine Generator", "Python Script", EXAMPLE_VERSION
 )
 
