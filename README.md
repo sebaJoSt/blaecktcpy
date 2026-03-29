@@ -118,7 +118,7 @@ Messages use the following binary format:
 | `ClientDataEnabled` | String0 | `0` or `1`: client is allowed to receive data |
 | `ServerRestarted` | String0 | `0` or `1`: first response after a restart is `1` |
 | `DeviceType` | String0 | `server` for BlaeckServer, `hub` for BlaeckHub |
-| `RestartFlag` | byte | Always `0` in blaecktcpy (not implemented) |
+| `RestartFlag` | byte | `1` on the first data frame after startup, `0` otherwise |
 | `TimestampMode` | byte | Always `0` in blaecktcpy (timestamps not implemented) |
 | `Timestamp` | ulong | Timestamp value (only present if TimestampMode > 0); not sent by blaecktcpy |
 | `StatusByte` | byte | `0x00` = normal, `0x02` = upstream connection lost (hub only) |
