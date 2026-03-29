@@ -94,7 +94,7 @@ Messages use the following binary format:
 |------|--------|----------|-------------|
 | Symbol List | `B0` | **`<MSC><SlaveID><SymbolName><DTYPE>`** | **Up to n symbols.** Response to `<BLAECK.WRITE_SYMBOLS>` |
 | Data | `D1` | `<RestartFlag>:<TimestampMode><Timestamp>:`**`<SymbolID><DATA>`**`<StatusByte><CRC32>` | **Up to n data items.** Response to `<BLAECK.WRITE_DATA>` |
-| Data | `B1` | **`<SymbolID><DATA>`**`<StatusByte><CRC32>` | Deprecated (BlaeckTCP v4.0.1 or older) |
+| Data | `B1` | **`<SymbolID><DATA>`**`<StatusByte><CRC32>` | Deprecated; decoded from upstream only |
 | Devices | `B6` | `<MSC><SlaveID><DeviceName><DeviceHWVersion><DeviceFWVersion><LibraryVersion><LibraryName><Client#><ClientDataEnabled><ServerRestarted><DeviceType>` | **Up to n devices.** Response to `<BLAECK.GET_DEVICES>` |
 
 ### Elements
@@ -118,9 +118,9 @@ Messages use the following binary format:
 | `ClientDataEnabled` | String0 | `0` or `1`: client is allowed to receive data |
 | `ServerRestarted` | String0 | `0` or `1`: first response after a restart is `1` |
 | `DeviceType` | String0 | `server` for BlaeckServer, `hub` for BlaeckHub |
-| `RestartFlag` | byte | `1` if device restarted since last transmission, `0` otherwise |
-| `TimestampMode` | byte | `0` = no timestamp, `1` = microseconds, `2` = Unix time |
-| `Timestamp` | ulong | Timestamp value (only present if TimestampMode > 0), 4 bytes |
+| `RestartFlag` | byte | Always `0` in blaecktcpy (not implemented) |
+| `TimestampMode` | byte | Always `0` in blaecktcpy (timestamps not implemented) |
+| `Timestamp` | ulong | Timestamp value (only present if TimestampMode > 0); not sent by blaecktcpy |
 | `StatusByte` | byte | `0x00` = normal, `0x02` = upstream connection lost (hub only) |
 | `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |
 
