@@ -293,7 +293,7 @@ def _unpack_signals(
         size = symbol.datatype_size
         info = _DTYPE_INFO.get(symbol.datatype_code)
 
-        if info and pos + size <= len(data):
+        if info and pos + size <= end:
             _, _, fmt = info
             value = struct.unpack(fmt, data[pos : pos + size])[0]
             signals[symbol_id] = value
