@@ -859,3 +859,66 @@ class TestStatusByteRelay:
         symbol_table = [decoder.DecodedSymbol("sig", 8, "float", 4)]
         decoded = decoder.parse_data(frame, symbol_table)
         assert decoded.status_byte == 0x02
+
+    def test_status_byte_relay_end_to_end(self):
+        """Status byte flows: upstream D1 → hub _poll_upstreams → downstream frame."""
+        import socket
+        import struct
+
+        server = _make_server_on_free_port()
+        try:
+            # Register a signal on the server (hub relay target)
+            server.add_signal("temp", "float", 0.0)
+
+            # Build hub internals manually
+            hub = BlaeckHub.__new__(BlaeckHub)
+            hub._server = server
+            hub._upstreams = []
+            hub._local_signals = []
+            hub._callbacks = {"data_received": []}
+            hub._disconnect_callback = None
+
+            transport = FakeTransport("Arduino")
+            upstream = _UpstreamDevice(
+                name="Arduino", transport=transport, relay=True
+            )
+            upstream.symbol_table = [
+                decoder.DecodedSymbol("temp", 8, "float", 4),
+            ]
+            upstream.index_map = {0: 0}
+            upstream.interval_ms = 0
+            upstream.was_connected = True
+            hub._upstreams.append(upstream)
+
+            # Connect a downstream TCP client
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(2.0)
+            client.connect(("127.0.0.1", server._port))
+            server._accept_new_clients()  # accept the client
+
+            # Feed a D1 frame with status=0x01 (I2C CRC error)
+            frame_content = self._build_d1_frame(status=0x01, signal_values=[25.0])
+            wrapped = b"<BLAECK:" + frame_content + b"/BLAECK>\r\n"
+            transport._pending = wrapped
+            transport.read_available = lambda: transport._pending
+
+            # Run poll to process the frame and relay downstream
+            hub._poll_upstreams()
+            # Clear pending so next read_available returns empty
+            transport._pending = b""
+
+            # Read downstream frame from TCP client
+            downstream = client.recv(4096)
+            client.close()
+
+            # Parse the downstream frame — extract status byte at position [-5]
+            # Frame: <BLAECK:...content.../BLAECK>\r\n
+            start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
+            end = downstream.find(b"/BLAECK>")
+            content = downstream[start:end]
+            # Status byte is at content[-5] (before 4-byte CRC)
+            assert content[-5] == 0x01, (
+                f"Expected status byte 0x01 (I2C CRC error), got 0x{content[-5]:02x}"
+            )
+        finally:
+            server.close()
