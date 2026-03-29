@@ -69,6 +69,8 @@ class DecodedSymbol:
     datatype_code: int
     datatype_name: str
     datatype_size: int
+    msc: int = 0
+    slave_id: int = 0
 
 
 @dataclass
@@ -96,6 +98,8 @@ class DecodedDeviceInfo:
     data_enabled: str = ""
     server_restarted: str = ""
     device_type: str = ""
+    msc: int = 0
+    slave_id: int = 0
 
 
 def _parse_header(content: bytes) -> tuple[int, int, bytes]:
@@ -125,7 +129,9 @@ def parse_symbol_list(content: bytes) -> list[DecodedSymbol]:
     while pos < len(data):
         if pos + 2 > len(data):
             break
-        # MasterSlaveConfig (1 byte) + SlaveID (1 byte) — compatibility padding
+        # MasterSlaveConfig (1 byte) + SlaveID (1 byte)
+        msc = data[pos]
+        sid = data[pos + 1]
         pos += 2
 
         # Signal name: null-terminated string
@@ -154,6 +160,8 @@ def parse_symbol_list(content: bytes) -> list[DecodedSymbol]:
                 datatype_code=dtype_code,
                 datatype_name=dtype_name,
                 datatype_size=dtype_size,
+                msc=msc,
+                slave_id=sid,
             )
         )
 
@@ -289,20 +297,22 @@ def _unpack_signals(
     return signals
 
 
-def parse_devices(content: bytes) -> DecodedDeviceInfo:
-    """Parse a B2/B3 (BlaeckSerial) or B5/B6 (BlaeckTCP) devices frame.
+def parse_all_devices(content: bytes) -> list[DecodedDeviceInfo]:
+    """Parse all device entries from a B2/B3/B5/B6 devices frame.
+
+    Each entry contains MSC + SlaveID + device metadata fields.
+    A master/slave upstream may send multiple entries in one frame.
 
     Args:
         content: bytes between <BLAECK: and /BLAECK>
 
     Returns:
-        DecodedDeviceInfo with device metadata.
+        List of DecodedDeviceInfo, one per device entry.
     """
     msg_key, msg_id, data = _parse_header(content)
 
+    devices: list[DecodedDeviceInfo] = []
     pos = 0
-    # MasterSlaveConfig + SlaveID — compatibility padding
-    pos += 2
 
     def read_string() -> str:
         nonlocal pos
@@ -315,33 +325,63 @@ def parse_devices(content: bytes) -> DecodedDeviceInfo:
         pos = null_pos + 1
         return s
 
-    info = DecodedDeviceInfo(
-        msg_id=msg_id,
-        device_name=read_string(),
-        hw_version=read_string(),
-        fw_version=read_string(),
-        lib_version=read_string(),
-    )
+    while pos + 2 <= len(data):
+        msc = data[pos]
+        sid = data[pos + 1]
+        pos += 2
 
-    match msg_key:
-        case 0xB2:  # MSGKEY_DEVICES_LEGACY
-            pass
-        case 0xB3:  # MSGKEY_DEVICES_V1
-            info.lib_name = read_string()
-        case 0xB4:  # MSGKEY_DEVICES_V2
-            info.lib_name = read_string()
-            info.client_no = read_string()
-            info.data_enabled = read_string()
-        case 0xB5:  # MSGKEY_DEVICES_V4
-            info.lib_name = read_string()
-            info.client_no = read_string()
-            info.data_enabled = read_string()
-            info.server_restarted = read_string()
-        case 0xB6:  # MSGKEY_DEVICES
-            info.lib_name = read_string()
-            info.client_no = read_string()
-            info.data_enabled = read_string()
-            info.server_restarted = read_string()
-            info.device_type = read_string()
+        if pos >= len(data):
+            break
 
-    return info
+        info = DecodedDeviceInfo(
+            msg_id=msg_id,
+            device_name=read_string(),
+            hw_version=read_string(),
+            fw_version=read_string(),
+            lib_version=read_string(),
+            msc=msc,
+            slave_id=sid,
+        )
+
+        match msg_key:
+            case 0xB2:  # MSGKEY_DEVICES_LEGACY
+                pass
+            case 0xB3:  # MSGKEY_DEVICES_V1
+                info.lib_name = read_string()
+            case 0xB4:  # MSGKEY_DEVICES_V2
+                info.lib_name = read_string()
+                info.client_no = read_string()
+                info.data_enabled = read_string()
+            case 0xB5:  # MSGKEY_DEVICES_V4
+                info.lib_name = read_string()
+                info.client_no = read_string()
+                info.data_enabled = read_string()
+                info.server_restarted = read_string()
+            case 0xB6:  # MSGKEY_DEVICES
+                info.lib_name = read_string()
+                info.client_no = read_string()
+                info.data_enabled = read_string()
+                info.server_restarted = read_string()
+                info.device_type = read_string()
+
+        devices.append(info)
+
+    return devices
+
+
+def parse_devices(content: bytes) -> DecodedDeviceInfo:
+    """Parse first device entry from a devices frame.
+
+    For frames with multiple entries (master/slave), only the first is
+    returned.  Use :func:`parse_all_devices` to get all entries.
+
+    Args:
+        content: bytes between <BLAECK: and /BLAECK>
+
+    Returns:
+        DecodedDeviceInfo with device metadata.
+    """
+    devices = parse_all_devices(content)
+    if not devices:
+        raise ValueError("No device entries found in frame")
+    return devices[0]

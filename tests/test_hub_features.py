@@ -564,3 +564,157 @@ class TestB6DeviceType:
         info = decoder.parse_devices(content)
         assert info.device_type == ""
         assert info.server_restarted == "0"
+
+
+# ── Multi-slave pass-through ───────────────────────────────────────────
+
+
+class TestMultiSlavePassThrough:
+    """Decoder preserves MSC/SlaveID, hub renumbers for downstream."""
+
+    def test_parse_symbol_list_preserves_msc_and_slave_id(self):
+        """B0 symbols include msc and slave_id from the wire."""
+        msg_key = b"\xb0"
+        msg_id = (1).to_bytes(4, "little")
+        # Master signal (MSC=1, SlaveID=0)
+        payload = (
+            b"\x01\x00" + b"temp\0" + b"\x08"  # float
+            # Slave signal (MSC=2, SlaveID=8)
+            + b"\x02\x08" + b"pressure\0" + b"\x08"
+            # Slave signal (MSC=2, SlaveID=42)
+            + b"\x02\x2a" + b"humidity\0" + b"\x08"
+        )
+        content = msg_key + b":" + msg_id + b":" + payload
+        symbols = decoder.parse_symbol_list(content)
+        assert len(symbols) == 3
+        assert symbols[0].msc == 1 and symbols[0].slave_id == 0
+        assert symbols[1].msc == 2 and symbols[1].slave_id == 8
+        assert symbols[2].msc == 2 and symbols[2].slave_id == 42
+
+    def test_parse_all_devices_returns_multiple(self):
+        """B6 frame with master + slave returns both entries."""
+        msg_key = b"\xb6"
+        msg_id = (1).to_bytes(4, "little")
+        master = (
+            b"\x01\x00"  # MSC=master, SlaveID=0
+            + b"ArduinoMain\0"
+            + b"1.0\0" + b"2.0\0" + b"3.0\0"
+            + b"blaecktcpy\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0"
+        )
+        slave = (
+            b"\x02\x08"  # MSC=slave, SlaveID=8
+            + b"SensorBoard\0"
+            + b"1.1\0" + b"2.1\0" + b"3.1\0"
+            + b"blaeckserial\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0"
+        )
+        content = msg_key + b":" + msg_id + b":" + master + slave
+        devices = decoder.parse_all_devices(content)
+        assert len(devices) == 2
+        assert devices[0].device_name == "ArduinoMain"
+        assert devices[0].msc == 1 and devices[0].slave_id == 0
+        assert devices[1].device_name == "SensorBoard"
+        assert devices[1].msc == 2 and devices[1].slave_id == 8
+
+    def test_parse_all_devices_b3_multi_entry(self):
+        """B3 (BlaeckSerial) frame with master + slave."""
+        msg_key = b"\xb3"
+        msg_id = (1).to_bytes(4, "little")
+        master = (
+            b"\x01\x00"
+            + b"Master\0" + b"hw1\0" + b"fw1\0" + b"lib1\0" + b"blaeckserial\0"
+        )
+        slave = (
+            b"\x02\x09"
+            + b"Slave9\0" + b"hw2\0" + b"fw2\0" + b"lib2\0" + b"blaeckserial\0"
+        )
+        content = msg_key + b":" + msg_id + b":" + master + slave
+        devices = decoder.parse_all_devices(content)
+        assert len(devices) == 2
+        assert devices[0].device_name == "Master"
+        assert devices[0].msc == 1 and devices[0].slave_id == 0
+        assert devices[1].device_name == "Slave9"
+        assert devices[1].msc == 2 and devices[1].slave_id == 9
+        assert devices[1].lib_name == "blaeckserial"
+
+    def test_parse_devices_backward_compat(self):
+        """parse_devices() still returns first entry only."""
+        msg_key = b"\xb6"
+        msg_id = (1).to_bytes(4, "little")
+        master = (
+            b"\x01\x00" + b"First\0"
+            + b"1.0\0" + b"2.0\0" + b"3.0\0"
+            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"hub\0"
+        )
+        slave = (
+            b"\x02\x01" + b"Second\0"
+            + b"1.0\0" + b"2.0\0" + b"3.0\0"
+            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0"
+        )
+        content = msg_key + b":" + msg_id + b":" + master + slave
+        info = decoder.parse_devices(content)
+        assert info.device_name == "First"
+        assert info.device_type == "hub"
+
+    def test_slave_id_map_built_from_symbols(self):
+        """Hub builds slave_id_map from upstream symbol MSC/SlaveID."""
+        hub = BlaeckHub("127.0.0.1", 0, "TestHub", "1.0", "1.0")
+        upstream = _UpstreamDevice(
+            name="Arduino",
+            transport=None,
+            relay=True,
+        )
+        upstream.symbol_table = [
+            decoder.DecodedSymbol("temp", 8, "float", 4, msc=1, slave_id=0),
+            decoder.DecodedSymbol("pressure", 8, "float", 4, msc=2, slave_id=8),
+            decoder.DecodedSymbol("humidity", 8, "float", 4, msc=2, slave_id=42),
+        ]
+        hub._upstreams.append(upstream)
+
+        # Simulate start() slave_id_map building
+        hub_slave_idx = 0
+        seen: dict[tuple[int, int], int] = {}
+        for sym in upstream.symbol_table:
+            key = (sym.msc, sym.slave_id)
+            if key not in seen:
+                hub_slave_idx += 1
+                seen[key] = hub_slave_idx
+        upstream.slave_id_map = seen
+
+        assert upstream.slave_id_map == {
+            (1, 0): 1,   # master → slave 1
+            (2, 8): 2,   # I2C slave 8 → slave 2
+            (2, 42): 3,  # I2C slave 42 → slave 3
+        }
+
+    def test_slave_id_map_multiple_upstreams(self):
+        """Slave IDs are contiguous across multiple upstreams."""
+        hub = BlaeckHub("127.0.0.1", 0, "TestHub", "1.0", "1.0")
+
+        upstream_a = _UpstreamDevice(name="A", transport=None, relay=True)
+        upstream_a.symbol_table = [
+            decoder.DecodedSymbol("a1", 8, "float", 4, msc=1, slave_id=0),
+            decoder.DecodedSymbol("a2", 8, "float", 4, msc=2, slave_id=5),
+        ]
+
+        upstream_b = _UpstreamDevice(name="B", transport=None, relay=True)
+        upstream_b.symbol_table = [
+            decoder.DecodedSymbol("b1", 8, "float", 4, msc=1, slave_id=0),
+        ]
+
+        hub._upstreams.extend([upstream_a, upstream_b])
+
+        # Simulate start() logic
+        hub_slave_idx = 0
+        for up in hub._upstreams:
+            if not up.relay:
+                continue
+            seen: dict[tuple[int, int], int] = {}
+            for sym in up.symbol_table:
+                key = (sym.msc, sym.slave_id)
+                if key not in seen:
+                    hub_slave_idx += 1
+                    seen[key] = hub_slave_idx
+            up.slave_id_map = seen
+
+        assert upstream_a.slave_id_map == {(1, 0): 1, (2, 5): 2}
+        assert upstream_b.slave_id_map == {(1, 0): 3}

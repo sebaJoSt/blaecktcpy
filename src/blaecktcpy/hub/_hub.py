@@ -87,7 +87,8 @@ class _UpstreamDevice:
     transport: _UpstreamBase
     symbol_table: list[decoder.DecodedSymbol] = field(default_factory=list)
     index_map: dict[int, int] = field(default_factory=dict)
-    device_info: decoder.DecodedDeviceInfo | None = None
+    device_infos: list[decoder.DecodedDeviceInfo] = field(default_factory=list)
+    slave_id_map: dict[tuple[int, int], int] = field(default_factory=dict)
     interval_ms: int = 0
     was_connected: bool = True
     relay: bool = True
@@ -333,13 +334,13 @@ class BlaeckHub:
 
         if frame is not None:
             try:
-                upstream.device_info = decoder.parse_devices(frame)
+                upstream.device_infos = decoder.parse_all_devices(frame)
             except Exception as e:
                 logger.debug(f"Upstream '{label}' device info parse error: {e}")
 
         # Use upstream device name if no name was provided
-        if not name and upstream.device_info:
-            upstream.name = upstream.device_info.device_name
+        if not name and upstream.device_infos:
+            upstream.name = upstream.device_infos[0].device_name
 
         self._upstreams.append(upstream)
 
@@ -376,8 +377,24 @@ class BlaeckHub:
 
         # Register upstream signals and build index maps
         offset = len(self._local_signals)
+        hub_slave_idx = 0
         for upstream in self._upstreams:
             if upstream.relay:
+                # Build slave_id_map: (msc, slave_id) → hub slave_id
+                seen: dict[tuple[int, int], int] = {}
+                for sym in upstream.symbol_table:
+                    key = (sym.msc, sym.slave_id)
+                    if key not in seen:
+                        hub_slave_idx += 1
+                        seen[key] = hub_slave_idx
+                # Include device-only entries (devices with no symbols)
+                for info in upstream.device_infos:
+                    key = (info.msc, info.slave_id)
+                    if key not in seen:
+                        hub_slave_idx += 1
+                        seen[key] = hub_slave_idx
+                upstream.slave_id_map = seen
+
                 # Relayed: register on server so Loggbok sees them
                 for i, sym in enumerate(upstream.symbol_table):
                     sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
@@ -718,16 +735,19 @@ class BlaeckHub:
             )
 
         # Upstream (slave) signals — only relayed upstreams
-        slave_idx = 0
         for upstream in self._upstreams:
             if not upstream.relay:
                 continue
-            slave_idx += 1
-            slave_id = bytes([slave_idx])
             for sym in upstream.symbol_table:
+                key = (sym.msc, sym.slave_id)
+                hub_sid = upstream.slave_id_map[key]
                 dtype_code = sym.datatype_code.to_bytes(1, "little")
                 payload += (
-                    _MSC_SLAVE + slave_id + sym.name.encode() + b"\0" + dtype_code
+                    _MSC_SLAVE
+                    + bytes([hub_sid])
+                    + sym.name.encode()
+                    + b"\0"
+                    + dtype_code
                 )
 
         data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
@@ -737,14 +757,14 @@ class BlaeckHub:
             logger.debug(
                 f"  SlaveID=0 (local) name={sig.signal_name!r} dtype={sig.datatype}"
             )
-        slave_idx = 0
         for upstream in self._upstreams:
             if not upstream.relay:
                 continue
-            slave_idx += 1
             for sym in upstream.symbol_table:
+                key = (sym.msc, sym.slave_id)
+                hub_sid = upstream.slave_id_map[key]
                 logger.debug(
-                    f"  SlaveID={slave_idx} name={sym.name!r} dtype={sym.datatype_code}"
+                    f"  SlaveID={hub_sid} name={sym.name!r} dtype={sym.datatype_code}"
                 )
         self._server._tcp_send(data)
 
@@ -779,51 +799,51 @@ class BlaeckHub:
             )
 
             # Upstream devices as slaves — only relayed upstreams
-            slave_idx = 0
             for upstream in self._upstreams:
                 if not upstream.relay:
                     continue
-                info = upstream.device_info
-                if info is None:
-                    slave_idx += 1
-                    continue
-                slave_idx += 1
-                slave_id = bytes([slave_idx])
-                payload += (
-                    _MSC_SLAVE
-                    + slave_id
-                    + upstream.name.encode()
-                    + b"\0"
-                    + info.hw_version.encode()
-                    + b"\0"
-                    + info.fw_version.encode()
-                    + b"\0"
-                    + info.lib_version.encode()
-                    + b"\0"
-                    + info.lib_name.encode()
-                    + b"\0"
-                    + str(client_id).encode()
-                    + b"\0"
-                    + (b"1" if client_id in self._server.data_clients else b"0")
-                    + b"\0"
-                    + b"0\0"  # server_restarted
-                    + b"server\0"
-                )
+                for info in upstream.device_infos:
+                    key = (info.msc, info.slave_id)
+                    hub_sid = upstream.slave_id_map.get(key)
+                    if hub_sid is None:
+                        continue
+                    device_type = info.device_type or "server"
+                    payload += (
+                        _MSC_SLAVE
+                        + bytes([hub_sid])
+                        + info.device_name.encode()
+                        + b"\0"
+                        + info.hw_version.encode()
+                        + b"\0"
+                        + info.fw_version.encode()
+                        + b"\0"
+                        + info.lib_version.encode()
+                        + b"\0"
+                        + info.lib_name.encode()
+                        + b"\0"
+                        + str(client_id).encode()
+                        + b"\0"
+                        + (b"1" if client_id in self._server.data_clients else b"0")
+                        + b"\0"
+                        + b"0\0"  # server_restarted
+                        + device_type.encode()
+                        + b"\0"
+                    )
 
             data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
             logger.debug(f"WRITE_DEVICES frame ({len(data)} bytes): {data.hex(' ')}")
             # Human-readable device dump
             logger.debug(f"  Master: SlaveID=0 name={self._device_name!r}")
-            slave_idx = 0
             for upstream in self._upstreams:
                 if not upstream.relay:
                     continue
-                slave_idx += 1
-                info = upstream.device_info
-                if info is not None:
-                    logger.debug(
-                        f"  Slave:  SlaveID={slave_idx} name={upstream.name!r} hw={info.hw_version!r} fw={info.fw_version!r} lib={info.lib_version!r} lib_name={info.lib_name!r}"
-                    )
+                for info in upstream.device_infos:
+                    key = (info.msc, info.slave_id)
+                    hub_sid = upstream.slave_id_map.get(key)
+                    if hub_sid is not None:
+                        logger.debug(
+                            f"  Slave:  SlaveID={hub_sid} name={info.device_name!r} hw={info.hw_version!r} fw={info.fw_version!r} lib={info.lib_version!r} lib_name={info.lib_name!r}"
+                        )
             try:
                 conn.sendall(data)
             except OSError as e:
