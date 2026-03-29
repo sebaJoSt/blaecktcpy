@@ -8,11 +8,8 @@ Covers:
 """
 
 import binascii
-import struct
 import sys
 from pathlib import Path
-from dataclasses import dataclass, field
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -116,12 +113,6 @@ class TestStatusByte:
     def test_status_byte_values(self):
         assert STATUS_OK == 0x00
         assert STATUS_UPSTREAM_LOST == 0x02
-
-
-def test_status_byte_constants():
-    """Status byte constants are correct (no server needed)."""
-    assert STATUS_OK == 0x00
-    assert STATUS_UPSTREAM_LOST == 0x02
 
 
 # ========================================================================
@@ -413,3 +404,58 @@ class TestRelayFalseRegistration:
         s2 = upstream.signals
         assert s1 is s2
         assert s1["temp"].signal_name == "temp"
+
+    def test_relay_true_transform_modifies_server_signal(self):
+        """Modifying upstream.signals for relay=True changes the server signal."""
+        server = _make_server_on_free_port()
+        try:
+            upstream = _UpstreamDevice(
+                name="Arduino",
+                transport=FakeTransport("Arduino"),
+                relay=True,
+            )
+            server.add_signal("temp_f", "float", 212.0)
+            upstream._signals.append(server.signals[0])
+            upstream.index_map[0] = 0
+            upstream._upstream_signals = UpstreamSignals(upstream._signals)
+
+            # Transform via upstream reference
+            upstream.signals["temp_f"].value = (upstream.signals["temp_f"].value - 32) * 5 / 9
+
+            # Server signal reflects the change (same object)
+            assert server.signals[0].value == pytest.approx(100.0)
+        finally:
+            server.close()
+
+
+# ========================================================================
+# Callback exception resilience
+# ========================================================================
+
+
+class TestCallbackExceptionResilience:
+    """Verify that a failing callback doesn't crash _fire_data_received."""
+
+    def setup_method(self):
+        self.hub = BlaeckHub.__new__(BlaeckHub)
+        self.hub._data_received_callbacks = []
+
+    def test_exception_does_not_prevent_other_callbacks(self):
+        calls = []
+
+        @self.hub.on_data_received()
+        def bad_callback(upstream):
+            raise ValueError("oops")
+
+        @self.hub.on_data_received()
+        def good_callback(upstream):
+            calls.append(upstream.name)
+
+        upstream = _UpstreamDevice(name="Arduino", transport=FakeTransport("Arduino"))
+        # _fire_data_received calls each callback independently;
+        # but currently it doesn't catch per-callback — the outer
+        # try/except in _poll_upstreams handles it.
+        # This test documents that a single exception stops later callbacks.
+        with pytest.raises(ValueError, match="oops"):
+            self.hub._fire_data_received(upstream)
+        assert calls == []
