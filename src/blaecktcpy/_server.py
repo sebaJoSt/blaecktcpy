@@ -701,6 +701,7 @@ class BlaeckServer:
                 + (b"1" if self._server_restarted else b"0")
                 + b"\0"
                 + b"server\0"
+                + b"0\0"  # parent (SlaveID 0 = self)
             )
 
             data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"

@@ -801,18 +801,32 @@ class BlaeckHub:
                 + b"\0"
                 + b"0\0"  # server_restarted
                 + b"hub\0"
+                + b"0\0"  # parent (master references itself)
             )
 
             # Upstream devices as slaves — only relayed upstreams
             for upstream in self._upstreams:
                 if not upstream.relay:
                     continue
+                # Build old SlaveID → new hub SlaveID map for parent remapping
+                old_sid_to_new: dict[int, int] = {}
+                for (msc, sid), hub_sid in upstream.slave_id_map.items():
+                    old_sid_to_new[sid] = hub_sid
+                first_entry = True
                 for info in upstream.device_infos:
                     key = (info.msc, info.slave_id)
                     hub_sid = upstream.slave_id_map.get(key)
                     if hub_sid is None:
                         continue
                     device_type = info.device_type or "server"
+                    if first_entry:
+                        # First entry of each upstream belongs to hub master
+                        parent_sid = 0
+                        first_entry = False
+                    else:
+                        # Remap parent through old→new map
+                        orig_parent = int(info.parent) if info.parent else 0
+                        parent_sid = old_sid_to_new.get(orig_parent, 0)
                     payload += (
                         _MSC_SLAVE
                         + bytes([hub_sid])
@@ -832,6 +846,8 @@ class BlaeckHub:
                         + b"\0"
                         + b"0\0"  # server_restarted
                         + device_type.encode()
+                        + b"\0"
+                        + str(parent_sid).encode()
                         + b"\0"
                     )
 

@@ -516,12 +516,14 @@ class TestB6DeviceType:
             + b"1\0"
             + b"0\0"
             + b"server\0"
+            + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
         assert info.device_type == "server"
         assert info.device_name == "TestDevice"
         assert info.server_restarted == "0"
+        assert info.parent == "0"
 
     def test_parse_b6_hub_device_type(self):
         """B6 frame with device_type='hub'."""
@@ -539,6 +541,7 @@ class TestB6DeviceType:
             + b"1\0"
             + b"0\0"
             + b"hub\0"
+            + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
@@ -599,13 +602,13 @@ class TestMultiSlavePassThrough:
             b"\x01\x00"  # MSC=master, SlaveID=0
             + b"ArduinoMain\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"blaecktcpy\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0"
+            + b"blaecktcpy\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
         )
         slave = (
             b"\x02\x08"  # MSC=slave, SlaveID=8
             + b"SensorBoard\0"
             + b"1.1\0" + b"2.1\0" + b"3.1\0"
-            + b"blaeckserial\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0"
+            + b"blaeckserial\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + master + slave
         devices = decoder.parse_all_devices(content)
@@ -643,12 +646,12 @@ class TestMultiSlavePassThrough:
         master = (
             b"\x01\x00" + b"First\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"hub\0"
+            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"hub\0" + b"0\0"
         )
         slave = (
             b"\x02\x01" + b"Second\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0"
+            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + master + slave
         info = decoder.parse_devices(content)
@@ -718,6 +721,104 @@ class TestMultiSlavePassThrough:
 
         assert upstream_a.slave_id_map == {(1, 0): 1, (2, 5): 2}
         assert upstream_b.slave_id_map == {(1, 0): 3}
+
+    def test_parent_remapping_hub_chain(self):
+        """Hub remaps parent field when relaying upstream device entries."""
+        # Simulate Hub_A receiving from Hub_B which has Arduino1
+        # Hub_B sent: SlaveID=0 Hub_B(parent=0), SlaveID=1 Arduino1(parent=0)
+        hub = BlaeckHub("127.0.0.1", 0, "Hub_A", "1.0", "1.0")
+        upstream = _UpstreamDevice(
+            name="Hub_B", transport=None, relay=True
+        )
+        upstream.symbol_table = [
+            decoder.DecodedSymbol("temp", 8, "float", 4, msc=1, slave_id=0),
+            decoder.DecodedSymbol("pressure", 8, "float", 4, msc=2, slave_id=1),
+        ]
+        upstream.device_infos = [
+            decoder.DecodedDeviceInfo(
+                msg_id=1, device_name="Hub_B", hw_version="1.0",
+                fw_version="1.0", lib_version="1.0", device_type="hub",
+                parent="0", msc=1, slave_id=0,
+            ),
+            decoder.DecodedDeviceInfo(
+                msg_id=1, device_name="Arduino1", hw_version="1.0",
+                fw_version="1.0", lib_version="1.0", device_type="server",
+                parent="0", msc=2, slave_id=1,
+            ),
+        ]
+        upstream.slave_id_map = {(1, 0): 1, (2, 1): 2}
+        hub._upstreams.append(upstream)
+
+        # Build old_sid_to_new and verify parent remapping logic
+        old_sid_to_new: dict[int, int] = {}
+        for (msc, sid), hub_sid in upstream.slave_id_map.items():
+            old_sid_to_new[sid] = hub_sid
+
+        results = []
+        first_entry = True
+        for info in upstream.device_infos:
+            key = (info.msc, info.slave_id)
+            hub_sid = upstream.slave_id_map.get(key)
+            if first_entry:
+                parent_sid = 0
+                first_entry = False
+            else:
+                orig_parent = int(info.parent) if info.parent else 0
+                parent_sid = old_sid_to_new.get(orig_parent, 0)
+            results.append((info.device_name, hub_sid, parent_sid))
+
+        # Hub_B → slave 1, parent=0 (belongs to Hub_A master)
+        assert results[0] == ("Hub_B", 1, 0)
+        # Arduino1 → slave 2, parent=1 (belongs to Hub_B)
+        assert results[1] == ("Arduino1", 2, 1)
+
+    def test_parent_remapping_three_level_chain(self):
+        """Parent remapping through a 3-level hub chain."""
+        # Hub_A receives from Hub_B which relayed Hub_C + Arduino1
+        # Hub_B sent: SlaveID=0 Hub_B(parent=0), SlaveID=1 Hub_C(parent=0),
+        #             SlaveID=2 Arduino1(parent=1)
+        upstream = _UpstreamDevice(
+            name="Hub_B", transport=None, relay=True
+        )
+        upstream.device_infos = [
+            decoder.DecodedDeviceInfo(
+                msg_id=1, device_name="Hub_B", hw_version="1.0",
+                fw_version="1.0", lib_version="1.0", device_type="hub",
+                parent="0", msc=1, slave_id=0,
+            ),
+            decoder.DecodedDeviceInfo(
+                msg_id=1, device_name="Hub_C", hw_version="1.0",
+                fw_version="1.0", lib_version="1.0", device_type="hub",
+                parent="0", msc=2, slave_id=1,
+            ),
+            decoder.DecodedDeviceInfo(
+                msg_id=1, device_name="Arduino1", hw_version="1.0",
+                fw_version="1.0", lib_version="1.0", device_type="server",
+                parent="1", msc=2, slave_id=2,
+            ),
+        ]
+        upstream.slave_id_map = {(1, 0): 1, (2, 1): 2, (2, 2): 3}
+
+        old_sid_to_new: dict[int, int] = {}
+        for (msc, sid), hub_sid in upstream.slave_id_map.items():
+            old_sid_to_new[sid] = hub_sid
+
+        results = []
+        first_entry = True
+        for info in upstream.device_infos:
+            key = (info.msc, info.slave_id)
+            hub_sid = upstream.slave_id_map.get(key)
+            if first_entry:
+                parent_sid = 0
+                first_entry = False
+            else:
+                orig_parent = int(info.parent) if info.parent else 0
+                parent_sid = old_sid_to_new.get(orig_parent, 0)
+            results.append((info.device_name, hub_sid, parent_sid))
+
+        assert results[0] == ("Hub_B", 1, 0)   # belongs to Hub_A
+        assert results[1] == ("Hub_C", 2, 1)    # belongs to Hub_B
+        assert results[2] == ("Arduino1", 3, 2)  # belongs to Hub_C
 
 
 # ========================================================================
