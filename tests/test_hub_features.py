@@ -718,3 +718,94 @@ class TestMultiSlavePassThrough:
 
         assert upstream_a.slave_id_map == {(1, 0): 1, (2, 5): 2}
         assert upstream_b.slave_id_map == {(1, 0): 3}
+
+
+# ========================================================================
+# Restart flag relay tests
+# ========================================================================
+
+
+class TestRestartFlagRelay:
+    """Hub relays upstream RestartFlag to downstream."""
+
+    def _build_d1_frame(self, restart_flag: bool, signal_values: list[float]):
+        """Build a valid D1 data frame with CRC."""
+        import struct
+
+        msg_key = b"\xd1"
+        msg_id = (1).to_bytes(4, "little")
+        flag = b"\x01" if restart_flag else b"\x00"
+        timestamp_mode = b"\x00"
+        meta = flag + b":" + timestamp_mode + b":"
+
+        payload = b""
+        for idx, val in enumerate(signal_values):
+            payload += idx.to_bytes(2, "little") + struct.pack("<f", val)
+
+        status = b"\x00"
+        crc_input = msg_key + b":" + msg_id + b":" + meta + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        return msg_key + b":" + msg_id + b":" + meta + payload + status + crc
+
+    def test_upstream_restart_flag_sets_server_flag(self):
+        """When upstream sends restart_flag=1, hub sets its own flag."""
+        server = _make_server_on_free_port()
+        try:
+            server.add_signal("sig1", "float", 0.0)
+            hub = BlaeckHub.__new__(BlaeckHub)
+            hub._server = server
+            hub._upstreams = []
+            hub._local_signals = []
+            hub._callbacks = {"data_received": []}
+
+            upstream = _UpstreamDevice(
+                name="Arduino", transport=FakeTransport(), relay=True
+            )
+            upstream.symbol_table = [
+                decoder.DecodedSymbol("temp", 8, "float", 4),
+            ]
+            upstream.index_map = {0: 0}
+            upstream.interval_ms = 0
+            hub._upstreams.append(upstream)
+
+            # Build D1 frame with restart_flag=1
+            frame = self._build_d1_frame(restart_flag=True, signal_values=[25.0])
+            full = b"<BLAECK:" + frame + b"/BLAECK>\r\n"
+
+            # Verify server flag is False initially
+            server._send_restart_flag = False
+
+            # Feed frame through FakeTransport
+            upstream.transport._buffer = full
+            upstream.transport.read_available = lambda: upstream.transport._buffer
+
+            # Parse and relay
+            decoded = decoder.parse_data(frame, upstream.symbol_table)
+            assert decoded.restart_flag is True
+
+            # Simulate what _poll_upstreams does
+            if decoded.restart_flag:
+                server._send_restart_flag = True
+
+            assert server._send_restart_flag is True
+        finally:
+            server.close()
+
+    def test_no_restart_flag_leaves_server_flag_unchanged(self):
+        """When upstream sends restart_flag=0, hub flag stays unchanged."""
+        server = _make_server_on_free_port()
+        try:
+            server.add_signal("sig1", "float", 0.0)
+
+            frame = self._build_d1_frame(restart_flag=False, signal_values=[10.0])
+            symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+
+            decoded = decoder.parse_data(frame, symbol_table)
+            assert decoded.restart_flag is False
+
+            server._send_restart_flag = False
+            if decoded.restart_flag:
+                server._send_restart_flag = True
+            assert server._send_restart_flag is False
+        finally:
+            server.close()

@@ -576,6 +576,10 @@ class BlaeckHub:
                     try:
                         decoded = decoder.parse_data(frame, upstream.symbol_table)
 
+                        # Relay upstream restart flag downstream
+                        if decoded.restart_flag:
+                            self._server._send_restart_flag = True
+
                         if not upstream.relay:
                             # Non-relayed: update internal signals only
                             for sig_id, value in decoded.signals.items():
