@@ -1,5 +1,5 @@
 """BlaeckHub subpackage — multi-device signal aggregator."""
 
-from ._hub import BlaeckHub
+from ._hub import BlaeckHub, UpstreamSignals
 
-__all__ = ["BlaeckHub"]
+__all__ = ["BlaeckHub", "UpstreamSignals"]

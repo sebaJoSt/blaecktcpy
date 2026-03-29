@@ -3,14 +3,13 @@ BlaeckHub Example: Serial Upstream with Dew Point
 
 Connects to an Arduino running BlaeckSerial that reports temperature
 and humidity, then computes the dew point in Python and serves
-everything (Arduino signals + dew point) to Loggbok on port 23.
+only the dew point to Loggbok on port 23.
 
-This demonstrates why a hub is useful: the Arduino stays simple
-(just reads sensors), while the Python side adds derived signals
-without changing the firmware.
+This demonstrates ``relay=False``: the Arduino's raw signals are
+decoded hub-side for computation but hidden from Loggbok.
 
   ┌──────────────┐
-  │ Arduino COM3 │   ← upstream (temperature, humidity)
+  │ Arduino COM3 │   ← upstream (temperature, humidity) — not relayed
   └──────┬───────┘
          │
          ▼
@@ -21,7 +20,7 @@ without changing the firmware.
                   │
                   ▼
           ┌──────────────┐
-          │   Loggbok    │              ← downstream client
+          │   Loggbok    │              ← only sees dew_point
           └──────────────┘
 
 Setup:
@@ -45,9 +44,9 @@ hub = BlaeckHub("127.0.0.1", 23, "Weather Hub", "Python Script", EXAMPLE_VERSION
 # Local signal — computed from Arduino's temperature and humidity
 dew_point = hub.add_signal("dew_point", "float")
 
-# Connect to Arduino over serial
+# Connect to Arduino over serial (relay=False: Loggbok won't see raw signals)
 # Set dtr=False for Arduino Mega to prevent reset on connect
-hub.add_serial("COM3", 9600, "Arduino")
+arduino = hub.add_serial("COM3", 9600, "Arduino", relay=False)
 
 # Start the hub (signal list is now frozen)
 hub.start()
@@ -55,14 +54,12 @@ hub.start()
 print("##LOGGBOK:READY##")
 
 while True:
-    # After start(), hub.signals contains local signals first, then
-    # upstream signals in discovery order.  Adjust the indices to match
-    # the temperature and humidity signals from your Arduino sketch.
-    temp_idx = 1  # first upstream signal (temperature in °C)
-    rh_idx = 2  # second upstream signal (relative humidity in %)
+    # Access Arduino signals via the upstream handle
+    temp_val = arduino.signals["temperature"].value
+    rh_val = arduino.signals["humidity"].value
 
-    temp_val = hub.signals[temp_idx].value
-    rh_val = hub.signals[rh_idx].value
+    # Alternative access via hub subscript:
+    # temp_val = hub["Arduino"]["temperature"].value
 
     if rh_val > 0:
         # Magnus formula for dew point
