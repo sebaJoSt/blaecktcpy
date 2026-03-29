@@ -187,6 +187,8 @@ class TestCallbackRegistration:
         self.hub._client_connect_callback = None
         self.hub._client_disconnect_callback = None
         self.hub._data_received_callbacks = []
+        self.hub._command_handlers = {}
+        self.hub._command_catchall = None
 
     def test_on_upstream_disconnected_registers(self):
         @self.hub.on_upstream_disconnected()
@@ -241,6 +243,32 @@ class TestCallbackRegistration:
             pass
 
         assert len(self.hub._data_received_callbacks) == 3
+
+    def test_on_command_specific_registers(self):
+        @self.hub.on_command("SET_LED")
+        def handler(state):
+            pass
+
+        assert "SET_LED" in self.hub._command_handlers
+        assert self.hub._command_handlers["SET_LED"] is handler
+
+    def test_on_command_catchall_registers(self):
+        @self.hub.on_command()
+        def handler(command, *params):
+            pass
+
+        assert self.hub._command_catchall is handler
+
+    def test_on_command_multiple_specific(self):
+        @self.hub.on_command("SET_LED")
+        def h1(state):
+            pass
+
+        @self.hub.on_command("SET_MODE")
+        def h2(mode):
+            pass
+
+        assert len(self.hub._command_handlers) == 2
 
 
 class TestFireDataReceived:

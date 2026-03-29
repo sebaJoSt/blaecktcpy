@@ -143,6 +143,8 @@ class BlaeckHub:
         self._client_connect_callback = None
         self._client_disconnect_callback = None
         self._data_received_callbacks: list[tuple[str | None, object]] = []
+        self._command_handlers: dict[str, object] = {}
+        self._command_catchall = None
 
     # ====================================================================
     # Setup — call before start()
@@ -405,6 +407,12 @@ class BlaeckHub:
             self._server._connect_callback = self._client_connect_callback
         if self._client_disconnect_callback is not None:
             self._server._disconnect_callback = self._client_disconnect_callback
+
+        # Wire up command handlers
+        for cmd, handler in self._command_handlers.items():
+            self._server._command_handlers[cmd] = handler
+        if self._command_catchall is not None:
+            self._server._read_callback = self._command_catchall
 
         # Activate upstreams with a fixed interval
         for upstream in self._upstreams:
@@ -896,6 +904,36 @@ class BlaeckHub:
 
         def decorator(func):
             self._data_received_callbacks.append((upstream_name, func))
+            return func
+
+        return decorator
+
+    def on_command(self, command: str | None = None):
+        """Decorator to register a handler for commands from downstream clients.
+
+        With a command name, registers a handler for that specific command.
+        Without a command name, registers a catch-all for every message.
+
+        Example::
+
+            @hub.on_command("SET_MODE")
+            def handle_mode(mode):
+                print(f"Mode set to {mode}")
+
+            @hub.on_command()
+            def log_all(command, *params):
+                print(f"{command}: {params}")
+        """
+
+        def decorator(func):
+            if command is None:
+                self._command_catchall = func
+                if self._server is not None:
+                    self._server._read_callback = func
+            else:
+                self._command_handlers[command] = func
+                if self._server is not None:
+                    self._server._command_handlers[command] = func
             return func
 
         return decorator
