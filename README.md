@@ -56,10 +56,10 @@ Here's a full list of the commands handled by this library:
 
 `B1,B2,B3,B4` are four bytes encoding a little-endian integer. For `ACTIVATE` this is the interval in milliseconds. For the other commands it is the message ID echoed back in the response.
 
-Custom commands can be registered with the `@bltcp.on()` decorator:
+Custom commands can be registered with the `@bltcp.on_command()` decorator:
 
 ```python
-@bltcp.on("SET_LED")
+@bltcp.on_command("SET_LED")
 def handle_led(state):
     print(f"LED = {state}")
 ```
@@ -119,7 +119,7 @@ See the [examples](examples/) folder:
 | `sine.py` | Sine wave generator |
 | `cosine.py` | Cosine wave generator |
 | `datatype_test.py` | Tests all supported datatypes including edge cases |
-| `command_parser.py` | Custom command handling with `@bltcp.on()` |
+| `command_parser.py` | Custom command handling with `@bltcp.on_command()` |
 | `csv_reader.py` | Stream CSV file data as signals |
 | `csv_generator.py` | Generate test CSV data for `csv_reader.py` |
 
@@ -129,6 +129,7 @@ See the [examples](examples/) folder:
 |---|---|
 | `basic.py` | Aggregates two upstream servers and a local signal |
 | `computed_signal.py` | Serial upstream with a Python-computed dew point signal |
+| `transform.py` | In-place signal transform (°F → °C) via `on_data_received` |
 | `local_only.py` | Hub with only local signals (no upstreams) |
 
 ## License
