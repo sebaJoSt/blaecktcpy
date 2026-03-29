@@ -441,18 +441,18 @@ class BlaeckTCPy:
     # ========================================================================
     # Command Parser
     # ========================================================================
-    def on(self, command: str):
+    def on_command(self, command: str):
         """Decorator to register a handler for a specific command.
 
         Parameters from the message are unpacked as positional string arguments.
 
         Example::
 
-            @bltcp.on("SET_LED")
+            @bltcp.on_command("SET_LED")
             def handle_led(state):
                 print(f"LED = {state}")
 
-            @bltcp.on("MOTOR")
+            @bltcp.on_command("MOTOR")
             def handle_motor(speed, direction):
                 print(f"{direction} at {speed}")
         """
