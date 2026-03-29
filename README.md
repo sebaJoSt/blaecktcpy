@@ -81,7 +81,7 @@ def handle_led(state):
 
 ## Protocol
 
-Messages use the [BlaeckTCP binary protocol](https://github.com/sebaJoSt/BlaeckTCP#messages):
+Messages use the following binary format:
 
 ```
 |Header|--       Message        --||-- EOT  --|
