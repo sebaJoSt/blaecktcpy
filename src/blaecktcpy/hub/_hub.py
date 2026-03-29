@@ -569,7 +569,13 @@ class BlaeckHub:
                                 self._server.signals[hub_idx].updated = True
                         # Fire callback before relay so transforms can
                         # modify signal values before they go downstream
-                        self._fire_data_received(upstream)
+                        try:
+                            self._fire_data_received(upstream)
+                        except Exception as e:
+                            logger.warning(
+                                f"on_data_received callback error for "
+                                f"'{upstream.name}': {e}"
+                            )
                         # Forward upstream timestamp only with a single relayed device
                         relayed_count = sum(1 for u in self._upstreams if u.relay)
                         single = relayed_count == 1 and not self._local_signals
