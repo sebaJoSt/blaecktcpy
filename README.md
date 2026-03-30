@@ -156,13 +156,17 @@ hub.add_serial("COM3", 115200, name="Arduino")
 
 ### Upstream data rate
 
-By default (`interval_ms=0`), each upstream starts streaming when a downstream client (e.g. Loggbok) sends `BLAECK.ACTIVATE`. Set `interval_ms` to override this and start streaming at a fixed rate immediately on `hub.start()`:
+The hub sends `BLAECK.DEACTIVATE` to every upstream on connect (to ensure a clean state) and again on `close()`.
+
+By default (`interval_ms=0`), each upstream starts streaming when a downstream client (e.g. Loggbok) sends `BLAECK.ACTIVATE`. The hub forwards `ACTIVATE` and `DEACTIVATE` commands from the client to these upstreams.
+
+Set `interval_ms` to override this and start streaming at a fixed rate immediately on `hub.start()`. Client `ACTIVATE`/`DEACTIVATE` commands are **not** forwarded to hub-managed upstreams:
 
 ```python
-# Hub-managed: always stream at 500 ms, ignore client ACTIVATE
+# Hub-managed: always stream at 500 ms, ignore client ACTIVATE/DEACTIVATE
 hub.add_tcp("192.168.1.10", 24, name="ESP32", interval_ms=500)
 
-# Client-managed (default): wait for BLAECK.ACTIVATE from Loggbok
+# Client-managed (default): hub forwards ACTIVATE/DEACTIVATE from Loggbok
 hub.add_tcp("127.0.0.1", 25, name="Sine")
 ```
 

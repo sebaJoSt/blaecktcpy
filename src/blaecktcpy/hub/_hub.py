@@ -443,6 +443,8 @@ class BlaeckHub:
     def close(self) -> None:
         """Shut down all upstream connections and the downstream server."""
         for upstream in self._upstreams:
+            if upstream.transport.connected:
+                upstream.transport.send_command("BLAECK.DEACTIVATE")
             upstream.transport.close()
         if self._server:
             self._server.close()
