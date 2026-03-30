@@ -35,12 +35,15 @@ def on_activated(*params):
     print("Client started timed data transmission")
 
 
-# Exclude debug clients from receiving data — only first client gets BlaeckTCP data
+# Exclude the loopback terminal client from receiving data
 @bltcp.on_client_connected()
 def on_connect(client_id):
-    if client_id > 0:
+    global _loopback_id
+    if _loopback_id is None:
+        _loopback_id = client_id
         bltcp.data_clients.discard(client_id)
-        print(f"Client #{client_id} excluded from data (debug mode)")
+    else:
+        print(f"Client #{client_id} connected")
 
 
 # Catch-all — fires for every message (built-in and custom)
@@ -54,6 +57,9 @@ print("Send commands like: <SET_LED,1>  <MOTOR,255,forward>")
 
 # Terminal input — connects as a loopback TCP client so commands
 # go through the real protocol path (including commanding_client).
+_loopback_id = None
+
+
 def terminal_input():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((ip, bltcp._port))  # _port reflects auto-reassigned port
