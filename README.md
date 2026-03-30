@@ -180,12 +180,18 @@ hub.set_local_interval(500)  # local signals every 500 ms
 
 If not set, local signals follow the client's ACTIVATE interval.
 
-### Hiding upstream signals
+### Relaying upstream signals
 
-Use `relay_downstream=False` to decode upstream signals hub-side without exposing them to downstream clients:
+By default (`relay_downstream=True`), all upstream signals are relayed to downstream clients — they appear in the symbol list, device tree, and data frames as if they belong to the hub.
+
+Set `relay_downstream=False` to decode upstream signals hub-side without exposing them to downstream clients. This is useful when you want to read raw values, compute derived signals, and only expose those:
 
 ```python
+# Hidden: raw signals decoded hub-side but not visible to Loggbok
 arduino = hub.add_tcp("192.168.1.10", 24, name="Arduino", relay_downstream=False)
+
+# Expose a computed signal instead
+dew_point = hub.add_signal("DewPoint", "float")
 ```
 
 The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream to clients.
