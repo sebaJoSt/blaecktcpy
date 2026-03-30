@@ -474,15 +474,15 @@ class BlaeckServer:
     def on_client_connected(self):
         """Decorator to register a callback when a new client connects.
 
-        Receives the client number. By default all clients receive data.
-        Remove a client_no from data_clients to exclude it.
+        Receives the client ID. By default all clients receive data.
+        Remove a client_id from data_clients to exclude it.
 
         Example::
 
             @bltcp.on_client_connected()
-            def on_connect(client_no):
-                if client_no > 0:
-                    bltcp.data_clients.discard(client_no)
+            def on_connect(client_id):
+                if client_id > 0:
+                    bltcp.data_clients.discard(client_id)
         """
 
         def decorator(func):

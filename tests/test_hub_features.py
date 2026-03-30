@@ -1095,7 +1095,7 @@ class TestStatusByteRelay:
             ]
             upstream.index_map = {0: 0}
             upstream.interval_ms = 0
-            upstream.was_connected = True
+            upstream.connected = True
             hub._upstreams.append(upstream)
 
             # Connect a downstream TCP client
@@ -1129,4 +1129,304 @@ class TestStatusByteRelay:
                 f"Expected status byte 0x01 (I2C CRC error), got 0x{content[-5]:02x}"
             )
         finally:
+            server.close()
+
+
+# ========================================================================
+# Relay frame scoping tests
+# ========================================================================
+
+
+class TestRelayFrameScoping:
+    """Relay frames are scoped to the originating upstream's signals only."""
+
+    def _build_d1_frame(
+        self,
+        restart_flag: bool,
+        signal_values: list[float],
+        status: int = 0,
+    ):
+        """Build a valid D1 data frame with CRC."""
+        import struct
+
+        msg_key = b"\xd1"
+        msg_id = (1).to_bytes(4, "little")
+        flag = b"\x01" if restart_flag else b"\x00"
+        timestamp_mode = b"\x00"
+        meta = flag + b":" + timestamp_mode + b":"
+
+        payload = b""
+        for idx, val in enumerate(signal_values):
+            payload += idx.to_bytes(2, "little") + struct.pack("<f", val)
+
+        crc_input = msg_key + b":" + msg_id + b":" + meta + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        return msg_key + b":" + msg_id + b":" + meta + payload + bytes([status]) + crc
+
+    def _make_hub_with_two_upstreams(self):
+        """Create a hub with two fake upstreams (A: 2 signals, B: 2 signals)."""
+        import socket
+
+        server = _make_server_on_free_port()
+        # 4 upstream signals (A gets idx 0,1 — B gets idx 2,3)
+        server.add_signal("A_sig0", "float", 0.0)
+        server.add_signal("A_sig1", "float", 0.0)
+        server.add_signal("B_sig0", "float", 0.0)
+        server.add_signal("B_sig1", "float", 0.0)
+
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub._server = server
+        hub._upstreams = []
+        hub._local_signals = []
+        hub._callbacks = {"data_received": []}
+        hub._disconnect_callback = None
+        hub._data_received_callbacks = []
+
+        transport_a = FakeTransport("UpstreamA")
+        upstream_a = _UpstreamDevice(
+            name="UpstreamA", transport=transport_a, relay=True
+        )
+        upstream_a.symbol_table = [
+            decoder.DecodedSymbol("A_sig0", 8, "float", 4),
+            decoder.DecodedSymbol("A_sig1", 8, "float", 4),
+        ]
+        upstream_a.index_map = {0: 0, 1: 1}
+        upstream_a.interval_ms = 300
+        upstream_a.connected = True
+        hub._upstreams.append(upstream_a)
+
+        transport_b = FakeTransport("UpstreamB")
+        upstream_b = _UpstreamDevice(
+            name="UpstreamB", transport=transport_b, relay=True
+        )
+        upstream_b.symbol_table = [
+            decoder.DecodedSymbol("B_sig0", 8, "float", 4),
+            decoder.DecodedSymbol("B_sig1", 8, "float", 4),
+        ]
+        upstream_b.index_map = {0: 2, 1: 3}
+        upstream_b.interval_ms = 300
+        upstream_b.connected = True
+        hub._upstreams.append(upstream_b)
+
+        # Connect a downstream TCP client
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", server._port))
+        server._accept_new_clients()
+
+        return hub, server, client, upstream_a, upstream_b, transport_a, transport_b
+
+    def _parse_downstream_signal_ids(self, raw: bytes) -> list[int]:
+        """Extract signal index IDs from a downstream D1 frame."""
+        import struct
+
+        start = raw.find(b"<BLAECK:") + len(b"<BLAECK:")
+        end = raw.find(b"/BLAECK>")
+        content = raw[start:end]
+
+        # D1 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : signals... status(1) crc(4)
+        # Find the signal data after the last ":"
+        colon_positions = []
+        for i, b in enumerate(content):
+            if b == ord(":"):
+                colon_positions.append(i)
+        # Signal data starts after 4th colon, ends 5 bytes before end (status+crc)
+        sig_start = colon_positions[3] + 1
+        sig_end = len(content) - 5
+        sig_data = content[sig_start:sig_end]
+
+        ids = []
+        pos = 0
+        while pos < len(sig_data):
+            sig_id = int.from_bytes(sig_data[pos:pos + 2], "little")
+            ids.append(sig_id)
+            # skip id(2) + float(4)
+            pos += 6
+        return ids
+
+    def test_restart_flag_does_not_leak_across_upstreams(self):
+        """Upstream A restart_flag must not appear in upstream B's relay frame."""
+        hub, server, client, up_a, up_b, tr_a, tr_b = (
+            self._make_hub_with_two_upstreams()
+        )
+        try:
+            # Clear the server's initial restart flag
+            server._send_restart_flag = False
+
+            # Upstream A: restart_flag=True
+            frame_a = self._build_d1_frame(restart_flag=True, signal_values=[1.0, 2.0])
+            tr_a._pending = b"<BLAECK:" + frame_a + b"/BLAECK>\r\n"
+            tr_a.read_available = lambda: tr_a._pending
+
+            # Upstream B: restart_flag=False
+            frame_b = self._build_d1_frame(restart_flag=False, signal_values=[5.0, 6.0])
+            tr_b._pending = b"<BLAECK:" + frame_b + b"/BLAECK>\r\n"
+            tr_b.read_available = lambda: tr_b._pending
+
+            hub._poll_upstreams()
+
+            # Clear pending
+            tr_a._pending = b""
+            tr_b._pending = b""
+
+            # Read all downstream data
+            import time
+            time.sleep(0.05)
+            downstream = client.recv(8192)
+
+            # Should get two separate frames
+            frames = downstream.split(b"/BLAECK>\r\n")
+            frames = [f for f in frames if f]  # remove empty
+            assert len(frames) == 2, f"Expected 2 frames, got {len(frames)}"
+
+            # Frame 1 (upstream A): should have signal IDs 0,1 only
+            frame1_raw = frames[0] + b"/BLAECK>\r\n"
+            ids1 = self._parse_downstream_signal_ids(frame1_raw)
+            assert ids1 == [0, 1], f"Frame 1 should contain A's signals [0,1], got {ids1}"
+
+            # Frame 2 (upstream B): should have signal IDs 2,3 only
+            frame2_raw = frames[1] + b"/BLAECK>\r\n"
+            ids2 = self._parse_downstream_signal_ids(frame2_raw)
+            assert ids2 == [2, 3], f"Frame 2 should contain B's signals [2,3], got {ids2}"
+
+            # Check restart flag: frame 1 should have it, frame 2 should not
+            # D1 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : ...
+            # restart_flag byte is at colons[1]+1
+            content1_start = frame1_raw.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content1 = frame1_raw[content1_start:frame1_raw.find(b"/BLAECK>")]
+            colons1 = [i for i, b in enumerate(content1) if b == ord(":")]
+            assert content1[colons1[1] + 1] == 1, "Frame 1 should have restart_flag=1"
+
+            content2_start = frame2_raw.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content2 = frame2_raw[content2_start:frame2_raw.find(b"/BLAECK>")]
+            colons2 = [i for i, b in enumerate(content2) if b == ord(":")]
+            assert content2[colons2[1] + 1] == 0, "Frame 2 should have restart_flag=0"
+        finally:
+            client.close()
+            server.close()
+
+    def test_status_byte_does_not_leak_across_upstreams(self):
+        """Upstream A status=0x01 must not appear in upstream B's relay frame."""
+        hub, server, client, up_a, up_b, tr_a, tr_b = (
+            self._make_hub_with_two_upstreams()
+        )
+        try:
+            # Upstream A: status=0x01 (I2C CRC error)
+            frame_a = self._build_d1_frame(
+                restart_flag=False, signal_values=[1.0, 2.0], status=0x01
+            )
+            tr_a._pending = b"<BLAECK:" + frame_a + b"/BLAECK>\r\n"
+            tr_a.read_available = lambda: tr_a._pending
+
+            # Upstream B: status=0x00 (OK)
+            frame_b = self._build_d1_frame(
+                restart_flag=False, signal_values=[5.0, 6.0], status=0x00
+            )
+            tr_b._pending = b"<BLAECK:" + frame_b + b"/BLAECK>\r\n"
+            tr_b.read_available = lambda: tr_b._pending
+
+            hub._poll_upstreams()
+            tr_a._pending = b""
+            tr_b._pending = b""
+
+            import time
+            time.sleep(0.05)
+            downstream = client.recv(8192)
+
+            frames = downstream.split(b"/BLAECK>\r\n")
+            frames = [f for f in frames if f]
+            assert len(frames) == 2, f"Expected 2 frames, got {len(frames)}"
+
+            # Frame 1 (upstream A): status_byte should be 0x01
+            content1 = frames[0][frames[0].find(b"<BLAECK:") + 8:]
+            assert content1[-5] == 0x01, f"Frame 1 status should be 0x01, got 0x{content1[-5]:02x}"
+
+            # Frame 2 (upstream B): status_byte should be 0x00
+            content2 = frames[1][frames[1].find(b"<BLAECK:") + 8:]
+            assert content2[-5] == 0x00, f"Frame 2 status should be 0x00, got 0x{content2[-5]:02x}"
+        finally:
+            client.close()
+            server.close()
+
+    def test_upstream_lost_frame_scoped_to_upstream(self):
+        """STATUS_UPSTREAM_LOST frame only contains the disconnected upstream's signals."""
+        hub, server, client, up_a, up_b, tr_a, tr_b = (
+            self._make_hub_with_two_upstreams()
+        )
+        try:
+            # Mark upstream A's signals as updated (simulates _zero_upstream_signals)
+            server.signals[0].value = 0
+            server.signals[0].updated = True
+            server.signals[1].value = 0
+            server.signals[1].updated = True
+
+            # Also mark B's signals as updated (from normal data)
+            server.signals[2].value = 99.0
+            server.signals[2].updated = True
+            server.signals[3].value = 99.0
+            server.signals[3].updated = True
+
+            # Send upstream-lost for A only
+            hub._send_upstream_lost_frame(up_a)
+
+            import time
+            time.sleep(0.05)
+            downstream = client.recv(8192)
+
+            # Should be one frame with only A's signals
+            ids = self._parse_downstream_signal_ids(downstream)
+            assert ids == [0, 1], f"Lost frame should contain only A's signals [0,1], got {ids}"
+
+            # Status byte should be STATUS_UPSTREAM_LOST (0x02)
+            start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
+            end = downstream.find(b"/BLAECK>")
+            content = downstream[start:end]
+            assert content[-5] == 0x02, f"Status should be 0x02, got 0x{content[-5]:02x}"
+
+            # B's signals should still be updated (not consumed)
+            assert server.signals[2].updated is True
+            assert server.signals[3].updated is True
+        finally:
+            client.close()
+            server.close()
+
+    def test_upstream_lost_frame_sent_only_once(self):
+        """STATUS_UPSTREAM_LOST is sent once on disconnect, not on subsequent ticks."""
+        import time
+
+        hub, server, client, up_a, up_b, tr_a, tr_b = (
+            self._make_hub_with_two_upstreams()
+        )
+        try:
+            # Disconnect upstream A
+            tr_a.close()
+            up_a.connected = True  # simulate it was connected before
+
+            # First poll: should detect disconnect and send lost frame
+            hub._poll_upstreams()
+            time.sleep(0.05)
+            downstream1 = client.recv(8192)
+
+            assert b"/BLAECK>" in downstream1, "Expected a lost frame on first poll"
+            content = downstream1[downstream1.find(b"<BLAECK:") + 8:downstream1.find(b"/BLAECK>")]
+            assert content[-5] == 0x02, "First poll should send STATUS_UPSTREAM_LOST"
+
+            # connected should now be False
+            assert up_a.connected is False
+
+            # Second poll: should NOT send another lost frame
+            hub._poll_upstreams()
+            time.sleep(0.05)
+            client.setblocking(False)
+            try:
+                downstream2 = client.recv(8192)
+            except BlockingIOError:
+                downstream2 = b""
+            client.setblocking(True)
+
+            assert downstream2 == b"", (
+                f"Expected no data on second poll, got {len(downstream2)} bytes"
+            )
+        finally:
+            client.close()
             server.close()

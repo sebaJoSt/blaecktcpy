@@ -95,7 +95,7 @@ class DecodedDeviceInfo:
     fw_version: str
     lib_version: str
     lib_name: str = ""
-    client_no: str = ""
+    assigned_client_id: str = ""
     data_enabled: str = ""
     server_restarted: str = ""
     device_type: str = ""
@@ -356,16 +356,16 @@ def parse_all_devices(content: bytes) -> list[DecodedDeviceInfo]:
                 info.lib_name = read_string()
             case 0xB4:  # MSGKEY_DEVICES_V2
                 info.lib_name = read_string()
-                info.client_no = read_string()
+                info.assigned_client_id = read_string()
                 info.data_enabled = read_string()
             case 0xB5:  # MSGKEY_DEVICES_V4
                 info.lib_name = read_string()
-                info.client_no = read_string()
+                info.assigned_client_id = read_string()
                 info.data_enabled = read_string()
                 info.server_restarted = read_string()
             case 0xB6:  # MSGKEY_DEVICES
                 info.lib_name = read_string()
-                info.client_no = read_string()
+                info.assigned_client_id = read_string()
                 info.data_enabled = read_string()
                 info.server_restarted = read_string()
                 info.device_type = read_string()

@@ -90,7 +90,7 @@ class _UpstreamDevice:
     device_infos: list[decoder.DecodedDeviceInfo] = field(default_factory=list)
     slave_id_map: dict[tuple[int, int], int] = field(default_factory=dict)
     interval_ms: int = 0
-    was_connected: bool = True
+    connected: bool = True
     relay: bool = True
     _signals: list[Signal] = field(default_factory=list)
     _upstream_signals: UpstreamSignals | None = field(default=None, repr=False)
@@ -546,11 +546,9 @@ class BlaeckHub:
     def _poll_upstreams(self) -> None:
         """Read frames from all upstream devices, update signals, and relay immediately."""
         for upstream in self._upstreams:
-            was_connected = upstream.was_connected
-
             if not upstream.transport.connected:
-                if was_connected:
-                    upstream.was_connected = False
+                if upstream.connected:
+                    upstream.connected = False
                     self._zero_upstream_signals(upstream)
                     self._send_upstream_lost_frame(upstream)
                     if self._disconnect_callback is not None:
@@ -560,8 +558,8 @@ class BlaeckHub:
             frames = upstream.transport.read_frames()
 
             # Detect disconnect that happened during read
-            if was_connected and not upstream.transport.connected:
-                upstream.was_connected = False
+            if upstream.connected and not upstream.transport.connected:
+                upstream.connected = False
                 self._zero_upstream_signals(upstream)
                 self._send_upstream_lost_frame(upstream)
                 if self._disconnect_callback is not None:
@@ -613,8 +611,12 @@ class BlaeckHub:
                         msg_id = decoded.msg_id
                         if upstream.interval_ms > 0 and msg_id == _MSG_ID_ACTIVATE:
                             msg_id = _MSG_ID_HUB
-                        # Send only upstream signals (skip local range)
-                        local_count = len(self._local_signals)
+                        # Determine this upstream's signal index range
+                        hub_indices = sorted(upstream.index_map.values())
+                        if not hub_indices:
+                            continue
+                        start_idx = hub_indices[0]
+                        end_idx = hub_indices[-1]
                         header = (
                             self._server.MSG_DATA
                             + b":"
@@ -625,7 +627,8 @@ class BlaeckHub:
                             b"<BLAECK:"
                             + self._server._build_data_msg(
                                 header,
-                                start=local_count,
+                                start=start_idx,
+                                end=end_idx,
                                 only_updated=True,
                                 timestamp=ts,
                                 status=decoded.status_byte,
@@ -653,7 +656,11 @@ class BlaeckHub:
         """Send one data frame with STATUS_UPSTREAM_LOST for a disconnected upstream."""
         if not upstream.relay or not self._server.connected:
             return
-        local_count = len(self._local_signals)
+        hub_indices = sorted(upstream.index_map.values())
+        if not hub_indices:
+            return
+        start_idx = hub_indices[0]
+        end_idx = hub_indices[-1]
         header = (
             self._server.MSG_DATA
             + b":"
@@ -664,7 +671,8 @@ class BlaeckHub:
             b"<BLAECK:"
             + self._server._build_data_msg(
                 header,
-                start=local_count,
+                start=start_idx,
+                end=end_idx,
                 only_updated=True,
                 status=STATUS_UPSTREAM_LOST,
             )
@@ -799,7 +807,8 @@ class BlaeckHub:
                 + b"\0"
                 + (b"1" if client_id in self._server.data_clients else b"0")
                 + b"\0"
-                + b"0\0"  # server_restarted
+                + (b"1" if self._server._server_restarted else b"0")
+                + b"\0"  # server_restarted
                 + b"hub\0"
                 + b"0\0"  # parent (master references itself)
             )
@@ -844,7 +853,8 @@ class BlaeckHub:
                         + b"\0"
                         + (b"1" if client_id in self._server.data_clients else b"0")
                         + b"\0"
-                        + b"0\0"  # server_restarted
+                        + (info.server_restarted.encode() if info.server_restarted else b"0")
+                        + b"\0"  # server_restarted
                         + device_type.encode()
                         + b"\0"
                         + str(parent_sid).encode()
@@ -870,6 +880,8 @@ class BlaeckHub:
             except OSError as e:
                 logger.debug(f"Send error: {e}")
                 self._server._disconnect_client(conn)
+
+        self._server._server_restarted = False
 
     # ====================================================================
     # Callbacks

@@ -34,10 +34,10 @@ def on_activated(*params):
 
 # Exclude debug clients from receiving data — only first client gets BlaeckTCP data
 @bltcp.on_client_connected()
-def on_connect(client_no):
-    if client_no > 0:
-        bltcp.data_clients.discard(client_no)
-        print(f"Client #{client_no} excluded from data (debug mode)")
+def on_connect(client_id):
+    if client_id > 0:
+        bltcp.data_clients.discard(client_id)
+        print(f"Client #{client_id} excluded from data (debug mode)")
 
 
 # Catch-all — fires for every message (built-in and custom)
