@@ -1,5 +1,5 @@
 """
-BlaeckHub Example: on_data_received callback
+BlaeckHub Example: Signal Processing
 
 Demonstrates processing upstream data before it reaches Loggbok:
 - Transform a relayed signal in-place (Fahrenheit to Celsius)
@@ -22,7 +22,7 @@ Demonstrates processing upstream data before it reaches Loggbok:
               │   Loggbok    │   ← sees temp_f (°C), humidity, dew_point
               └──────────────┘
 
-Setup:  python examples/hub/on_data_received.py
+Setup:  python examples/hub/signal_processing.py
 Then:   Connect Loggbok to 127.0.0.1:10023
 """
 
