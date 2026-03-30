@@ -62,7 +62,7 @@ sawtooth = hub.add_signal("Sawtooth_1", "float")
 hub.set_local_interval(500)
 
 # Connect to upstream servers
-hub.add_tcp("127.0.0.1", 10024, interval_ms=300)
+hub.add_tcp("127.0.0.1", 10024, "Sine", interval_ms=300)
 hub.add_tcp("127.0.0.1", 10025, "Cosine", interval_ms=300)
 
 hub.start()

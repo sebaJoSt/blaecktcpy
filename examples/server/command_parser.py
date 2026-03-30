@@ -1,3 +1,5 @@
+"""Command Parser — custom command handling with @bltcp.on_command()."""
+
 from blaecktcpy import BlaeckServer
 
 EXAMPLE_VERSION = "1.0"

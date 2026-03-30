@@ -1,3 +1,5 @@
+"""Datatype Test — exercises all supported BlaeckTCP datatypes."""
+
 from blaecktcpy import BlaeckServer
 
 EXAMPLE_VERSION = "1.0"

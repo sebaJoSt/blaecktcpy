@@ -27,7 +27,7 @@ voltage and current (polled via SCPI) combined through a single connection.
 
 Setup:
   1. Adjust IPs, ports, and SCPI commands for your hardware
-  2. Run:  python examples/hub/stress_board.py
+  2. Run:  python examples/hub/mixed_sources.py
   3. Connect Loggbok to 127.0.0.1:23
 """
 

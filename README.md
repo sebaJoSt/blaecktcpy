@@ -238,7 +238,6 @@ See the [examples](examples/) folder:
 | `command_parser.py` | Custom command handling with `@bltcp.on_command()` |
 | `csv_reader.py` | Stream CSV file data as signals |
 | `csv_generator.py` | Generate test CSV data for `csv_reader.py` |
-| `fake_blaeckserial.py` | TCP server emulating BlaeckSerial master + 2 I2C slaves |
 
 ### Hub
 
@@ -247,13 +246,6 @@ See the [examples](examples/) folder:
 | `basic.py` | Aggregates two upstream servers and a local signal |
 | `signal_processing.py` | Transform and compute signals via `on_data_received` |
 | `mixed_sources.py` | BlaeckTCP microcontroller + SCPI power supply |
-| `treeview_test.py` | Diagnostic: device tree test with embedded servers |
-
-### Arduino
-
-| Example | Description |
-|---|---|
-| `FakeMasterWithSlaves/` | Emulates BlaeckSerial master + 2 I2C slaves using raw protocol |
 
 ## License
 
