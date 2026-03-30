@@ -246,10 +246,9 @@ See the [examples](examples/) folder:
 | Example | Description |
 |---|---|
 | `basic.py` | Aggregates two upstream servers and a local signal |
-| `computed_signal.py` | Serial upstream with a Python-computed dew point signal |
-| `transform.py` | In-place signal transform (°F → °C) via `on_data_received` |
-| `local_only.py` | Hub with only local signals (no upstreams) |
-| `treeview_test.py` | B6 device tree test with forced upstream disconnect |
+| `signal_processing.py` | Transform and compute signals via `on_data_received` |
+| `mixed_sources.py` | BlaeckTCP microcontroller + SCPI power supply |
+| `treeview_test.py` | Diagnostic: device tree test with embedded servers |
 
 ### Arduino
 
