@@ -220,7 +220,7 @@ See the [examples](examples/) folder:
 
 | Example | Description |
 |---|---|
-| `FakeMasterWithSlaves/` | Single-board sketch emulating BlaeckSerial master + 2 I2C slaves (raw protocol, no BlaeckSerial library) |
+| `FakeMasterWithSlaves/` | Emulates BlaeckSerial master + 2 I2C slaves using raw protocol |
 
 ## License
 
