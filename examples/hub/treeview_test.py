@@ -95,4 +95,4 @@ while True:
         upstream = hub._upstreams[0]
         upstream.transport.close()
         disconnected = True
-        print(f"Forced disconnect: {upstream.name}")
+        print(f"Forced disconnect: {upstream.device_name}")
