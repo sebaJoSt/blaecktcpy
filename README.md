@@ -233,8 +233,7 @@ See the [examples](examples/) folder:
 
 | Example | Description |
 |---|---|
-| `sine.py` | Sine wave generator |
-| `cosine.py` | Cosine wave generator |
+| `sine.py` | Sine and cosine wave generators (two servers) |
 | `datatype_test.py` | Tests all supported datatypes including edge cases |
 | `command_parser.py` | Custom command handling with `@bltcp.on_command()` |
 | `csv_reader.py` | Stream CSV file data as signals |
