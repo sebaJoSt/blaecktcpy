@@ -1,4 +1,4 @@
-"""Sine Generator — serves sine signals on port 24."""
+"""Sine Generator — serves sine signals on port 23."""
 
 import math
 import time
