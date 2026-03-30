@@ -1,5 +1,5 @@
 """
-TreeView Test — hub with two servers for testing B6 Parent field.
+Diagnostic: TreeView & upstream disconnect test.
 
 Runs two BlaeckServers and a BlaeckHub in one script.
 Connect Loggbok to 127.0.0.1:10023 to see the device tree:
