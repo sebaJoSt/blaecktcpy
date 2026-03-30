@@ -11,7 +11,7 @@ signal, then serves everything as a single merged device.
          ▼                  ▼
   ┌─────────────────────────────────┐
   │       BlaeckHub :10023          │
-  │  Tangent_1 (local signal)       │
+  │  Sawtooth_1 (local signal)      │
   └───────────────┬─────────────────┘
                   │
                   ▼
@@ -58,7 +58,7 @@ time.sleep(0.2)
 hub = BlaeckHub("127.0.0.1", 10023, "Basic Hub", "Python Script", EXAMPLE_VERSION)
 
 # Local signal
-tangent = hub.add_signal("Tangent_1", "float")
+sawtooth = hub.add_signal("Sawtooth_1", "float")
 hub.set_local_interval(500)
 
 # Connect to upstream servers
@@ -71,5 +71,5 @@ print("##LOGGBOK:READY##")
 start_time = time.time()
 while True:
     elapsed_ms = (time.time() - start_time) * 1000
-    tangent.value = math.tan(elapsed_ms * 0.0005)
+    sawtooth.value = (elapsed_ms % 5000) / 5000.0  # 0..1 over 5 seconds
     hub.tick()
