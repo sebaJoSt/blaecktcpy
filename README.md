@@ -172,7 +172,7 @@ hub.add_tcp("127.0.0.1", 25, name="Sine")
 
 ### Local signal interval
 
-Use `set_local_interval()` to stream local signals at a fixed rate, independent of the upstream data rate:
+Use `set_local_interval()` to stream local signals at a fixed rate:
 
 ```python
 hub.set_local_interval(500)  # local signals every 500 ms
