@@ -10,7 +10,7 @@ signal, then serves everything as a single merged device.
          │                  │
          ▼                  ▼
   ┌─────────────────────────────────┐
-  │       BlaeckHub :10023          │
+  │       BlaeckHub :23             │
   │  Sawtooth_1 (local signal)      │
   └───────────────┬─────────────────┘
                   │
@@ -20,7 +20,7 @@ signal, then serves everything as a single merged device.
           └──────────────┘
 
 Setup:  python examples/hub/basic.py
-Then:   Connect Loggbok to 127.0.0.1:10023
+Then:   Connect Loggbok to 127.0.0.1:23
 """
 
 import math
@@ -55,7 +55,7 @@ threading.Thread(target=run_server, args=(cosine, lambda t: math.cos(t * 0.0005)
 time.sleep(0.2)
 
 # --- Hub ---
-hub = BlaeckHub("127.0.0.1", 10023, "Basic Hub", "Python Script", EXAMPLE_VERSION)
+hub = BlaeckHub("127.0.0.1", 23, "Basic Hub", "Python Script", EXAMPLE_VERSION)
 
 # Local signal
 sawtooth = hub.add_signal("Sawtooth_1", "float")

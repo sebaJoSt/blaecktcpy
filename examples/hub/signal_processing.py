@@ -11,7 +11,7 @@ Demonstrates processing upstream data before it reaches Loggbok:
             │
             ▼
   ┌─────────────────────────────────────────┐
-  │            BlaeckHub :10023             │
+  │            BlaeckHub :23                 │
   │  temp_f → transformed to Celsius       │
   │  humidity → relayed as-is              │
   │  dew_point → computed locally          │
@@ -23,7 +23,7 @@ Demonstrates processing upstream data before it reaches Loggbok:
               └──────────────┘
 
 Setup:  python examples/hub/signal_processing.py
-Then:   Connect Loggbok to 127.0.0.1:10023
+Then:   Connect Loggbok to 127.0.0.1:23
 """
 
 import math
@@ -53,7 +53,7 @@ threading.Thread(target=run_server, daemon=True).start()
 time.sleep(0.2)
 
 # --- Hub ---
-hub = BlaeckHub("127.0.0.1", 10023, "Sensor Hub", "Python Script", EXAMPLE_VERSION)
+hub = BlaeckHub("127.0.0.1", 23, "Sensor Hub", "Python Script", EXAMPLE_VERSION)
 
 # Computed local signal
 dew_point = hub.add_signal("dew_point", "float")
