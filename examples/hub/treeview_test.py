@@ -1,5 +1,5 @@
 """
-Diagnostic: TreeView & upstream disconnect test.
+Diagnostic: TreeView test.
 
 Runs two BlaeckServers and a BlaeckHub in one script.
 Connect Loggbok to 127.0.0.1:10023 to see the device tree:
@@ -8,10 +8,6 @@ Connect Loggbok to 127.0.0.1:10023 to see the device tree:
   ├─ DewPoint, RoomTemp, CO2Level (local signals on master)
   ├─ Sine Generator (server)
   └─ Cosine Generator (server)
-
-20 seconds after a downstream client sends BLAECK.ACTIVATE, the first
-upstream (Sine Generator) is forcefully disconnected to test StatusByte=2
-(upstream connection lost).
 
 Setup:  python examples/hub/treeview_test.py
 Then:   Connect Loggbok to 127.0.0.1:10023
@@ -68,14 +64,10 @@ co2_level = hub.add_signal("CO2Level", "unsigned short")
 hub.set_local_interval(500)
 hub.add_tcp("127.0.0.1", 10024, interval_ms=300)
 hub.add_tcp("127.0.0.1", 10025, interval_ms=300)
-hub.add_serial("COM24", 115200, interval_ms=300)
 hub.start()
 
 print("TreeView Test running — connect Loggbok to 127.0.0.1:10023")
 print("##LOGGBOK:READY##")
-
-disconnect_at = None
-disconnected = False
 
 start = time.time()
 while True:
@@ -84,15 +76,3 @@ while True:
     room_temp.value = 21.5 + math.sin(t * 0.0005) * 2.0
     co2_level.value = int(400 + math.sin(t * 0.0002) * 100)
     hub.tick()
-
-    # Schedule disconnect 20s after a downstream client connects
-    if disconnect_at is None and hub._server.connected:
-        disconnect_at = time.time() + 20
-        print("Client connected — will disconnect Sine Generator in 20s")
-
-    # Force-disconnect the first upstream (Sine Generator)
-    if disconnect_at and not disconnected and time.time() >= disconnect_at:
-        upstream = hub._upstreams[0]
-        upstream.transport.close()
-        disconnected = True
-        print(f"Forced disconnect: {upstream.device_name}")
