@@ -182,7 +182,7 @@ If not set, local signals follow the client's ACTIVATE interval.
 
 ### Relaying upstream signals
 
-By default (`relay_downstream=True`), all upstream signals are relayed to downstream clients — they appear in the symbol list, device tree, and data frames as if they belong to the hub.
+By default (`relay_downstream=True`), all upstream signals are relayed to downstream clients — they appear in the symbol list, device tree, and data frames sent by the hub.
 
 Set `relay_downstream=False` to decode upstream signals hub-side without exposing them to downstream clients. This is useful when you want to read raw values, compute derived signals, and only expose those:
 
