@@ -1,3 +1,6 @@
+import socket
+import threading
+
 from blaecktcpy import BlaeckServer
 
 EXAMPLE_VERSION = "1.0"
@@ -48,6 +51,19 @@ def log_all(command, *params):
 
 print("##LOGGBOK:READY##")
 print("Send commands like: <SET_LED,1>  <MOTOR,255,forward>")
+
+# Terminal input — connects as a loopback TCP client so commands
+# go through the real protocol path (including commanding_client).
+def terminal_input():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((ip, bltcp._port))  # _port reflects auto-reassigned port
+    while True:
+        line = input("> ")
+        if line:
+            sock.sendall(line.encode())
+
+
+threading.Thread(target=terminal_input, daemon=True).start()
 
 while True:
     bltcp.tick()
