@@ -23,7 +23,7 @@ local signals alongside the microcontroller's own signals.
               └──────────────┘
 
 Loggbok sees the stress board signals (relayed) plus PSU
-voltage and current (polled via SCPI) in one unified view.
+voltage and current (polled via SCPI) through a single connection.
 
 Setup:
   1. Adjust IPs, ports, and SCPI commands for your hardware
