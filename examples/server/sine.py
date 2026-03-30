@@ -1,22 +1,33 @@
-"""Sine Generator — serves sine signals on port 24."""
+"""Sine & Cosine Generator — serves sine on port 24 and cosine on port 25."""
 
 import math
 import time
+import threading
+
 from blaecktcpy import BlaeckServer
 
 EXAMPLE_VERSION = "1.0"
 
-bltcp = BlaeckServer("127.0.0.1", 24, "Sine Generator", "Python Script", EXAMPLE_VERSION)
-
+sine = BlaeckServer("127.0.0.1", 24, "Sine Generator", "Python Script", EXAMPLE_VERSION)
 for i in range(1, 4):
-    bltcp.add_signal(f"Sine_{i}", "float")
+    sine.add_signal(f"Sine_{i}", "float")
+
+cosine = BlaeckServer("127.0.0.1", 25, "Cosine Generator", "Python Script", EXAMPLE_VERSION)
+for i in range(1, 3):
+    cosine.add_signal(f"Cosine_{i}", "float")
 
 start_time = time.time()
-print("##LOGGBOK:READY##")
 
-while True:
-    elapsed_ms = (time.time() - start_time) * 1000
-    value = math.sin(elapsed_ms * 0.001)
-    for s in bltcp.signals:
-        s.value = value
-    bltcp.tick()
+
+def run_server(server, gen_func):
+    while True:
+        t = (time.time() - start_time) * 1000
+        for s in server.signals:
+            s.value = gen_func(t)
+        server.tick()
+
+
+threading.Thread(target=run_server, args=(cosine, lambda t: math.cos(t * 0.0001)), daemon=True).start()
+
+print("##LOGGBOK:READY##")
+run_server(sine, lambda t: math.sin(t * 0.001))
