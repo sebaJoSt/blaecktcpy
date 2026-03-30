@@ -154,6 +154,12 @@ Serial upstreams are also supported (`pip install blaecktcpy[serial]`):
 hub.add_serial("COM3", 115200, name="Arduino")
 ```
 
+Use `relay_downstream=False` to decode upstream signals hub-side without exposing them to downstream clients:
+
+```python
+arduino = hub.add_tcp("192.168.1.10", 24, name="Arduino", relay_downstream=False)
+```
+
 The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream to clients.
 
 ## Examples
@@ -170,6 +176,7 @@ See the [examples](examples/) folder:
 | `command_parser.py` | Custom command handling with `@bltcp.on_command()` |
 | `csv_reader.py` | Stream CSV file data as signals |
 | `csv_generator.py` | Generate test CSV data for `csv_reader.py` |
+| `fake_blaeckserial.py` | TCP server emulating BlaeckSerial master + 2 I2C slaves |
 
 ### Hub
 
@@ -179,6 +186,13 @@ See the [examples](examples/) folder:
 | `computed_signal.py` | Serial upstream with a Python-computed dew point signal |
 | `transform.py` | In-place signal transform (°F → °C) via `on_data_received` |
 | `local_only.py` | Hub with only local signals (no upstreams) |
+| `treeview_test.py` | B6 device tree test with forced upstream disconnect |
+
+### Arduino
+
+| Example | Description |
+|---|---|
+| `FakeMasterWithSlaves/` | Single-board sketch emulating BlaeckSerial master + 2 I2C slaves (raw protocol, no BlaeckSerial library) |
 
 ## License
 
