@@ -64,6 +64,21 @@ def handle_led(state):
     print(f"LED = {state}")
 ```
 
+### Client callbacks
+
+Every connected client is automatically added to `data_clients` and receives data frames. Use `on_client_connected` / `on_client_disconnected` to react to connections or exclude specific clients from data:
+
+```python
+@bltcp.on_client_connected()
+def on_connect(client_id):
+    if client_id > 0:
+        bltcp.data_clients.discard(client_id)  # only client #0 receives data
+
+@bltcp.on_client_disconnected()
+def on_disconnect(client_id):
+    print(f"Client #{client_id} left")
+```
+
 ## Supported datatypes
 
 | Datatype         | DTYPE | Bytes |
