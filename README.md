@@ -56,7 +56,9 @@ Here's a full list of the commands handled by this library:
 
 `B1,B2,B3,B4` are four bytes encoding a little-endian integer. For `ACTIVATE` this is the interval in milliseconds. For the other commands it is the message ID echoed back in the response.
 
-Custom commands can be registered with the `@bltcp.on_command()` decorator:
+## Custom commands
+
+Register handlers with the `@bltcp.on_command()` decorator:
 
 ```python
 @bltcp.on_command("SET_LED")
@@ -64,7 +66,7 @@ def handle_led(state):
     print(f"LED = {state}")
 ```
 
-### Client callbacks
+## Client callbacks
 
 Every connected client is automatically added to `data_clients` and receives data frames. Use `on_client_connected` / `on_client_disconnected` to react to connections or exclude specific clients from data:
 
