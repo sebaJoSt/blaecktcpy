@@ -58,12 +58,24 @@ Here's a full list of the commands handled by this library:
 
 ## Custom commands
 
-Register handlers with the `@bltcp.on_command()` decorator:
+Commands are sent as `<COMMAND>` or `<COMMAND,param1,param2,...>`. Register handlers with the `@bltcp.on_command()` decorator — parameters are passed as strings:
 
 ```python
 @bltcp.on_command("SET_LED")
-def handle_led(state):
+def handle_led(state):          # <SET_LED,1>  →  state = "1"
     print(f"LED = {state}")
+
+@bltcp.on_command("MOTOR")
+def handle_motor(speed, dir):   # <MOTOR,255,forward>  →  speed = "255", dir = "forward"
+    print(f"{speed} {dir}")
+```
+
+A catch-all handler (no command name) fires for every message, including built-in commands:
+
+```python
+@bltcp.on_command()
+def log_all(command, *params):  # receives command name + all params
+    print(f"{command} {params}")
 ```
 
 ## Client callbacks
