@@ -29,6 +29,46 @@ STATUS_UPSTREAM_LOST = 0x02
 logger = logging.getLogger("blaecktcpy")
 
 
+class _IntervalTimer:
+    """Reusable interval timer with first-tick initialization."""
+
+    __slots__ = ("_interval_ms", "_base_ns", "_setpoint_ms", "_first_tick")
+
+    def __init__(self):
+        self._interval_ms: int = 0
+        self._base_ns: int = 0
+        self._setpoint_ms: float = 0
+        self._first_tick: bool = False
+
+    @property
+    def interval_ms(self) -> int:
+        return self._interval_ms
+
+    def activate(self, interval_ms: int) -> None:
+        """Start the timer with the given interval."""
+        self._interval_ms = interval_ms
+        self._first_tick = True
+
+    def deactivate(self) -> None:
+        """Stop the timer."""
+        self._interval_ms = 0
+        self._first_tick = False
+
+    def elapsed(self) -> bool:
+        """Return True if the interval has elapsed. Advances setpoint on True."""
+        now = time.time_ns()
+        if self._first_tick:
+            self._base_ns = now
+            self._setpoint_ms = self._interval_ms
+            self._first_tick = False
+            return True
+        elapsed_ms = (now - self._base_ns) / 1_000_000
+        if elapsed_ms < self._setpoint_ms:
+            return False
+        self._setpoint_ms += self._interval_ms
+        return True
+
+
 class BlaeckServer:
     """blaecktcpy — BlaeckTCP Protocol Implementation (TCP Server Mode)"""
 
@@ -137,17 +177,14 @@ class BlaeckServer:
         self._server_socket.listen()
         self._clients = {}  # client_id → socket
         self._next_client_id = 0
-        self._active_client = None
+        self._commanding_client = None
         self._sel = selectors.DefaultSelector()
         self._sel.register(self._server_socket, selectors.EVENT_READ)
 
     def _init_protocol(self):
         """Step 5: Initialize protocol state"""
         self._timed_activated = False
-        self._timed_interval = 0
-        self._timed_setpoint = 0
-        self._timed_base = 0
-        self._timed_first_time = False
+        self._timer = _IntervalTimer()
         self._master_slave_config = bytes.fromhex("00")
         self._slave_id = bytes.fromhex("00")
         self._command_handlers = {}
@@ -156,7 +193,7 @@ class BlaeckServer:
         self._disconnect_callback = None
         self._before_write_callback = None
         self._server_restarted = True
-        self._send_restart_flag = True
+        self._restart_flag_pending = True
         self.data_clients = set()
         self._recv_buffers = {}
         self._closed = False
@@ -284,14 +321,14 @@ class BlaeckServer:
         return len(self._clients) > 0
 
     @property
-    def active(self) -> bool:
+    def timed_activated(self) -> bool:
         """Check if timed data transmission is active"""
         return self._timed_activated
 
     @property
-    def active_client(self):
+    def commanding_client(self):
         """The client socket that sent the most recent command, or None."""
-        return self._active_client
+        return self._commanding_client
 
     def _accept_new_clients(self):
         """Accept all pending new connections."""
@@ -338,8 +375,8 @@ class BlaeckServer:
             self._clients.pop(client_id, None)
             self.data_clients.discard(client_id)
         self._recv_buffers.pop(conn, None)
-        if self._active_client is conn:
-            self._active_client = None
+        if self._commanding_client is conn:
+            self._commanding_client = None
         logger.info(f"Client #{client_id if client_id >= 0 else '?'} disconnected")
         if client_id >= 0 and self._disconnect_callback is not None:
             self._disconnect_callback(client_id)
@@ -550,7 +587,7 @@ class BlaeckServer:
         messages = self._tcp_read()
 
         for command, params, conn in messages:
-            self._active_client = conn
+            self._commanding_client = conn
 
             # Handle built-in protocol commands
             if command == "BLAECK.WRITE_SYMBOLS":
@@ -616,17 +653,7 @@ class BlaeckServer:
 
     def _timer_elapsed(self) -> bool:
         """Check if the timed interval has elapsed. Advances setpoint on True."""
-        now = time.time_ns()
-        if self._timed_first_time:
-            self._timed_base = now
-            self._timed_setpoint = self._timed_interval
-            self._timed_first_time = False
-            return True
-        elapsed_ms = (now - self._timed_base) / 1_000_000
-        if elapsed_ms < self._timed_setpoint:
-            return False
-        self._timed_setpoint += self._timed_interval
-        return True
+        return self._timer.elapsed()
 
     def timed_write_all_data(self, msg_id: int = 185273099) -> bool:
         """Send all data if timer interval has elapsed."""
@@ -667,10 +694,10 @@ class BlaeckServer:
         """
         self._timed_activated = activated
         if activated:
-            self._timed_interval = interval_ms
-            self._timed_first_time = True
+            self._timer.activate(interval_ms)
             logger.info(f"Timed data activated (interval: {interval_ms} ms)")
         else:
+            self._timer.deactivate()
             logger.info("Timed data deactivated")
 
     def write_devices(self, msg_id: int = 1) -> None:
@@ -761,8 +788,8 @@ class BlaeckServer:
             end = len(self.signals) - 1
 
         # Restart flag
-        restart_flag = b"\x01" if self._send_restart_flag else b"\x00"
-        self._send_restart_flag = False
+        restart_flag = b"\x01" if self._restart_flag_pending else b"\x00"
+        self._restart_flag_pending = False
 
         # Timestamp
         if timestamp is not None:

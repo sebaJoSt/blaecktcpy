@@ -5,7 +5,7 @@ Connects to an Arduino running BlaeckSerial that reports temperature
 and humidity, then computes the dew point in Python and serves
 only the dew point to Loggbok on port 23.
 
-This demonstrates ``relay=False``: the Arduino's raw signals are
+This demonstrates ``relay_downstream=False``: the Arduino's raw signals are
 decoded hub-side for computation but hidden from Loggbok.
 The ``on_data_received`` callback recomputes the dew point only
 when fresh data arrives from the Arduino.
@@ -46,9 +46,9 @@ hub = BlaeckHub("127.0.0.1", 23, "Weather Hub", "Python Script", EXAMPLE_VERSION
 # Local signal — computed from Arduino's temperature and humidity
 dew_point = hub.add_signal("dew_point", "float")
 
-# Connect to Arduino over serial (relay=False: Loggbok won't see raw signals)
+# Connect to Arduino over serial (relay_downstream=False: Loggbok won't see raw signals)
 # Set dtr=False for Arduino Mega to prevent reset on connect
-arduino = hub.add_serial("COM3", 9600, "Arduino", relay=False, interval_ms=1000)
+arduino = hub.add_serial("COM3", 9600, "Arduino", relay_downstream=False, interval_ms=1000)
 
 
 @hub.on_data_received("Arduino")

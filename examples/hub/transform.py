@@ -1,5 +1,5 @@
 """
-BlaeckHub Example: Signal Transform (relay=True)
+BlaeckHub Example: Signal Transform (relay_downstream=True)
 
 Connects to an Arduino running BlaeckSerial that reports temperature
 in Fahrenheit. The hub transforms the value to Celsius in-place
@@ -41,7 +41,7 @@ EXAMPLE_VERSION = "1.0"
 
 hub = BlaeckHub("127.0.0.1", 23, "Transform Hub", "Python Script", EXAMPLE_VERSION)
 
-# Connect to Arduino — relay=True (default): Loggbok sees the signals
+# Connect to Arduino — relay_downstream=True (default): Loggbok sees the signals
 arduino = hub.add_serial("COM3", 9600, "Arduino")
 
 

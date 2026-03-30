@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 
 from .._signal import Signal
-from .._server import BlaeckServer, LIB_VERSION, LIB_NAME, STATUS_UPSTREAM_LOST
+from .._server import BlaeckServer, LIB_VERSION, LIB_NAME, STATUS_UPSTREAM_LOST, _IntervalTimer
 from . import _decoder as decoder
 from ._upstream import UpstreamTCP, UpstreamSerial, _UpstreamBase
 
@@ -83,7 +83,7 @@ class UpstreamSignals:
 class _UpstreamDevice:
     """Internal bookkeeping for one upstream connection."""
 
-    name: str
+    device_name: str
     transport: _UpstreamBase
     symbol_table: list[decoder.DecodedSymbol] = field(default_factory=list)
     index_map: dict[int, int] = field(default_factory=dict)
@@ -91,7 +91,7 @@ class _UpstreamDevice:
     slave_id_map: dict[tuple[int, int], int] = field(default_factory=dict)
     interval_ms: int = 0
     connected: bool = True
-    relay: bool = True
+    relay_downstream: bool = True
     _signals: list[Signal] = field(default_factory=list)
     _upstream_signals: UpstreamSignals | None = field(default=None, repr=False)
 
@@ -136,9 +136,7 @@ class BlaeckHub:
 
         self._local_interval_ms: int = 0
         self._local_fixed_interval: bool = False
-        self._local_timer_base: int = 0
-        self._local_timer_setpoint: float = 0
-        self._local_first_time: bool = True
+        self._local_timer = _IntervalTimer()
 
         self._disconnect_callback = None
         self._client_connect_callback = None
@@ -169,6 +167,7 @@ class BlaeckHub:
             raise RuntimeError("Cannot set local interval after start()")
         self._local_interval_ms = interval_ms
         self._local_fixed_interval = True
+        self._local_timer.activate(interval_ms)
 
     def add_signal(
         self,
@@ -203,7 +202,7 @@ class BlaeckHub:
         name: str = "",
         timeout: float = 5.0,
         interval_ms: int = 0,
-        relay: bool = True,
+        relay_downstream: bool = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream TCP device and discover its signals.
 
@@ -217,7 +216,7 @@ class BlaeckHub:
             timeout: Connection and discovery timeout in seconds
             interval_ms: If > 0, activate timed data at this interval on
                 start.  The downstream client cannot override this rate.
-            relay: If False, signals are decoded hub-side but not exposed
+            relay_downstream: If False, signals are decoded hub-side but not exposed
                 to downstream clients (no symbols, devices, or data).
 
         Returns:
@@ -228,7 +227,7 @@ class BlaeckHub:
 
         label = name or f"{ip}:{port}"
         transport = UpstreamTCP(label, ip, port)
-        return self._discover_upstream(name, transport, timeout, interval_ms, relay)
+        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream)
 
     def add_serial(
         self,
@@ -238,7 +237,7 @@ class BlaeckHub:
         timeout: float = 5.0,
         dtr: bool = True,
         interval_ms: int = 0,
-        relay: bool = True,
+        relay_downstream: bool = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream serial device and discover its signals.
 
@@ -253,7 +252,7 @@ class BlaeckHub:
             dtr: Enable DTR (set False for Arduino Mega to prevent reset)
             interval_ms: If > 0, activate timed data at this interval on
                 start.  The downstream client cannot override this rate.
-            relay: If False, signals are decoded hub-side but not exposed
+            relay_downstream: If False, signals are decoded hub-side but not exposed
                 to downstream clients (no symbols, devices, or data).
 
         Returns:
@@ -264,7 +263,7 @@ class BlaeckHub:
 
         label = name or port
         transport = UpstreamSerial(label, port, baudrate, dtr)
-        return self._discover_upstream(name, transport, timeout, interval_ms, relay)
+        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream)
 
     def _discover_upstream(
         self,
@@ -272,7 +271,7 @@ class BlaeckHub:
         transport: _UpstreamBase,
         timeout: float,
         interval_ms: int = 0,
-        relay: bool = True,
+        relay_downstream: bool = True,
     ) -> _UpstreamDevice:
         """Connect and fetch the symbol table from an upstream device."""
         label = transport.name  # temporary label for error messages
@@ -312,7 +311,7 @@ class BlaeckHub:
             raise ValueError(f"Upstream '{label}' reported no signals")
 
         upstream = _UpstreamDevice(
-            name=name, transport=transport, interval_ms=interval_ms, relay=relay
+            device_name=name, transport=transport, interval_ms=interval_ms, relay_downstream=relay_downstream
         )
         upstream.symbol_table = symbols
 
@@ -340,11 +339,11 @@ class BlaeckHub:
 
         # Use upstream device name if no name was provided
         if not name and upstream.device_infos:
-            upstream.name = upstream.device_infos[0].device_name
+            upstream.device_name = upstream.device_infos[0].device_name
 
         self._upstreams.append(upstream)
 
-        logger.info(f"Upstream '{upstream.name}': {len(symbols)} signals discovered")
+        logger.info(f"Upstream '{upstream.device_name}': {len(symbols)} signals discovered")
         return upstream
 
     # ====================================================================
@@ -379,7 +378,7 @@ class BlaeckHub:
         offset = len(self._local_signals)
         hub_slave_idx = 0
         for upstream in self._upstreams:
-            if upstream.relay:
+            if upstream.relay_downstream:
                 # Build slave_id_map: (msc, slave_id) → hub slave_id
                 seen: dict[tuple[int, int], int] = {}
                 for sym in upstream.symbol_table:
@@ -483,7 +482,7 @@ class BlaeckHub:
             logger.debug(f"_read() received {len(messages)} message(s)")
         for command, params, conn in messages:
             logger.debug(f"  command={command!r} params={params!r}")
-            self._server._active_client = conn
+            self._server._commanding_client = conn
 
             if command == "BLAECK.WRITE_SYMBOLS":
                 self._write_symbols(self._server._decode_four_byte(params))
@@ -504,13 +503,13 @@ class BlaeckHub:
                 if command == "BLAECK.WRITE_DATA":
                     # One-shot: forward to relayed upstreams only
                     for upstream in self._upstreams:
-                        if upstream.relay and upstream.transport.connected:
+                        if upstream.relay_downstream and upstream.transport.connected:
                             upstream.transport.send_command(full_cmd)
                 else:
                     # ACTIVATE/DEACTIVATE: only forward to client-managed relayed upstreams
                     for upstream in self._upstreams:
                         if (
-                            upstream.relay
+                            upstream.relay_downstream
                             and upstream.interval_ms == 0
                             and upstream.transport.connected
                         ):
@@ -520,9 +519,10 @@ class BlaeckHub:
                 if self._local_signals and not self._local_fixed_interval:
                     if command == "BLAECK.ACTIVATE":
                         self._local_interval_ms = self._server._decode_four_byte(params)
-                        self._local_first_time = True
+                        self._local_timer.activate(self._local_interval_ms)
                     elif command == "BLAECK.DEACTIVATE":
                         self._local_interval_ms = 0
+                        self._local_timer.deactivate()
 
                 # WRITE_DATA: one-shot send of local signals
                 if self._local_signals and command == "BLAECK.WRITE_DATA":
@@ -552,7 +552,7 @@ class BlaeckHub:
                     self._zero_upstream_signals(upstream)
                     self._send_upstream_lost_frame(upstream)
                     if self._disconnect_callback is not None:
-                        self._disconnect_callback(upstream.name)
+                        self._disconnect_callback(upstream.device_name)
                 continue
 
             frames = upstream.transport.read_frames()
@@ -563,7 +563,7 @@ class BlaeckHub:
                 self._zero_upstream_signals(upstream)
                 self._send_upstream_lost_frame(upstream)
                 if self._disconnect_callback is not None:
-                    self._disconnect_callback(upstream.name)
+                    self._disconnect_callback(upstream.device_name)
                 continue
 
             for frame in frames:
@@ -574,11 +574,11 @@ class BlaeckHub:
                     try:
                         decoded = decoder.parse_data(frame, upstream.symbol_table)
 
-                        # Relay upstream restart flag downstream
+                        # relay upstream restart flag downstream
                         if decoded.restart_flag:
-                            self._server._send_restart_flag = True
+                            self._server._restart_flag_pending = True
 
-                        if not upstream.relay:
+                        if not upstream.relay_downstream:
                             # Non-relayed: update internal signals only
                             for sig_id, value in decoded.signals.items():
                                 idx = upstream.index_map.get(sig_id)
@@ -601,10 +601,10 @@ class BlaeckHub:
                         except Exception as e:
                             logger.warning(
                                 f"on_data_received callback error for "
-                                f"'{upstream.name}': {e}"
+                                f"'{upstream.device_name}': {e}"
                             )
                         # Forward upstream timestamp only with a single relayed device
-                        relayed_count = sum(1 for u in self._upstreams if u.relay)
+                        relayed_count = sum(1 for u in self._upstreams if u.relay_downstream)
                         single = relayed_count == 1 and not self._local_signals
                         ts = decoded.timestamp if single else None
                         # Replace msg_id only when hub overrides BLAECK.ACTIVATE
@@ -638,12 +638,12 @@ class BlaeckHub:
                         self._server._tcp_send_data(data)
                     except Exception as e:
                         logger.warning(
-                            f"Upstream '{upstream.name}' frame dropped: {e}"
+                            f"Upstream '{upstream.device_name}' frame dropped: {e}"
                         )
 
     def _zero_upstream_signals(self, upstream: _UpstreamDevice) -> None:
         """Reset all signals from a disconnected upstream to zero."""
-        if upstream.relay:
+        if upstream.relay_downstream:
             for hub_idx in upstream.index_map.values():
                 if hub_idx < len(self._server.signals):
                     self._server.signals[hub_idx].value = 0
@@ -654,7 +654,7 @@ class BlaeckHub:
 
     def _send_upstream_lost_frame(self, upstream: _UpstreamDevice) -> None:
         """Send one data frame with STATUS_UPSTREAM_LOST for a disconnected upstream."""
-        if not upstream.relay or not self._server.connected:
+        if not upstream.relay_downstream or not self._server.connected:
             return
         hub_indices = sorted(upstream.index_map.values())
         if not hub_indices:
@@ -705,17 +705,7 @@ class BlaeckHub:
 
     def _local_timer_elapsed(self) -> bool:
         """Check if the local signal interval has elapsed."""
-        now = time.time_ns()
-        if self._local_first_time:
-            self._local_timer_base = now
-            self._local_timer_setpoint = self._local_interval_ms
-            self._local_first_time = False
-            return True
-        elapsed_ms = (now - self._local_timer_base) / 1_000_000
-        if elapsed_ms < self._local_timer_setpoint:
-            return False
-        self._local_timer_setpoint += self._local_interval_ms
-        return True
+        return self._local_timer.elapsed()
 
     # ====================================================================
     # Upstream command forwarding
@@ -749,7 +739,7 @@ class BlaeckHub:
 
         # Upstream (slave) signals — only relayed upstreams
         for upstream in self._upstreams:
-            if not upstream.relay:
+            if not upstream.relay_downstream:
                 continue
             for sym in upstream.symbol_table:
                 key = (sym.msc, sym.slave_id)
@@ -771,7 +761,7 @@ class BlaeckHub:
                 f"  SlaveID=0 (local) name={sig.signal_name!r} dtype={sig.datatype}"
             )
         for upstream in self._upstreams:
-            if not upstream.relay:
+            if not upstream.relay_downstream:
                 continue
             for sym in upstream.symbol_table:
                 key = (sym.msc, sym.slave_id)
@@ -815,7 +805,7 @@ class BlaeckHub:
 
             # Upstream devices as slaves — only relayed upstreams
             for upstream in self._upstreams:
-                if not upstream.relay:
+                if not upstream.relay_downstream:
                     continue
                 # Build old SlaveID → new hub SlaveID map for parent remapping
                 old_sid_to_new: dict[int, int] = {}
@@ -866,7 +856,7 @@ class BlaeckHub:
             # Human-readable device dump
             logger.debug(f"  Master: SlaveID=0 name={self._device_name!r}")
             for upstream in self._upstreams:
-                if not upstream.relay:
+                if not upstream.relay_downstream:
                     continue
                 for info in upstream.device_infos:
                     key = (info.msc, info.slave_id)
@@ -954,7 +944,7 @@ class BlaeckHub:
 
             @hub.on_data_received()
             def handle_all(upstream):
-                print(f"Data from {upstream.name}")
+                print(f"Data from {upstream.device_name}")
         """
 
         def decorator(func):
@@ -996,7 +986,7 @@ class BlaeckHub:
     def _fire_data_received(self, upstream: _UpstreamDevice) -> None:
         """Invoke all matching on_data_received callbacks."""
         for name_filter, func in self._data_received_callbacks:
-            if name_filter is None or name_filter == upstream.name:
+            if name_filter is None or name_filter == upstream.device_name:
                 func(upstream)
 
     # ====================================================================
@@ -1019,7 +1009,7 @@ class BlaeckHub:
             hub["Arduino"].signals[0].value
         """
         for upstream in self._upstreams:
-            if upstream.name == name:
+            if upstream.device_name == name:
                 return upstream
         raise KeyError(f"No upstream named {name!r}")
 
@@ -1055,11 +1045,11 @@ class BlaeckHub:
 
         if name is not None:
             for u in self._upstreams:
-                if u.name == name:
+                if u.device_name == name:
                     return _status(u)
             raise KeyError(f"No upstream named '{name}'")
 
-        return {u.name: _status(u) for u in self._upstreams}
+        return {u.device_name: _status(u) for u in self._upstreams}
 
     def __repr__(self):
         n_up = len(self._upstreams)

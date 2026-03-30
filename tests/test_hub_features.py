@@ -4,7 +4,7 @@ Covers:
 - STATUS_OK / STATUS_UPSTREAM_LOST in _build_data_msg
 - UpstreamSignals collection (index, name, len, iter, errors)
 - Callback registration and dispatch (on_data_received, client callbacks)
-- relay=False signal registration in start()
+- relay_downstream=False signal registration in start()
 """
 
 import binascii
@@ -280,14 +280,14 @@ class TestFireDataReceived:
 
     def _make_upstream(self, name):
         transport = FakeTransport(name)
-        return _UpstreamDevice(name=name, transport=transport)
+        return _UpstreamDevice(device_name=name, transport=transport)
 
     def test_fires_matching_name(self):
         calls = []
 
         @self.hub.on_data_received("Arduino")
         def handler(upstream):
-            calls.append(upstream.name)
+            calls.append(upstream.device_name)
 
         arduino = self._make_upstream("Arduino")
         self.hub._fire_data_received(arduino)
@@ -298,7 +298,7 @@ class TestFireDataReceived:
 
         @self.hub.on_data_received("Arduino")
         def handler(upstream):
-            calls.append(upstream.name)
+            calls.append(upstream.device_name)
 
         esp = self._make_upstream("ESP32")
         self.hub._fire_data_received(esp)
@@ -309,7 +309,7 @@ class TestFireDataReceived:
 
         @self.hub.on_data_received()
         def handler(upstream):
-            calls.append(upstream.name)
+            calls.append(upstream.device_name)
 
         self.hub._fire_data_received(self._make_upstream("Arduino"))
         self.hub._fire_data_received(self._make_upstream("ESP32"))
@@ -321,11 +321,11 @@ class TestFireDataReceived:
 
         @self.hub.on_data_received("Arduino")
         def specific(upstream):
-            specific_calls.append(upstream.name)
+            specific_calls.append(upstream.device_name)
 
         @self.hub.on_data_received()
         def global_handler(upstream):
-            global_calls.append(upstream.name)
+            global_calls.append(upstream.device_name)
 
         self.hub._fire_data_received(self._make_upstream("Arduino"))
         self.hub._fire_data_received(self._make_upstream("ESP32"))
@@ -335,20 +335,20 @@ class TestFireDataReceived:
 
 
 # ========================================================================
-# relay=False tests
+# relay_downstream=False tests
 # ========================================================================
 
 
 class TestRelayFalseRegistration:
-    """Verify relay=False signals go to internal storage, not server."""
+    """Verify relay_downstream=False signals go to internal storage, not server."""
 
     def test_relay_true_registers_on_server(self):
         server = _make_server_on_free_port()
         try:
             upstream = _UpstreamDevice(
-                name="ESP32",
+                device_name="ESP32",
                 transport=FakeTransport("ESP32"),
-                relay=True,
+                relay_downstream=True,
                 symbol_table=[
                     decoder.DecodedSymbol("temp", 8, "float", 4),
                     decoder.DecodedSymbol("hum", 8, "float", 4),
@@ -367,7 +367,7 @@ class TestRelayFalseRegistration:
             assert len(server.signals) == 2
             assert upstream.index_map == {0: 0, 1: 1}
             assert server.signals[0].signal_name == "temp"
-            # relay=True: upstream._signals references server signals
+            # relay_downstream=True: upstream._signals references server signals
             assert upstream._signals[0] is server.signals[0]
             assert upstream.signals["temp"] is server.signals[0]
         finally:
@@ -375,9 +375,9 @@ class TestRelayFalseRegistration:
 
     def test_relay_false_stores_internally(self):
         upstream = _UpstreamDevice(
-            name="Arduino",
+            device_name="Arduino",
             transport=FakeTransport("Arduino"),
-            relay=False,
+            relay_downstream=False,
             symbol_table=[
                 decoder.DecodedSymbol("temp", 8, "float", 4),
                 decoder.DecodedSymbol("hum", 8, "float", 4),
@@ -397,9 +397,9 @@ class TestRelayFalseRegistration:
 
     def test_relay_false_signals_accessible_via_collection(self):
         upstream = _UpstreamDevice(
-            name="Arduino",
+            device_name="Arduino",
             transport=FakeTransport("Arduino"),
-            relay=False,
+            relay_downstream=False,
         )
         upstream._signals = [
             Signal("temp", "float", 22.5),
@@ -413,9 +413,9 @@ class TestRelayFalseRegistration:
 
     def test_upstream_signals_created_in_start(self):
         upstream = _UpstreamDevice(
-            name="Arduino",
+            device_name="Arduino",
             transport=FakeTransport("Arduino"),
-            relay=False,
+            relay_downstream=False,
         )
         upstream._signals = [Signal("temp", "float")]
 
@@ -434,13 +434,13 @@ class TestRelayFalseRegistration:
         assert s1["temp"].signal_name == "temp"
 
     def test_relay_true_transform_modifies_server_signal(self):
-        """Modifying upstream.signals for relay=True changes the server signal."""
+        """Modifying upstream.signals for relay_downstream=True changes the server signal."""
         server = _make_server_on_free_port()
         try:
             upstream = _UpstreamDevice(
-                name="Arduino",
+                device_name="Arduino",
                 transport=FakeTransport("Arduino"),
-                relay=True,
+                relay_downstream=True,
             )
             server.add_signal("temp_f", "float", 212.0)
             upstream._signals.append(server.signals[0])
@@ -477,9 +477,9 @@ class TestCallbackExceptionResilience:
 
         @self.hub.on_data_received()
         def good_callback(upstream):
-            calls.append(upstream.name)
+            calls.append(upstream.device_name)
 
-        upstream = _UpstreamDevice(name="Arduino", transport=FakeTransport("Arduino"))
+        upstream = _UpstreamDevice(device_name="Arduino", transport=FakeTransport("Arduino"))
         # _fire_data_received calls each callback independently;
         # but currently it doesn't catch per-callback — the outer
         # try/except in _poll_upstreams handles it.
@@ -662,9 +662,9 @@ class TestMultiSlavePassThrough:
         """Hub builds slave_id_map from upstream symbol MSC/SlaveID."""
         hub = BlaeckHub("127.0.0.1", 0, "TestHub", "1.0", "1.0")
         upstream = _UpstreamDevice(
-            name="Arduino",
+            device_name="Arduino",
             transport=None,
-            relay=True,
+            relay_downstream=True,
         )
         upstream.symbol_table = [
             decoder.DecodedSymbol("temp", 8, "float", 4, msc=1, slave_id=0),
@@ -693,13 +693,13 @@ class TestMultiSlavePassThrough:
         """Slave IDs are contiguous across multiple upstreams."""
         hub = BlaeckHub("127.0.0.1", 0, "TestHub", "1.0", "1.0")
 
-        upstream_a = _UpstreamDevice(name="A", transport=None, relay=True)
+        upstream_a = _UpstreamDevice(device_name="A", transport=None, relay_downstream=True)
         upstream_a.symbol_table = [
             decoder.DecodedSymbol("a1", 8, "float", 4, msc=1, slave_id=0),
             decoder.DecodedSymbol("a2", 8, "float", 4, msc=2, slave_id=5),
         ]
 
-        upstream_b = _UpstreamDevice(name="B", transport=None, relay=True)
+        upstream_b = _UpstreamDevice(device_name="B", transport=None, relay_downstream=True)
         upstream_b.symbol_table = [
             decoder.DecodedSymbol("b1", 8, "float", 4, msc=1, slave_id=0),
         ]
@@ -709,7 +709,7 @@ class TestMultiSlavePassThrough:
         # Simulate start() logic
         hub_slave_idx = 0
         for up in hub._upstreams:
-            if not up.relay:
+            if not up.relay_downstream:
                 continue
             seen: dict[tuple[int, int], int] = {}
             for sym in up.symbol_table:
@@ -971,7 +971,7 @@ class TestRestartFlagRelay:
             hub._callbacks = {"data_received": []}
 
             upstream = _UpstreamDevice(
-                name="Arduino", transport=FakeTransport(), relay=True
+                device_name="Arduino", transport=FakeTransport(), relay_downstream=True
             )
             upstream.symbol_table = [
                 decoder.DecodedSymbol("temp", 8, "float", 4),
@@ -1088,7 +1088,7 @@ class TestStatusByteRelay:
 
             transport = FakeTransport("Arduino")
             upstream = _UpstreamDevice(
-                name="Arduino", transport=transport, relay=True
+                device_name="Arduino", transport=transport, relay_downstream=True
             )
             upstream.symbol_table = [
                 decoder.DecodedSymbol("temp", 8, "float", 4),
@@ -1184,7 +1184,7 @@ class TestRelayFrameScoping:
 
         transport_a = FakeTransport("UpstreamA")
         upstream_a = _UpstreamDevice(
-            name="UpstreamA", transport=transport_a, relay=True
+            device_name="UpstreamA", transport=transport_a, relay_downstream=True
         )
         upstream_a.symbol_table = [
             decoder.DecodedSymbol("A_sig0", 8, "float", 4),
@@ -1197,7 +1197,7 @@ class TestRelayFrameScoping:
 
         transport_b = FakeTransport("UpstreamB")
         upstream_b = _UpstreamDevice(
-            name="UpstreamB", transport=transport_b, relay=True
+            device_name="UpstreamB", transport=transport_b, relay_downstream=True
         )
         upstream_b.symbol_table = [
             decoder.DecodedSymbol("B_sig0", 8, "float", 4),
