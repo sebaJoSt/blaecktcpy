@@ -34,15 +34,6 @@ if not logger.handlers:
 
 # -- Eager re-exports -------------------------------------------------------
 from ._signal import Signal, SignalList, IntervalMode  # noqa: E402
-from ._server import BlaeckServer, LIB_VERSION, LIB_NAME, STATUS_OK, STATUS_UPSTREAM_LOST  # noqa: E402
+from ._server import BlaeckTCPy, LIB_VERSION, LIB_NAME, STATUS_OK, STATUS_UPSTREAM_LOST  # noqa: E402
 
-__all__ = ["Signal", "SignalList", "IntervalMode", "BlaeckServer", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST", "BlaeckHub"]
-
-
-# -- Lazy imports (avoid pulling in hub dependencies on simple usage) --------
-def __getattr__(name: str):
-    if name == "BlaeckHub":
-        from .hub import BlaeckHub
-
-        return BlaeckHub
-    raise AttributeError(f"module 'blaecktcpy' has no attribute {name!r}")
+__all__ = ["Signal", "SignalList", "IntervalMode", "BlaeckTCPy", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST"]

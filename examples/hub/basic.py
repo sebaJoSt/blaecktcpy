@@ -1,7 +1,7 @@
 """
-BlaeckHub Example: Basic Hub
+BlaeckTCPy Example: Basic Hub
 
-Aggregates signals from two upstream BlaeckServers and one local
+Aggregates signals from two upstream devices and one local
 signal, then serves everything as a single merged device.
 
   ┌──────────────┐   ┌──────────────┐
@@ -10,7 +10,7 @@ signal, then serves everything as a single merged device.
          │                  │
          ▼                  ▼
   ┌─────────────────────────────────┐
-  │       BlaeckHub :23             │
+  │       Hub :23                   │
   │  Sawtooth_1 (local signal)      │
   └───────────────┬─────────────────┘
                   │
@@ -27,18 +27,20 @@ import math
 import time
 import threading
 
-from blaecktcpy import BlaeckServer, BlaeckHub
+from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
 
 # --- Upstream servers ---
-sine = BlaeckServer("127.0.0.1", 10024, "Sine Generator", "Python Script", EXAMPLE_VERSION)
+sine = BlaeckTCPy("127.0.0.1", 10024, "Sine Generator", "Python Script", EXAMPLE_VERSION)
 for i in range(1, 4):
     sine.add_signal(f"Sine_{i}", "float")
+sine.start()
 
-cosine = BlaeckServer("127.0.0.1", 10025, "Cosine Generator", "Python Script", EXAMPLE_VERSION)
+cosine = BlaeckTCPy("127.0.0.1", 10025, "Cosine Generator", "Python Script", EXAMPLE_VERSION)
 for i in range(1, 3):
     cosine.add_signal(f"Cosine_{i}", "float")
+cosine.start()
 
 
 def run_server(server, gen_func):
@@ -55,11 +57,11 @@ threading.Thread(target=run_server, args=(cosine, lambda t: math.cos(t * 0.0005)
 time.sleep(0.2)
 
 # --- Hub ---
-hub = BlaeckHub("127.0.0.1", 23, "Basic Hub", "Python Script", EXAMPLE_VERSION)
+hub = BlaeckTCPy("127.0.0.1", 23, "Basic Hub", "Python Script", EXAMPLE_VERSION)
 
 # Local signal
-sawtooth = hub.local.add_signal("Sawtooth_1", "float")
-hub.local.set_interval(500)
+sawtooth = hub.add_signal("Sawtooth_1", "float")
+hub.set_interval(500)
 
 # Connect to upstream servers
 hub.add_tcp("127.0.0.1", 10024, "Sine", interval_ms=300)
@@ -73,4 +75,3 @@ while True:
     elapsed_ms = (time.time() - start_time) * 1000
     sawtooth.value = (elapsed_ms % 5000) / 5000.0  # 0..1 over 5 seconds
     hub.tick()
-    hub.local.tick()

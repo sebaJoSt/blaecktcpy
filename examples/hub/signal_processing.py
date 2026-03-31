@@ -1,5 +1,5 @@
 """
-BlaeckHub Example: Signal Processing
+BlaeckTCPy Example: Signal Processing
 
 Demonstrates processing upstream data before it reaches Loggbok:
 - Transform a relayed signal in-place (Fahrenheit to Celsius)
@@ -11,7 +11,7 @@ Demonstrates processing upstream data before it reaches Loggbok:
             │
             ▼
   ┌─────────────────────────────────────────┐
-  │            BlaeckHub :23                 │
+  │            Hub :23                       │
   │  temp_f → transformed to Celsius       │
   │  humidity → relayed as-is              │
   │  dew_point → computed locally          │
@@ -30,14 +30,15 @@ import math
 import time
 import threading
 
-from blaecktcpy import BlaeckServer, BlaeckHub
+from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
 
 # --- Upstream server simulating a sensor board ---
-server = BlaeckServer("127.0.0.1", 10024, "Sensor Board", "Python Script", EXAMPLE_VERSION)
+server = BlaeckTCPy("127.0.0.1", 10024, "Sensor Board", "Python Script", EXAMPLE_VERSION)
 server.add_signal("temp_f", "float")       # temperature in Fahrenheit
 server.add_signal("humidity", "float")     # relative humidity %
+server.start()
 
 
 def run_server():
@@ -53,10 +54,10 @@ threading.Thread(target=run_server, daemon=True).start()
 time.sleep(0.2)
 
 # --- Hub ---
-hub = BlaeckHub("127.0.0.1", 23, "Sensor Hub", "Python Script", EXAMPLE_VERSION)
+hub = BlaeckTCPy("127.0.0.1", 23, "Sensor Hub", "Python Script", EXAMPLE_VERSION)
 
 # Computed local signal
-dew_point = hub.local.add_signal("dew_point", "float")
+dew_point = hub.add_signal("dew_point", "float")
 
 # Upstream — relayed so Loggbok sees temp_f and humidity
 hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=500)
@@ -84,4 +85,3 @@ print("##LOGGBOK:READY##")
 
 while True:
     hub.tick()
-    hub.local.tick()

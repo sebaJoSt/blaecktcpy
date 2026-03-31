@@ -1,4 +1,4 @@
-"""BlaeckServer — BlaeckTCP Protocol Implementation (TCP Server Mode)."""
+"""BlaeckTCPy — Unified BlaeckTCP Protocol Implementation."""
 
 import atexit
 import binascii
@@ -8,11 +8,14 @@ import signal
 import socket
 import sys
 import time
+from dataclasses import dataclass, field
 from typing import Union
 
 from ._signal import Signal, SignalList, IntervalMode
+from .hub import _decoder as decoder
+from .hub._upstream import UpstreamTCP, _UpstreamBase
 
-__all__ = ["BlaeckServer"]
+__all__ = ["BlaeckTCPy"]
 
 from importlib.metadata import version as _pkg_version
 
@@ -22,9 +25,16 @@ LIB_NAME = "blaecktcpy"
 _MAX_RECV_BUFFER = 65536  # 64 KB per-client receive buffer limit
 
 # Status byte values for data frames
-# 0x00: normal, 0x01: I2C CRC error (BlaeckSerial)
 STATUS_OK = 0x00
 STATUS_UPSTREAM_LOST = 0x02
+
+# MasterSlaveConfig byte values
+_MSC_MASTER = b"\x01"
+_MSC_SLAVE = b"\x02"
+
+# Message IDs for data frames
+_MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B — client-controlled (BLAECK.ACTIVATE)
+_MSG_ID_HUB = 185273100  # 0x0B0B0B0C — hub-overridden interval
 
 logger = logging.getLogger("blaecktcpy")
 
@@ -70,8 +80,43 @@ class _IntervalTimer:
         return True
 
 
-class BlaeckServer:
-    """blaecktcpy — BlaeckTCP Protocol Implementation (TCP Server Mode)"""
+@dataclass
+class _UpstreamDevice:
+    """Internal bookkeeping for one upstream connection."""
+
+    device_name: str
+    transport: _UpstreamBase
+    symbol_table: list[decoder.DecodedSymbol] = field(default_factory=list)
+    index_map: dict[int, int] = field(default_factory=dict)
+    device_infos: list[decoder.DecodedDeviceInfo] = field(default_factory=list)
+    slave_id_map: dict[tuple[int, int], int] = field(default_factory=dict)
+    interval_ms: int = IntervalMode.CLIENT
+    connected: bool = True
+    relay_downstream: bool = True
+    _signals: list[Signal] = field(default_factory=list)
+    _upstream_signals: SignalList | None = field(default=None, repr=False)
+
+    @property
+    def signals(self) -> SignalList:
+        if self._upstream_signals is None:
+            raise RuntimeError(
+                "Signals not available yet — call start() first"
+            )
+        return self._upstream_signals
+
+    def __getitem__(self, key: int | str) -> Signal:
+        return self.signals[key]
+
+
+class BlaeckTCPy:
+    """blaecktcpy — Unified BlaeckTCP Protocol Implementation.
+
+    Works as a standalone server (no upstreams) or as a hub that
+    aggregates signals from multiple upstream devices.
+
+    Constructor stores parameters only.  Call :meth:`start` to create
+    the TCP socket and begin listening.
+    """
 
     # Message type keys (pre-computed bytes for wire encoding)
     MSG_SYMBOL_LIST = b"\xb0"
@@ -87,7 +132,7 @@ class BlaeckServer:
         device_fw_version: str,
     ):
         """
-        Initialize BlaeckServer.
+        Initialize BlaeckTCPy.
 
         Args:
             ip: IP address to bind to (e.g. '127.0.0.1' = localhost)
@@ -99,49 +144,152 @@ class BlaeckServer:
         self._ip = ip
         self._port = port
 
-        self._init_device_info(device_name, device_hw_version, device_fw_version)
+        # Device info
+        self.signals = SignalList()
+        self._device_name = device_name.encode()
+        self._device_hw_version = device_hw_version.encode()
+        self._device_fw_version = device_fw_version.encode()
+
+        # Protocol state
+        self._timed_activated = False
+        self._fixed_interval_ms = IntervalMode.CLIENT
+        self._timer = _IntervalTimer()
+        self._master_slave_config = b"\x00"
+        self._slave_id = b"\x00"
+        self._command_handlers: dict[str, object] = {}
+        self._read_callback = None
+        self._connect_callback = None
+        self._disconnect_callback = None
+        self._before_write_callback = None
+        self._server_restarted = True
+        self._restart_flag_pending = True
+        self.data_clients: set[int] = set()
+        self._recv_buffers: dict = {}
+        self._closed = False
+
+        # Upstream state
+        self._upstreams: list[_UpstreamDevice] = []
+        self._upstream_disconnect_callback = None
+        self._data_received_callbacks: list[tuple[str | None, object]] = []
+
+        # Local signal boundary (frozen at start())
+        self._local_signal_count = 0
+        self._started = False
+
+    # ========================================================================
+    # Setup — Socket and Listening
+    # ========================================================================
+
+    def start(self) -> None:
+        """Create socket, bind, listen, register upstream signals, activate.
+
+        Must be called after all :meth:`add_signal`, :meth:`add_tcp`, and
+        :meth:`add_serial` calls (though :meth:`add_signal` also works after
+        start).
+        """
+        if self._started:
+            raise RuntimeError("Already started")
+
+        # Freeze local signal count
+        self._local_signal_count = len(self.signals)
+
+        # Create and bind socket
         self._init_socket()
 
         try:
-            self._bind_socket(ip, port)
+            self._bind_socket(self._ip, self._port)
         except OSError:
             self._server_socket.close()
             if not self._stdin_is_interactive():
-                raise OSError(f"Port {port} is already in use")
-            alt_port = self._find_free_port(ip, port)
+                raise OSError(f"Port {self._port} is already in use")
+            alt_port = self._find_free_port(self._ip, self._port)
             print(
-                f"\033[33m[WARNING]\033[0m Something is already running on port {port}."
+                f"\033[33m[WARNING]\033[0m Something is already running on port {self._port}."
             )
             answer = input(
                 f"Would you like to run blaecktcpy on port {alt_port} instead? \033[1m(Y/n)\033[0m "
             ).strip()
             if answer.lower() in ("", "y", "yes"):
-                port = alt_port
+                self._port = alt_port
                 self._init_socket()
-                self._bind_socket(ip, port)
+                self._bind_socket(self._ip, self._port)
             else:
-                raise OSError(f"Port {port} is already in use")
-
-        self._port = port
+                raise OSError(f"Port {self._port} is already in use")
 
         self._start_listening()
-        self._init_protocol()
+
+        # Register upstream signals and build index maps
+        if self._upstreams:
+            offset = self._local_signal_count
+            hub_slave_idx = 0
+            for upstream in self._upstreams:
+                if upstream.relay_downstream:
+                    # Build slave_id_map: (msc, slave_id) → hub slave_id
+                    seen: dict[tuple[int, int], int] = {}
+                    for sym in upstream.symbol_table:
+                        key = (sym.msc, sym.slave_id)
+                        if key not in seen:
+                            hub_slave_idx += 1
+                            seen[key] = hub_slave_idx
+                    # Include device-only entries (devices with no symbols)
+                    for info in upstream.device_infos:
+                        key = (info.msc, info.slave_id)
+                        if key not in seen:
+                            hub_slave_idx += 1
+                            seen[key] = hub_slave_idx
+                    upstream.slave_id_map = seen
+
+                    # Relayed: register on self so downstream clients see them
+                    for i, sym in enumerate(upstream.symbol_table):
+                        sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
+                            sym.datatype_code, "float"
+                        )
+                        sig = Signal(sym.name, sig_type)
+                        self.signals.append(sig)
+                        upstream._signals.append(self.signals[offset])
+                        upstream.index_map[i] = offset
+                        offset += 1
+                else:
+                    # Non-relayed: store signals internally for hub-side access
+                    for i, sym in enumerate(upstream.symbol_table):
+                        sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
+                            sym.datatype_code, "float"
+                        )
+                        sig = Signal(sym.name, sig_type)
+                        upstream._signals.append(sig)
+                        upstream.index_map[i] = i
+
+                # Freeze signal collection now that _signals is fully populated
+                upstream._upstream_signals = SignalList(upstream._signals)
+
+        self._started = True
         self._install_signal_handler()
 
-        print(
-            f"\033[32mblaecktcpy v{LIB_VERSION}\033[0m — Listening on \033[36m{ip}:{port}\033[0m"
-        )
+        # Activate upstreams with a fixed interval
+        for upstream in self._upstreams:
+            if upstream.interval_ms >= 0:
+                b = upstream.interval_ms.to_bytes(4, "little")
+                params = ",".join(str(x) for x in b)
+                upstream.transport.send_command(f"BLAECK.ACTIVATE,{params}")
+
+        total = len(self.signals)
+        n_up = len(self._upstreams)
+        if n_up:
+            print(
+                f"\033[32mblaecktcpy v{LIB_VERSION}\033[0m — Listening on "
+                f"\033[36m{self._ip}:{self._port}\033[0m "
+                f"({total} signals, {n_up} upstream{'s' if n_up != 1 else ''})"
+            )
+        else:
+            print(
+                f"\033[32mblaecktcpy v{LIB_VERSION}\033[0m — Listening on "
+                f"\033[36m{self._ip}:{self._port}\033[0m"
+            )
+
         atexit.register(self.close)
 
-    def _init_device_info(self, name, hw, fw):
-        """Step 1: Initialize device information"""
-        self.signals = SignalList()
-        self._device_name = name.encode()
-        self._device_hw_version = hw.encode()
-        self._device_fw_version = fw.encode()
-
     def _init_socket(self):
-        """Step 2: Create TCP socket"""
+        """Create TCP socket."""
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if sys.platform == "win32":
             self._server_socket.setsockopt(
@@ -151,7 +299,7 @@ class BlaeckServer:
             self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     def _bind_socket(self, ip, port):
-        """Step 3: Bind socket to address"""
+        """Bind socket to address."""
         self._server_socket.bind((ip, port))
 
     @staticmethod
@@ -173,32 +321,14 @@ class BlaeckServer:
         return bool(stdin and hasattr(stdin, "isatty") and stdin.isatty())
 
     def _start_listening(self):
-        """Step 4: Start listening for connections"""
+        """Start listening for connections."""
         self._server_socket.setblocking(False)
         self._server_socket.listen()
-        self._clients = {}  # client_id → socket
+        self._clients: dict[int, socket.socket] = {}
         self._next_client_id = 0
         self._commanding_client = None
         self._sel = selectors.DefaultSelector()
         self._sel.register(self._server_socket, selectors.EVENT_READ)
-
-    def _init_protocol(self):
-        """Step 5: Initialize protocol state"""
-        self._timed_activated = False
-        self._fixed_interval_ms = IntervalMode.CLIENT
-        self._timer = _IntervalTimer()
-        self._master_slave_config = bytes.fromhex("00")
-        self._slave_id = bytes.fromhex("00")
-        self._command_handlers = {}
-        self._read_callback = None
-        self._connect_callback = None
-        self._disconnect_callback = None
-        self._before_write_callback = None
-        self._server_restarted = True
-        self._restart_flag_pending = True
-        self.data_clients = set()
-        self._recv_buffers = {}
-        self._closed = False
 
     def _install_signal_handler(self):
         """Install SIGINT handler for clean shutdown."""
@@ -219,12 +349,14 @@ class BlaeckServer:
         datatype: str = "",
         value: Union[int, float] = 0,
     ) -> Signal:
-        """Add a signal to the signal list.
+        """Add a local signal.
 
         Can be called with a Signal object or with individual arguments::
 
             bltcp.add_signal(Signal('temp', 'float', 0.0))
             bltcp.add_signal('temp', 'float', 0.0)         # shorthand
+
+        Can be called before or after :meth:`start`.
 
         Returns the added Signal.
         """
@@ -234,11 +366,19 @@ class BlaeckServer:
             sig = Signal(signal_or_name, datatype, value)
         else:
             raise TypeError(f"Expected Signal or str, got {type(signal_or_name)}")
-        self.signals.append(sig)
+
+        if self._started:
+            # Insert at the local boundary, before upstream signals
+            self.signals.insert(self._local_signal_count, sig)
+            self._local_signal_count += 1
+            self._rebuild_upstream_indices()
+        else:
+            self.signals.append(sig)
+
         return sig
 
     def add_signals(self, signals) -> None:
-        """Add multiple signals at once.
+        """Add multiple local signals at once.
 
         Accepts any iterable of Signal objects::
 
@@ -251,24 +391,36 @@ class BlaeckServer:
             self.add_signal(sig)
 
     def delete_signals(self) -> None:
-        """Clear all signals."""
-        self.signals = SignalList()
+        """Remove all local signals.
+
+        After start, upstream signals are preserved and their indices
+        are rebuilt.
+        """
+        if self._started:
+            n = self._local_signal_count
+            if n > 0:
+                del self.signals[:n]
+                self._local_signal_count = 0
+                self._rebuild_upstream_indices()
+        else:
+            self.signals = SignalList()
 
     def _resolve_signal(self, key: Union[str, int]) -> int:
-        """Resolve a signal name or index to a valid index."""
+        """Resolve a signal name or index to a valid local signal index."""
+        lc = self._local_signal_count if self._started else len(self.signals)
         if isinstance(key, int):
-            if 0 <= key < len(self.signals):
+            if 0 <= key < lc:
                 return key
             raise IndexError(f"Signal index {key} out of range")
-        for i, sig in enumerate(self.signals):
-            if sig.signal_name == key:
+        for i in range(lc):
+            if self.signals[i].signal_name == key:
                 return i
         raise KeyError(f"Signal '{key}' not found")
 
     def write(
         self, key: Union[str, int], value: Union[int, float], *, msg_id: int = 1
     ) -> None:
-        """Update a single signal's value and immediately send it.
+        """Update a single local signal's value and immediately send it.
 
         Args:
             key: Signal name (str) or index (int)
@@ -284,7 +436,7 @@ class BlaeckServer:
         self._tcp_send_data(data)
 
     def update(self, key: Union[str, int], value: Union[int, float]) -> None:
-        """Update a signal's value and mark it as updated (no send).
+        """Update a local signal's value and mark it as updated (no send).
 
         Args:
             key: Signal name (str) or index (int)
@@ -295,37 +447,196 @@ class BlaeckServer:
         self.signals[idx].updated = True
 
     def mark_signal_updated(self, key: Union[str, int]) -> None:
-        """Mark a signal as updated without changing its value."""
+        """Mark a local signal as updated without changing its value."""
         idx = self._resolve_signal(key)
         self.signals[idx].updated = True
 
     def mark_all_signals_updated(self) -> None:
-        """Mark all signals as updated."""
-        for sig in self.signals:
-            sig.updated = True
+        """Mark all local signals as updated."""
+        lc = self._local_signal_count if self._started else len(self.signals)
+        for i in range(lc):
+            self.signals[i].updated = True
 
     def clear_all_update_flags(self) -> None:
-        """Clear the updated flag on all signals."""
-        for sig in self.signals:
-            sig.updated = False
+        """Clear the updated flag on all local signals."""
+        lc = self._local_signal_count if self._started else len(self.signals)
+        for i in range(lc):
+            self.signals[i].updated = False
 
     @property
     def has_updated_signals(self) -> bool:
-        """True if any signal is marked as updated."""
-        return any(sig.updated for sig in self.signals)
+        """True if any local signal is marked as updated."""
+        lc = self._local_signal_count if self._started else len(self.signals)
+        return any(self.signals[i].updated for i in range(lc))
+
+    # ========================================================================
+    # Upstream Setup
+    # ========================================================================
+    def add_tcp(
+        self,
+        ip: str,
+        port: int,
+        name: str = "",
+        timeout: float = 5.0,
+        interval_ms: int = IntervalMode.CLIENT,
+        relay_downstream: bool = True,
+    ) -> _UpstreamDevice:
+        """Connect to an upstream TCP device and discover its signals.
+
+        Blocks until the symbol table is fetched or timeout expires.
+        Must be called before :meth:`start`.
+
+        Args:
+            ip: IP address of the upstream device
+            port: TCP port of the upstream device
+            name: Optional friendly name; defaults to upstream device name
+            timeout: Connection and discovery timeout in seconds
+            interval_ms: Interval in milliseconds, or an
+                :class:`IntervalMode` member.
+            relay_downstream: If False, signals are decoded but not exposed
+                to downstream clients.
+
+        Returns:
+            Upstream handle for accessing signal values.
+        """
+        if self._started:
+            raise RuntimeError("Cannot add upstreams after start()")
+
+        label = name or f"{ip}:{port}"
+        transport = UpstreamTCP(label, ip, port)
+        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream)
+
+    def add_serial(
+        self,
+        port: str,
+        baudrate: int = 115200,
+        name: str = "",
+        timeout: float = 5.0,
+        dtr: bool = True,
+        interval_ms: int = IntervalMode.CLIENT,
+        relay_downstream: bool = True,
+    ) -> _UpstreamDevice:
+        """Connect to an upstream serial device and discover its signals.
+
+        Requires pyserial: ``pip install blaecktcpy[serial]``
+        Must be called before :meth:`start`.
+
+        Args:
+            port: Serial port (e.g. 'COM3', '/dev/ttyUSB0')
+            baudrate: Serial baud rate
+            name: Optional friendly name; defaults to upstream device name
+            timeout: Connection and discovery timeout in seconds
+            dtr: Enable DTR (set False for Arduino Mega to prevent reset)
+            interval_ms: Interval in milliseconds, or an
+                :class:`IntervalMode` member.
+            relay_downstream: If False, signals are decoded but not exposed
+                to downstream clients.
+
+        Returns:
+            Upstream handle for accessing signal values.
+        """
+        if self._started:
+            raise RuntimeError("Cannot add upstreams after start()")
+
+        from .hub._upstream import UpstreamSerial
+
+        label = name or port
+        transport = UpstreamSerial(label, port, baudrate, dtr)
+        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream)
+
+    def _discover_upstream(
+        self,
+        name: str,
+        transport: _UpstreamBase,
+        timeout: float,
+        interval_ms: int = 0,
+        relay_downstream: bool = True,
+    ) -> _UpstreamDevice:
+        """Connect and fetch the symbol table from an upstream device."""
+        label = transport.name
+
+        if not transport.connect(timeout):
+            raise ConnectionError(
+                f"Failed to connect to upstream '{label}': {transport.last_error}"
+            )
+
+        # Stop any ongoing timed data transmission
+        transport.send_command("BLAECK.DEACTIVATE")
+
+        # Poll for symbol list with periodic retries
+        transport.send_command("BLAECK.WRITE_SYMBOLS")
+        frame = None
+        max_polls = int(timeout / 0.1)
+        for i in range(max_polls):
+            time.sleep(0.1)
+            frames = transport.read_frames()
+            for f in frames:
+                if len(f) > 0 and f[0] == decoder.MSGKEY_SYMBOL_LIST:
+                    frame = f
+                    break
+            if frame is not None:
+                break
+            if i > 0 and i % 10 == 0:
+                transport.send_command("BLAECK.WRITE_SYMBOLS")
+
+        if frame is None:
+            transport.close()
+            raise TimeoutError(f"Upstream '{label}' did not respond to WRITE_SYMBOLS")
+
+        symbols = decoder.parse_symbol_list(frame)
+        if not symbols:
+            transport.close()
+            raise ValueError(f"Upstream '{label}' reported no signals")
+
+        upstream = _UpstreamDevice(
+            device_name=name, transport=transport,
+            interval_ms=interval_ms, relay_downstream=relay_downstream,
+        )
+        upstream.symbol_table = symbols
+
+        # Fetch device info with polling retries
+        device_msgkeys = decoder.MSGKEY_DEVICES_ALL
+        transport.send_command("BLAECK.GET_DEVICES")
+        frame = None
+        for i in range(max_polls):
+            time.sleep(0.1)
+            frames = transport.read_frames()
+            for f in frames:
+                if len(f) > 0 and f[0] in device_msgkeys:
+                    frame = f
+                    break
+            if frame is not None:
+                break
+            if i > 0 and i % 10 == 0:
+                transport.send_command("BLAECK.GET_DEVICES")
+
+        if frame is not None:
+            try:
+                upstream.device_infos = decoder.parse_all_devices(frame)
+            except Exception as e:
+                logger.debug(f"Upstream '{label}' device info parse error: {e}")
+
+        # Use upstream device name if no name was provided
+        if not name and upstream.device_infos:
+            upstream.device_name = upstream.device_infos[0].device_name
+
+        self._upstreams.append(upstream)
+
+        logger.info(f"Upstream '{upstream.device_name}': {len(symbols)} signals discovered")
+        return upstream
 
     # ========================================================================
     # Connection Management
     # ========================================================================
     @property
     def connected(self) -> bool:
-        """Check if any client is connected"""
-        return len(self._clients) > 0
+        """True if any downstream client is connected."""
+        return bool(getattr(self, "_clients", None))
 
     @property
     def commanding_client(self):
         """The client socket that sent the most recent command, or None."""
-        return self._commanding_client
+        return getattr(self, "_commanding_client", None)
 
     def _accept_new_clients(self):
         """Accept all pending new connections."""
@@ -473,7 +784,7 @@ class BlaeckServer:
         return sent
 
     # ========================================================================
-    # Command Parser
+    # Callbacks
     # ========================================================================
     def on_command(self, command: str | None = None):
         """Decorator to register a command handler.
@@ -561,6 +872,42 @@ class BlaeckServer:
 
         return decorator
 
+    def on_data_received(self, upstream_name: str | None = None):
+        """Decorator to register a callback when upstream data arrives.
+
+        Args:
+            upstream_name: If provided, only fires for that upstream.
+                If None, fires for any upstream.
+
+        Example::
+
+            @bltcp.on_data_received("Arduino")
+            def handle(upstream):
+                temp = upstream.signals["temperature"].value
+        """
+
+        def decorator(func):
+            self._data_received_callbacks.append((upstream_name, func))
+            return func
+
+        return decorator
+
+    def on_upstream_disconnected(self):
+        """Decorator to register a callback when an upstream device disconnects.
+
+        Example::
+
+            @bltcp.on_upstream_disconnected()
+            def handle(name):
+                print(f"Lost connection to {name}")
+        """
+
+        def decorator(func):
+            self._upstream_disconnect_callback = func
+            return func
+
+        return decorator
+
     # ========================================================================
     # Protocol Message Parsing
     # ========================================================================
@@ -580,29 +927,100 @@ class BlaeckServer:
     # Message Handlers
     # ========================================================================
     def read(self) -> None:
-        """Read and process all pending messages."""
+        """Read and process all pending messages from downstream clients.
+
+        When upstreams exist, uses hub-style command handling (forwarding
+        to upstreams).  When no upstreams, uses simpler server-style
+        processing.
+        """
         messages = self._tcp_read()
 
         for command, params, conn in messages:
             self._commanding_client = conn
 
-            # Handle built-in protocol commands
-            if command == "BLAECK.WRITE_SYMBOLS":
-                self.write_symbols(self._decode_four_byte(params))
+            if self._upstreams:
+                # Hub-style command handling
+                if command == "BLAECK.WRITE_SYMBOLS":
+                    self.write_symbols(self._decode_four_byte(params))
 
-            elif command == "BLAECK.WRITE_DATA":
-                self.write_all_data(self._decode_four_byte(params))
+                elif command == "BLAECK.GET_DEVICES":
+                    self.write_devices(self._decode_four_byte(params))
 
-            elif command == "BLAECK.GET_DEVICES":
-                self.write_devices(self._decode_four_byte(params))
+                elif command in (
+                    "BLAECK.ACTIVATE",
+                    "BLAECK.DEACTIVATE",
+                    "BLAECK.WRITE_DATA",
+                ):
+                    if params:
+                        full_cmd = f"{command},{','.join(str(p) for p in params)}"
+                    else:
+                        full_cmd = command
 
-            elif command == "BLAECK.ACTIVATE":
-                if self._fixed_interval_ms == IntervalMode.CLIENT:
-                    self._set_timed_data(True, self._decode_four_byte(params))
+                    if command == "BLAECK.WRITE_DATA":
+                        # One-shot: forward to relayed upstreams only
+                        for upstream in self._upstreams:
+                            if upstream.relay_downstream and upstream.transport.connected:
+                                upstream.transport.send_command(full_cmd)
+                    else:
+                        # ACTIVATE/DEACTIVATE: only forward to client-managed relayed upstreams
+                        for upstream in self._upstreams:
+                            if (
+                                upstream.relay_downstream
+                                and upstream.interval_ms == IntervalMode.CLIENT
+                                and upstream.transport.connected
+                            ):
+                                upstream.transport.send_command(full_cmd)
 
-            elif command == "BLAECK.DEACTIVATE":
-                if self._fixed_interval_ms == IntervalMode.CLIENT:
-                    self._set_timed_data(False)
+                    # Local signals: respond to client when in client-controlled mode
+                    if (
+                        self._local_signal_count > 0
+                        and self._fixed_interval_ms == IntervalMode.CLIENT
+                    ):
+                        if command == "BLAECK.ACTIVATE":
+                            self._timed_activated = True
+                            self._timer.activate(self._decode_four_byte(params))
+                        elif command == "BLAECK.DEACTIVATE":
+                            self._timed_activated = False
+                            self._timer.deactivate()
+
+                    # WRITE_DATA: one-shot send of local signals
+                    if self._local_signal_count > 0 and command == "BLAECK.WRITE_DATA":
+                        if self._before_write_callback is not None:
+                            self._before_write_callback()
+                        msg_id = self._decode_four_byte(params)
+                        header = (
+                            self.MSG_DATA
+                            + b":"
+                            + msg_id.to_bytes(4, "little")
+                            + b":"
+                        )
+                        data = (
+                            b"<BLAECK:"
+                            + self._build_data_msg(
+                                header, start=0, end=self._local_signal_count - 1
+                            )
+                            + b"/BLAECK>\r\n"
+                        )
+                        self._tcp_send_data(data)
+
+            else:
+                # Simple server-style command handling (no upstreams)
+                if command == "BLAECK.WRITE_SYMBOLS":
+                    self.write_symbols(self._decode_four_byte(params))
+
+                elif command == "BLAECK.WRITE_DATA":
+                    self.write_all_data(self._decode_four_byte(params))
+
+                elif command == "BLAECK.GET_DEVICES":
+                    self.write_devices(self._decode_four_byte(params))
+
+                elif command == "BLAECK.ACTIVATE":
+                    if self._fixed_interval_ms == IntervalMode.CLIENT:
+                        self._set_timed_data(True, self._decode_four_byte(params))
+
+                elif command == "BLAECK.DEACTIVATE":
+                    if self._fixed_interval_ms == IntervalMode.CLIENT:
+                        self._set_timed_data(False)
 
             # Dispatch to specific command handler
             handler = self._command_handlers.get(command)
@@ -617,62 +1035,235 @@ class BlaeckServer:
     # Message Writers
     # ========================================================================
     def write_symbols(self, msg_id: int = 1) -> None:
-        """Send symbol list to client."""
+        """Send symbol list to connected clients."""
         if not self.connected:
             return
 
         header = self.MSG_SYMBOL_LIST + b":" + msg_id.to_bytes(4, "little") + b":"
-        data = b"<BLAECK:" + header + self._get_symbols() + b"/BLAECK>\r\n"
+
+        if self._upstreams:
+            # Hub-style: MSC_MASTER for local, MSC_SLAVE for upstream
+            payload = b""
+            # Local (master) signals first
+            for i in range(self._local_signal_count):
+                sig = self.signals[i]
+                payload += (
+                    _MSC_MASTER
+                    + b"\x00"
+                    + sig.signal_name.encode()
+                    + b"\0"
+                    + sig.get_dtype_byte()
+                )
+            # Upstream (slave) signals — only relayed upstreams
+            for upstream in self._upstreams:
+                if not upstream.relay_downstream:
+                    continue
+                for sym in upstream.symbol_table:
+                    key = (sym.msc, sym.slave_id)
+                    hub_sid = upstream.slave_id_map[key]
+                    dtype_code = sym.datatype_code.to_bytes(1, "little")
+                    payload += (
+                        _MSC_SLAVE
+                        + bytes([hub_sid])
+                        + sym.name.encode()
+                        + b"\0"
+                        + dtype_code
+                    )
+            data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
+        else:
+            # Simple server-style
+            data = b"<BLAECK:" + header + self._get_symbols() + b"/BLAECK>\r\n"
 
         self._tcp_send(data)
 
-    def write_all_data(self, msg_id: int = 1) -> None:
-        """Send all signal data to data-enabled clients."""
-        if not self.connected or not self.signals:
+    def write_devices(self, msg_id: int = 1) -> None:
+        """Send device information to each connected client."""
+        if not self.connected:
             return
-        if self._before_write_callback is not None:
-            self._before_write_callback()
-        header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
-        data = b"<BLAECK:" + self._build_data_msg(header) + b"/BLAECK>\r\n"
-        self._tcp_send_data(data)
 
-    def write_updated_data(self, msg_id: int = 1) -> None:
-        """Send only signals marked as updated to data-enabled clients."""
-        if not self.connected or not self.has_updated_signals:
+        header = self.MSG_DEVICES + b":" + msg_id.to_bytes(4, "little") + b":"
+
+        if self._upstreams:
+            # Hub-style: master + slave devices
+            for client_id, conn in list(self._clients.items()):
+                payload = (
+                    _MSC_MASTER
+                    + b"\x00"  # SlaveID 0 for master
+                    + self._device_name
+                    + b"\0"
+                    + self._device_hw_version
+                    + b"\0"
+                    + self._device_fw_version
+                    + b"\0"
+                    + LIB_VERSION.encode()
+                    + b"\0"
+                    + LIB_NAME.encode()
+                    + b"\0"
+                    + str(client_id).encode()
+                    + b"\0"
+                    + (b"1" if client_id in self.data_clients else b"0")
+                    + b"\0"
+                    + (b"1" if self._server_restarted else b"0")
+                    + b"\0"
+                    + b"hub\0"
+                    + b"0\0"  # parent (master references itself)
+                )
+
+                # Upstream devices as slaves — only relayed upstreams
+                for upstream in self._upstreams:
+                    if not upstream.relay_downstream:
+                        continue
+                    old_sid_to_new: dict[int, int] = {}
+                    for (msc, sid), hub_sid in upstream.slave_id_map.items():
+                        old_sid_to_new[sid] = hub_sid
+                    first_entry = True
+                    for info in upstream.device_infos:
+                        key = (info.msc, info.slave_id)
+                        hub_sid = upstream.slave_id_map.get(key)
+                        if hub_sid is None:
+                            continue
+                        device_type = info.device_type or "server"
+                        if first_entry:
+                            parent_sid = 0
+                            first_entry = False
+                        else:
+                            orig_parent = int(info.parent) if info.parent else 0
+                            parent_sid = old_sid_to_new.get(orig_parent, 0)
+                        payload += (
+                            _MSC_SLAVE
+                            + bytes([hub_sid])
+                            + info.device_name.encode()
+                            + b"\0"
+                            + info.hw_version.encode()
+                            + b"\0"
+                            + info.fw_version.encode()
+                            + b"\0"
+                            + info.lib_version.encode()
+                            + b"\0"
+                            + info.lib_name.encode()
+                            + b"\0"
+                            + str(client_id).encode()
+                            + b"\0"
+                            + (b"1" if client_id in self.data_clients else b"0")
+                            + b"\0"
+                            + (info.server_restarted.encode() if info.server_restarted else b"0")
+                            + b"\0"
+                            + device_type.encode()
+                            + b"\0"
+                            + str(parent_sid).encode()
+                            + b"\0"
+                        )
+
+                data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
+
+                try:
+                    conn.sendall(data)
+                except OSError as e:
+                    logger.debug(f"Send error: {e}")
+                    self._disconnect_client(conn)
+        else:
+            # Simple server-style
+            for client_id, conn in list(self._clients.items()):
+                device_info = (
+                    self._master_slave_config
+                    + self._slave_id
+                    + self._device_name
+                    + b"\0"
+                    + self._device_hw_version
+                    + b"\0"
+                    + self._device_fw_version
+                    + b"\0"
+                    + LIB_VERSION.encode()
+                    + b"\0"
+                    + LIB_NAME.encode()
+                    + b"\0"
+                    + str(client_id).encode()
+                    + b"\0"
+                    + (b"1" if client_id in self.data_clients else b"0")
+                    + b"\0"
+                    + (b"1" if self._server_restarted else b"0")
+                    + b"\0"
+                    + b"server\0"
+                    + b"0\0"  # parent (SlaveID 0 = self)
+                )
+
+                data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"
+
+                try:
+                    conn.sendall(data)
+                except OSError as e:
+                    logger.debug(f"Send error: {e}")
+                    self._disconnect_client(conn)
+
+        self._server_restarted = False
+
+    def write_all_data(self, msg_id: int = 1) -> None:
+        """Send all local signal data to data-enabled clients."""
+        if not self.connected:
+            return
+        lc = self._local_signal_count if self._started else len(self.signals)
+        if lc == 0:
             return
         if self._before_write_callback is not None:
             self._before_write_callback()
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, only_updated=True)
+            + self._build_data_msg(header, start=0, end=lc - 1)
+            + b"/BLAECK>\r\n"
+        )
+        self._tcp_send_data(data)
+
+    def write_updated_data(self, msg_id: int = 1) -> None:
+        """Send only updated local signals to data-enabled clients."""
+        if not self.connected or not self.has_updated_signals:
+            return
+        lc = self._local_signal_count if self._started else len(self.signals)
+        if lc == 0:
+            return
+        if self._before_write_callback is not None:
+            self._before_write_callback()
+        header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
+        data = (
+            b"<BLAECK:"
+            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True)
             + b"/BLAECK>\r\n"
         )
         self._tcp_send_data(data)
 
     def _timer_elapsed(self) -> bool:
-        """Check if the timed interval has elapsed. Advances setpoint on True."""
+        """Check if the timed interval has elapsed."""
         return self._timer.elapsed()
 
     def timed_write_all_data(self, msg_id: int = 185273099) -> bool:
-        """Send all data if timer interval has elapsed."""
+        """Send all local data if timer interval has elapsed."""
         if not self.connected:
             return False
         if not self._timed_activated:
+            return False
+        lc = self._local_signal_count if self._started else len(self.signals)
+        if lc == 0:
             return False
         if not self._timer_elapsed():
             return False
         if self._before_write_callback is not None:
             self._before_write_callback()
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
-        data = b"<BLAECK:" + self._build_data_msg(header) + b"/BLAECK>\r\n"
+        data = (
+            b"<BLAECK:"
+            + self._build_data_msg(header, start=0, end=lc - 1)
+            + b"/BLAECK>\r\n"
+        )
         return self._tcp_send_data(data)
 
     def timed_write_updated_data(self, msg_id: int = 185273099) -> bool:
-        """Send only updated signals if timer interval has elapsed."""
+        """Send only updated local signals if timer interval has elapsed."""
         if not self.connected:
             return False
         if not self._timed_activated:
+            return False
+        lc = self._local_signal_count if self._started else len(self.signals)
+        if lc == 0:
             return False
         if not self._timer_elapsed():
             return False
@@ -683,18 +1274,13 @@ class BlaeckServer:
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, only_updated=True)
+            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True)
             + b"/BLAECK>\r\n"
         )
         return self._tcp_send_data(data)
 
     def _set_timed_data(self, activated: bool, interval_ms: int = 0) -> None:
-        """Programmatically activate or deactivate timed data transmission.
-
-        Args:
-            activated: True to start, False to stop
-            interval_ms: Interval in milliseconds (only used when activating)
-        """
+        """Programmatically activate or deactivate timed data transmission."""
         self._timed_activated = activated
         if activated:
             self._timer.activate(interval_ms)
@@ -737,67 +1323,191 @@ class BlaeckServer:
             self._fixed_interval_ms = IntervalMode.CLIENT
             logger.info("Client control restored")
 
-    def write_devices(self, msg_id: int = 1) -> None:
-        """Send device information to each connected client."""
-        if not self.connected:
-            return
-
-        header = self.MSG_DEVICES + b":" + msg_id.to_bytes(4, "little") + b":"
-
-        for client_id, conn in list(self._clients.items()):
-            device_info = (
-                self._master_slave_config
-                + self._slave_id
-                + self._device_name
-                + b"\0"
-                + self._device_hw_version
-                + b"\0"
-                + self._device_fw_version
-                + b"\0"
-                + LIB_VERSION.encode()
-                + b"\0"
-                + LIB_NAME.encode()
-                + b"\0"
-                + str(client_id).encode()
-                + b"\0"
-                + (b"1" if client_id in self.data_clients else b"0")
-                + b"\0"
-                + (b"1" if self._server_restarted else b"0")
-                + b"\0"
-                + b"server\0"
-                + b"0\0"  # parent (SlaveID 0 = self)
-            )
-
-            data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"
-
-            try:
-                conn.sendall(data)
-            except OSError as e:
-                logger.debug(f"Send error: {e}")
-                self._disconnect_client(conn)
-
-        self._server_restarted = False
-
     # ========================================================================
     # Main Loop
     # ========================================================================
     def tick(self, msg_id: int = 185273099) -> bool:
-        """Main loop tick — read commands, send all data on timer.
+        """Main loop tick — read commands, poll upstreams, send all data on timer.
 
         Call this repeatedly in your main loop.
-        Returns True if timed data was sent.
+        Returns True if timed local data was sent.
         """
         self.read()
+        self._poll_upstreams()
         return self.timed_write_all_data(msg_id)
 
     def tick_updated(self, msg_id: int = 185273099) -> bool:
-        """Main loop tick — read commands, send only updated data on timer.
+        """Main loop tick — read commands, poll upstreams, send only updated data.
 
-        Like tick() but only transmits signals marked as updated.
-        Returns True if timed data was sent.
+        Like tick() but only transmits local signals marked as updated.
+        Returns True if timed local data was sent.
         """
         self.read()
+        self._poll_upstreams()
         return self.timed_write_updated_data(msg_id)
+
+    # ========================================================================
+    # Upstream Polling
+    # ========================================================================
+    def _poll_upstreams(self) -> None:
+        """Read frames from all upstream devices, update signals, and relay."""
+        if not self._upstreams:
+            return
+
+        for upstream in self._upstreams:
+            if not upstream.transport.connected:
+                if upstream.connected:
+                    upstream.connected = False
+                    self._zero_upstream_signals(upstream)
+                    self._send_upstream_lost_frame(upstream)
+                    if self._upstream_disconnect_callback is not None:
+                        self._upstream_disconnect_callback(upstream.device_name)
+                continue
+
+            frames = upstream.transport.read_frames()
+
+            # Detect disconnect that happened during read
+            if upstream.connected and not upstream.transport.connected:
+                upstream.connected = False
+                self._zero_upstream_signals(upstream)
+                self._send_upstream_lost_frame(upstream)
+                if self._upstream_disconnect_callback is not None:
+                    self._upstream_disconnect_callback(upstream.device_name)
+                continue
+
+            for frame in frames:
+                if len(frame) == 0:
+                    continue
+                msg_key = frame[0]
+                if msg_key in decoder.MSGKEY_DATA_ALL:
+                    try:
+                        decoded = decoder.parse_data(frame, upstream.symbol_table)
+
+                        # Relay upstream restart flag downstream
+                        if decoded.restart_flag:
+                            self._restart_flag_pending = True
+
+                        if not upstream.relay_downstream:
+                            # Non-relayed: update internal signals only
+                            for sig_id, value in decoded.signals.items():
+                                idx = upstream.index_map.get(sig_id)
+                                if idx is not None and idx < len(upstream._signals):
+                                    upstream._signals[idx].value = value
+                            try:
+                                self._fire_data_received(upstream)
+                            except Exception as e:
+                                logger.warning(
+                                    f"on_data_received callback error for "
+                                    f"'{upstream.device_name}': {e}"
+                                )
+                            continue
+
+                        for sig_id, value in decoded.signals.items():
+                            hub_idx = upstream.index_map.get(sig_id)
+                            if hub_idx is not None and hub_idx < len(self.signals):
+                                self.signals[hub_idx].value = value
+                                self.signals[hub_idx].updated = True
+
+                        # Fire callback before relay so transforms can run
+                        try:
+                            self._fire_data_received(upstream)
+                        except Exception as e:
+                            logger.warning(
+                                f"on_data_received callback error for "
+                                f"'{upstream.device_name}': {e}"
+                            )
+
+                        # Forward upstream timestamp only with a single relayed device
+                        relayed_count = sum(1 for u in self._upstreams if u.relay_downstream)
+                        single = relayed_count == 1 and self._local_signal_count == 0
+                        ts = decoded.timestamp if single else None
+
+                        # Replace msg_id only when hub overrides BLAECK.ACTIVATE
+                        relay_msg_id = decoded.msg_id
+                        if upstream.interval_ms >= 0 and relay_msg_id == _MSG_ID_ACTIVATE:
+                            relay_msg_id = _MSG_ID_HUB
+
+                        # Determine this upstream's signal index range
+                        hub_indices = sorted(upstream.index_map.values())
+                        if not hub_indices:
+                            continue
+                        start_idx = hub_indices[0]
+                        end_idx = hub_indices[-1]
+                        header = (
+                            self.MSG_DATA
+                            + b":"
+                            + relay_msg_id.to_bytes(4, "little")
+                            + b":"
+                        )
+                        relay_data = (
+                            b"<BLAECK:"
+                            + self._build_data_msg(
+                                header,
+                                start=start_idx,
+                                end=end_idx,
+                                only_updated=True,
+                                timestamp=ts,
+                                status=decoded.status_byte,
+                            )
+                            + b"/BLAECK>\r\n"
+                        )
+                        self._tcp_send_data(relay_data)
+                    except Exception as e:
+                        logger.warning(
+                            f"Upstream '{upstream.device_name}' frame dropped: {e}"
+                        )
+
+    def _fire_data_received(self, upstream: _UpstreamDevice) -> None:
+        """Invoke all matching on_data_received callbacks."""
+        for name_filter, func in self._data_received_callbacks:
+            if name_filter is None or name_filter == upstream.device_name:
+                func(upstream)
+
+    def _zero_upstream_signals(self, upstream: _UpstreamDevice) -> None:
+        """Reset all signals from a disconnected upstream to zero."""
+        if upstream.relay_downstream:
+            for hub_idx in upstream.index_map.values():
+                if hub_idx < len(self.signals):
+                    self.signals[hub_idx].value = 0
+                    self.signals[hub_idx].updated = True
+        else:
+            for sig in upstream._signals:
+                sig.value = 0
+
+    def _send_upstream_lost_frame(self, upstream: _UpstreamDevice) -> None:
+        """Send one data frame with STATUS_UPSTREAM_LOST for a disconnected upstream."""
+        if not upstream.relay_downstream or not self.connected:
+            return
+        hub_indices = sorted(upstream.index_map.values())
+        if not hub_indices:
+            return
+        start_idx = hub_indices[0]
+        end_idx = hub_indices[-1]
+        header = (
+            self.MSG_DATA
+            + b":"
+            + _MSG_ID_HUB.to_bytes(4, "little")
+            + b":"
+        )
+        data = (
+            b"<BLAECK:"
+            + self._build_data_msg(
+                header,
+                start=start_idx,
+                end=end_idx,
+                only_updated=True,
+                status=STATUS_UPSTREAM_LOST,
+            )
+            + b"/BLAECK>\r\n"
+        )
+        self._tcp_send_data(data)
+
+    def _rebuild_upstream_indices(self) -> None:
+        """Rebuild relayed upstream index_map from current signals list."""
+        for upstream in self._upstreams:
+            if upstream.relay_downstream:
+                for k, sig in enumerate(upstream._signals):
+                    upstream.index_map[k] = self.signals.index(sig)
 
     # ========================================================================
     # Internal Protocol Methods
@@ -857,9 +1567,8 @@ class BlaeckServer:
         return crc_input + status.to_bytes(1, "little") + crc
 
     def _get_symbols(self) -> bytes:
-        """Build symbol list message"""
+        """Build symbol list message (simple server mode)."""
         result = b""
-
         for sig in self.signals:
             result += (
                 self._master_slave_config
@@ -868,51 +1577,114 @@ class BlaeckServer:
                 + b"\0"
                 + sig.get_dtype_byte()
             )
-
         return result
 
     # ========================================================================
-    # Context Manager Support
+    # Status & Properties
     # ========================================================================
-    def __enter__(self):
-        """Enable 'with' statement usage"""
-        return self
+    def upstream_status(self, name: str | None = None) -> dict:
+        """Get connection status for upstream devices.
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Clean up on exit"""
-        self.close()
+        Args:
+            name: Specific upstream name, or None for all.
 
+        Returns:
+            Dict with 'connected', 'last_seen', 'signals' keys.
+            If name is None, returns {name: status_dict, ...}.
+        """
+
+        def _status(u: _UpstreamDevice) -> dict:
+            return {
+                "connected": u.transport.connected,
+                "last_seen": u.transport.last_seen,
+                "signals": len(u.symbol_table),
+            }
+
+        if name is not None:
+            for u in self._upstreams:
+                if u.device_name == name:
+                    return _status(u)
+            raise KeyError(f"No upstream named '{name}'")
+
+        return {u.device_name: _status(u) for u in self._upstreams}
+
+    def __getitem__(self, name: str) -> _UpstreamDevice:
+        """Access an upstream device by name.
+
+        Example::
+
+            bltcp["Arduino"]["temperature"].value
+            bltcp["Arduino"].signals[0].value
+        """
+        for upstream in self._upstreams:
+            if upstream.device_name == name:
+                return upstream
+        raise KeyError(f"No upstream named {name!r}")
+
+    # ========================================================================
+    # Lifecycle
+    # ========================================================================
     def close(self):
-        """Gracefully close all connections."""
+        """Gracefully close all upstream and downstream connections."""
         if self._closed:
             return
         self._closed = True
         atexit.unregister(self.close)
-        signal.signal(signal.SIGINT, self._original_sigint)
-        for conn in list(self._clients.values()):
+        if hasattr(self, "_original_sigint"):
+            signal.signal(signal.SIGINT, self._original_sigint)
+
+        # Deactivate and close upstreams
+        for upstream in self._upstreams:
+            if upstream.transport.connected:
+                upstream.transport.send_command("BLAECK.DEACTIVATE")
+            upstream.transport.close()
+
+        # Close downstream connections
+        if hasattr(self, "_clients"):
+            for conn in list(self._clients.values()):
+                try:
+                    self._sel.unregister(conn)
+                except Exception:
+                    pass
+                try:
+                    conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    conn.close()
+                except OSError:
+                    pass
+            self._clients.clear()
+        if hasattr(self, "_sel"):
             try:
-                self._sel.unregister(conn)
+                self._sel.unregister(self._server_socket)
             except Exception:
                 pass
-            try:
-                conn.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            try:
-                conn.close()
-            except OSError:
-                pass
-        self._clients.clear()
-        try:
-            self._sel.unregister(self._server_socket)
-        except Exception:
-            pass
-        self._sel.close()
-        self._server_socket.close()
+            self._sel.close()
+        if hasattr(self, "_server_socket"):
+            self._server_socket.close()
+
         logger.info("Server closed")
 
+    def __enter__(self):
+        """Enable 'with' statement usage."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Clean up on exit."""
+        self.close()
+
     def __repr__(self):
-        n = len(self._clients)
+        if hasattr(self, "_clients"):
+            n = len(self._clients)
+        else:
+            n = 0
         clients = f"{n} client{'s' if n != 1 else ''}"
         active = "active" if self._timed_activated else "inactive"
+        n_up = len(self._upstreams)
+        if n_up:
+            return (
+                f"blaecktcpy [{clients}] [{active}] "
+                f"({len(self.signals)} signals, {n_up} upstreams)"
+            )
         return f"blaecktcpy [{clients}] [{active}] ({len(self.signals)} signals)"

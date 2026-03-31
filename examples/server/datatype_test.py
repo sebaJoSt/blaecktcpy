@@ -1,13 +1,13 @@
 """Datatype Test — exercises all supported BlaeckTCP datatypes."""
 
-from blaecktcpy import BlaeckServer
+from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
 
 ip = "127.0.0.1"
 port = 23
 
-bltcp = BlaeckServer(ip, port, "Datatype Test", "Python Script", EXAMPLE_VERSION)
+bltcp = BlaeckTCPy(ip, port, "Datatype Test", "Python Script", EXAMPLE_VERSION)
 
 bltcp.add_signal("Bool_false", "bool", False)
 bltcp.add_signal("Bool_true", "bool", True)
@@ -36,6 +36,7 @@ bltcp.add_signal("Double_NaN", "double", float("nan"))
 bltcp.add_signal("Double_Inf", "double", float("inf"))
 bltcp.add_signal("Double_NegInf", "double", float("-inf"))
 
+bltcp.start()
 print("##LOGGBOK:READY##")
 
 while True:

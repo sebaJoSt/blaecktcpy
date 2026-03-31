@@ -1,13 +1,13 @@
 """Command Parser — custom command handling with @bltcp.on_command()."""
 
-from blaecktcpy import BlaeckServer
+from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
 
 ip = "127.0.0.1"
 port = 23
 
-bltcp = BlaeckServer(ip, port, "Command Parser Example", "Python Script", EXAMPLE_VERSION)
+bltcp = BlaeckTCPy(ip, port, "Command Parser Example", "Python Script", EXAMPLE_VERSION)
 
 bltcp.add_signal("LED_State", "bool")
 bltcp.add_signal("Motor_Speed", "float")
@@ -30,6 +30,8 @@ def handle_motor(speed, direction):
 def log_all(command, *params):
     print(f"[LOG] {command} {params}")
 
+
+bltcp.start()
 
 while True:
     bltcp.tick()

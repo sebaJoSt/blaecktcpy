@@ -21,7 +21,7 @@ import os
 import sys
 import time
 
-from blaecktcpy import BlaeckServer
+from blaecktcpy import BlaeckTCPy
 
 CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else "test_data.csv"
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 23
@@ -55,13 +55,14 @@ def main():
     print(f"CSV columns: {header}")
     print(f"Signals:     {signal_names}")
 
-    bltcp = BlaeckServer(
+    bltcp = BlaeckTCPy(
         "127.0.0.1", PORT, "CSV Tail Reader", "Python Script", EXAMPLE_VERSION
     )
 
     for name in signal_names:
         bltcp.add_signal(name, "double")
 
+    bltcp.start()
     print("##LOGGBOK:READY##")
 
     # Open file and seek past existing content so we only stream new rows

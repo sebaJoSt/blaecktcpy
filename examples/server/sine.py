@@ -3,15 +3,16 @@
 import math
 import time
 
-from blaecktcpy import BlaeckServer
+from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
 
-bltcp = BlaeckServer("127.0.0.1", 23, "Sine Generator", "Python Script", EXAMPLE_VERSION)
+bltcp = BlaeckTCPy("127.0.0.1", 23, "Sine Generator", "Python Script", EXAMPLE_VERSION)
 
 for i in range(1, 4):
     bltcp.add_signal(f"Sine_{i}", "float")
 
+bltcp.start()
 start_time = time.time()
 print("##LOGGBOK:READY##")
 

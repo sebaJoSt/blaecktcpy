@@ -10,12 +10,12 @@ Install the library from PyPI:
 pip install blaecktcpy
 ```
 
-### Create a BlaeckServer instance
+### Create a BlaeckTCPy instance
 
 ```python
-from blaecktcpy import BlaeckServer, Signal
+from blaecktcpy import BlaeckTCPy, Signal
 
-bltcp = BlaeckServer(
+bltcp = BlaeckTCPy(
     ip='127.0.0.1',
     port=23,
     device_name='My Device',
@@ -38,6 +38,14 @@ bltcp.signals[0].value = 1.0
 bltcp.signals["Temperature"].value = 22.5
 ```
 
+### Start the device
+
+Call `start()` after setup (adding signals, configuring interval, adding upstreams) and before using `tick()`, `read()`, or `write()`:
+
+```python
+bltcp.start()
+```
+
 ### Update your variables and don't forget to `tick()`!
 
 ```python
@@ -52,7 +60,7 @@ while True:
 ### Server-controlled interval
 
 By default the client controls the timed data rate via `ACTIVATE`/`DEACTIVATE`.
-Use `set_interval()` to lock the server to a fixed rate:
+Use `set_interval()` to lock the device to a fixed rate:
 
 ```python
 from blaecktcpy import IntervalMode
@@ -166,7 +174,7 @@ Messages use the following binary format:
 | `Client#` | String0 | Client number of the connected client |
 | `ClientDataEnabled` | String0 | `0` or `1`: client is allowed to receive data |
 | `ServerRestarted` | String0 | `0` or `1`: first response after a restart is `1` |
-| `DeviceType` | String0 | `server` for BlaeckServer, `hub` for BlaeckHub |
+| `DeviceType` | String0 | `server` or `hub` |
 | `Parent` | String0 | SlaveID of the parent device (`0` = master) |
 | `RestartFlag` | byte | `1` on the first data frame after startup, `0` otherwise |
 | `TimestampMode` | byte | Always `0` in blaecktcpy (timestamps not implemented) |
@@ -174,28 +182,27 @@ Messages use the following binary format:
 | `StatusByte` | byte | `0x00` = normal, `0x01` = I2C CRC error, `0x02` = upstream connection lost |
 | `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |
 
-## BlaeckHub
+## Hub mode
 
-`BlaeckHub` aggregates signals from multiple upstream TCP or serial devices and serves them as a single merged device. It can also add local signals.
+The same `BlaeckTCPy` class serves as a hub when you add upstream connections with `add_tcp()` or `add_serial()`. The hub aggregates signals from multiple upstream devices and serves them as a single merged device, alongside any local signals.
 
 ```python
-from blaecktcpy import BlaeckHub
+from blaecktcpy import BlaeckTCPy
 
-hub = BlaeckHub("0.0.0.0", 23, "My Hub", "Python", "1.0")
+hub = BlaeckTCPy("0.0.0.0", 23, "My Hub", "Python", "1.0")
 
 # Connect to upstream devices
 hub.add_tcp("192.168.1.10", 24, name="ESP32")
 hub.add_tcp("127.0.0.1", 25, name="Sine")
 
 # Add a local signal
-dew_point = hub.local.add_signal("DewPoint", "float")
+dew_point = hub.add_signal("DewPoint", "float")
 
 hub.start()
 
 while True:
     dew_point.value = compute_dew_point()
     hub.tick()
-    hub.local.tick()
 ```
 
 Serial upstreams are also supported (`pip install blaecktcpy[serial]`):
@@ -210,7 +217,7 @@ The hub sends `BLAECK.DEACTIVATE` to every upstream on connect (to ensure a clea
 
 By default (`interval_ms=IntervalMode.CLIENT`), each upstream starts streaming when a downstream client (e.g. Loggbok) sends `BLAECK.ACTIVATE`. The hub forwards `ACTIVATE` and `DEACTIVATE` commands from the client to these upstreams.
 
-Set `interval_ms` to a value ≥ 0 to start streaming at a fixed rate immediately on `hub.start()`. Client `ACTIVATE`/`DEACTIVATE` commands are **not** forwarded to hub-managed upstreams:
+Set `interval_ms` to a value ≥ 0 to start streaming at a fixed rate immediately on `start()`. Client `ACTIVATE`/`DEACTIVATE` commands are **not** forwarded to hub-managed upstreams:
 
 ```python
 from blaecktcpy import IntervalMode
@@ -227,12 +234,12 @@ hub.add_tcp("192.168.1.20", 24, name="Sensor", interval_ms=IntervalMode.OFF)
 
 ### Local signal interval
 
-Use `hub.local.set_interval()` to stream local signals at a fixed rate:
+Use `set_interval()` to stream local signals at a fixed rate:
 
 ```python
-hub.local.set_interval(500)                  # local signals every 500 ms
-hub.local.set_interval(IntervalMode.CLIENT)  # follow client ACTIVATE/DEACTIVATE (default)
-hub.local.set_interval(IntervalMode.OFF)     # disable timed local data
+hub.set_interval(500)                  # local signals every 500 ms
+hub.set_interval(IntervalMode.CLIENT)  # follow client ACTIVATE/DEACTIVATE (default)
+hub.set_interval(IntervalMode.OFF)     # disable timed local data
 ```
 
 ### Relaying upstream signals
@@ -246,7 +253,7 @@ Set `relay_downstream=False` to decode upstream signals hub-side without exposin
 arduino = hub.add_tcp("192.168.1.10", 24, name="Arduino", relay_downstream=False)
 
 # Expose a computed signal instead
-dew_point = hub.local.add_signal("DewPoint", "float")
+dew_point = hub.add_signal("DewPoint", "float")
 ```
 
 The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream to clients.

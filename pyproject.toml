@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blaecktcpy"
-version = "2.0.0"
+version = "3.0.0"
 description = "A Python TCP server for real-time streaming of named, typed signals in binary format"
 readme = "README.md"
 authors = [
