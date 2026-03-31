@@ -10,7 +10,7 @@ import sys
 import time
 from typing import Union
 
-from ._signal import Signal
+from ._signal import Signal, SignalList, IntervalMode
 
 __all__ = ["BlaeckServer"]
 
@@ -65,7 +65,8 @@ class _IntervalTimer:
         elapsed_ms = (now - self._base_ns) / 1_000_000
         if elapsed_ms < self._setpoint_ms:
             return False
-        self._setpoint_ms += self._interval_ms
+        while self._setpoint_ms <= elapsed_ms:
+            self._setpoint_ms += self._interval_ms
         return True
 
 
@@ -134,7 +135,7 @@ class BlaeckServer:
 
     def _init_device_info(self, name, hw, fw):
         """Step 1: Initialize device information"""
-        self.signals = []
+        self.signals = SignalList()
         self._device_name = name.encode()
         self._device_hw_version = hw.encode()
         self._device_fw_version = fw.encode()
@@ -184,6 +185,7 @@ class BlaeckServer:
     def _init_protocol(self):
         """Step 5: Initialize protocol state"""
         self._timed_activated = False
+        self._fixed_interval_ms = IntervalMode.CLIENT
         self._timer = _IntervalTimer()
         self._master_slave_config = bytes.fromhex("00")
         self._slave_id = bytes.fromhex("00")
@@ -250,7 +252,7 @@ class BlaeckServer:
 
     def delete_signals(self) -> None:
         """Clear all signals."""
-        self.signals = []
+        self.signals = SignalList()
 
     def _resolve_signal(self, key: Union[str, int]) -> int:
         """Resolve a signal name or index to a valid index."""
@@ -321,11 +323,6 @@ class BlaeckServer:
         return len(self._clients) > 0
 
     @property
-    def timed_activated(self) -> bool:
-        """Check if timed data transmission is active"""
-        return self._timed_activated
-
-    @property
     def commanding_client(self):
         """The client socket that sent the most recent command, or None."""
         return self._commanding_client
@@ -380,7 +377,7 @@ class BlaeckServer:
         logger.info(f"Client #{client_id if client_id >= 0 else '?'} disconnected")
         if client_id >= 0 and self._disconnect_callback is not None:
             self._disconnect_callback(client_id)
-        if not self._clients:
+        if not self._clients and self._fixed_interval_ms == IntervalMode.CLIENT:
             self._timed_activated = False
 
     def _tcp_read(self) -> list:
@@ -600,10 +597,12 @@ class BlaeckServer:
                 self.write_devices(self._decode_four_byte(params))
 
             elif command == "BLAECK.ACTIVATE":
-                self.set_timed_data(True, self._decode_four_byte(params))
+                if self._fixed_interval_ms == IntervalMode.CLIENT:
+                    self._set_timed_data(True, self._decode_four_byte(params))
 
             elif command == "BLAECK.DEACTIVATE":
-                self.set_timed_data(False)
+                if self._fixed_interval_ms == IntervalMode.CLIENT:
+                    self._set_timed_data(False)
 
             # Dispatch to specific command handler
             handler = self._command_handlers.get(command)
@@ -637,7 +636,7 @@ class BlaeckServer:
         data = b"<BLAECK:" + self._build_data_msg(header) + b"/BLAECK>\r\n"
         self._tcp_send_data(data)
 
-    def write_updated_data(self, msg_id: int = 1, timestamp: int | None = None) -> None:
+    def write_updated_data(self, msg_id: int = 1) -> None:
         """Send only signals marked as updated to data-enabled clients."""
         if not self.connected or not self.has_updated_signals:
             return
@@ -646,7 +645,7 @@ class BlaeckServer:
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, only_updated=True, timestamp=timestamp)
+            + self._build_data_msg(header, only_updated=True)
             + b"/BLAECK>\r\n"
         )
         self._tcp_send_data(data)
@@ -657,7 +656,9 @@ class BlaeckServer:
 
     def timed_write_all_data(self, msg_id: int = 185273099) -> bool:
         """Send all data if timer interval has elapsed."""
-        if not (self.connected and self._timed_activated):
+        if not self.connected:
+            return False
+        if not self._timed_activated:
             return False
         if not self._timer_elapsed():
             return False
@@ -669,7 +670,9 @@ class BlaeckServer:
 
     def timed_write_updated_data(self, msg_id: int = 185273099) -> bool:
         """Send only updated signals if timer interval has elapsed."""
-        if not (self.connected and self._timed_activated):
+        if not self.connected:
+            return False
+        if not self._timed_activated:
             return False
         if not self._timer_elapsed():
             return False
@@ -685,7 +688,7 @@ class BlaeckServer:
         )
         return self._tcp_send_data(data)
 
-    def set_timed_data(self, activated: bool, interval_ms: int = 0) -> None:
+    def _set_timed_data(self, activated: bool, interval_ms: int = 0) -> None:
         """Programmatically activate or deactivate timed data transmission.
 
         Args:
@@ -699,6 +702,40 @@ class BlaeckServer:
         else:
             self._timer.deactivate()
             logger.info("Timed data deactivated")
+
+    def set_interval(self, interval_ms: int) -> None:
+        """Set the timed data interval mode.
+
+        Controls how timed data transmission is managed:
+
+        * **interval_ms >= 0** — Lock at the given rate.  Client
+          ``ACTIVATE`` / ``DEACTIVATE`` commands are ignored.
+          ``0`` means "as fast as possible."
+        * **IntervalMode.OFF** — Timed data is off.  Client
+          ``ACTIVATE`` is ignored.
+        * **IntervalMode.CLIENT** — Client controlled (default).
+          The client's ``ACTIVATE`` / ``DEACTIVATE`` commands
+          determine the rate.
+
+        Args:
+            interval_ms: Interval in milliseconds, or an
+                :class:`IntervalMode` member.
+        """
+        if interval_ms >= 0:
+            self._fixed_interval_ms = interval_ms
+            self._timed_activated = True
+            self._timer.activate(interval_ms)
+            logger.info(
+                f"Fixed interval set ({interval_ms} ms) — client control locked"
+            )
+        elif interval_ms == IntervalMode.OFF:
+            self._fixed_interval_ms = IntervalMode.OFF
+            self._timed_activated = False
+            self._timer.deactivate()
+            logger.info("Timed data locked off — client control locked")
+        elif interval_ms == IntervalMode.CLIENT:
+            self._fixed_interval_ms = IntervalMode.CLIENT
+            logger.info("Client control restored")
 
     def write_devices(self, msg_id: int = 1) -> None:
         """Send device information to each connected client."""
@@ -751,7 +788,7 @@ class BlaeckServer:
         Returns True if timed data was sent.
         """
         self.read()
-        return self.timed_write_all_data(msg_id) if self._timed_activated else False
+        return self.timed_write_all_data(msg_id)
 
     def tick_updated(self, msg_id: int = 185273099) -> bool:
         """Main loop tick — read commands, send only updated data on timer.
@@ -760,7 +797,7 @@ class BlaeckServer:
         Returns True if timed data was sent.
         """
         self.read()
-        return self.timed_write_updated_data(msg_id) if self._timed_activated else False
+        return self.timed_write_updated_data(msg_id)
 
     # ========================================================================
     # Internal Protocol Methods

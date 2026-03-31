@@ -31,6 +31,13 @@ bltcp.add_signal('Sine_1', 'float', 0.0)
 bltcp.add_signal(Signal('Temperature', 'double', 0.0))
 ```
 
+Signals are stored in a `SignalList` and can be accessed by index or name:
+
+```python
+bltcp.signals[0].value = 1.0
+bltcp.signals["Temperature"].value = 22.5
+```
+
 ### Update your variables and don't forget to `tick()`!
 
 ```python
@@ -40,6 +47,19 @@ start = time.time()
 while True:
     bltcp.signals[0].value = math.sin((time.time() - start) * 0.1)
     bltcp.tick()
+```
+
+### Server-controlled interval
+
+By default the client controls the timed data rate via `ACTIVATE`/`DEACTIVATE`.
+Use `set_interval()` to lock the server to a fixed rate:
+
+```python
+from blaecktcpy import IntervalMode
+
+bltcp.set_interval(500)                  # send every 500 ms, ignore client ACTIVATE/DEACTIVATE
+bltcp.set_interval(IntervalMode.CLIENT)  # return to client control (default)
+bltcp.set_interval(IntervalMode.OFF)     # disable timed data entirely
 ```
 
 ## Built-in commands
@@ -168,13 +188,14 @@ hub.add_tcp("192.168.1.10", 24, name="ESP32")
 hub.add_tcp("127.0.0.1", 25, name="Sine")
 
 # Add a local signal
-dew_point = hub.add_signal("DewPoint", "float")
+dew_point = hub.local.add_signal("DewPoint", "float")
 
 hub.start()
 
 while True:
     dew_point.value = compute_dew_point()
     hub.tick()
+    hub.local.tick()
 ```
 
 Serial upstreams are also supported (`pip install blaecktcpy[serial]`):
@@ -187,27 +208,32 @@ hub.add_serial("COM3", 115200, name="Arduino")
 
 The hub sends `BLAECK.DEACTIVATE` to every upstream on connect (to ensure a clean state) and again on `close()`.
 
-By default (`interval_ms=0`), each upstream starts streaming when a downstream client (e.g. Loggbok) sends `BLAECK.ACTIVATE`. The hub forwards `ACTIVATE` and `DEACTIVATE` commands from the client to these upstreams.
+By default (`interval_ms=IntervalMode.CLIENT`), each upstream starts streaming when a downstream client (e.g. Loggbok) sends `BLAECK.ACTIVATE`. The hub forwards `ACTIVATE` and `DEACTIVATE` commands from the client to these upstreams.
 
-Set `interval_ms` to override this and start streaming at a fixed rate immediately on `hub.start()`. Client `ACTIVATE`/`DEACTIVATE` commands are **not** forwarded to hub-managed upstreams:
+Set `interval_ms` to a value ≥ 0 to start streaming at a fixed rate immediately on `hub.start()`. Client `ACTIVATE`/`DEACTIVATE` commands are **not** forwarded to hub-managed upstreams:
 
 ```python
+from blaecktcpy import IntervalMode
+
 # Hub-managed: always stream at 500 ms, ignore client ACTIVATE/DEACTIVATE
 hub.add_tcp("192.168.1.10", 24, name="ESP32", interval_ms=500)
 
 # Client-managed (default): hub forwards ACTIVATE/DEACTIVATE from Loggbok
 hub.add_tcp("127.0.0.1", 25, name="Sine")
+
+# Disabled: no timed data from this upstream
+hub.add_tcp("192.168.1.20", 24, name="Sensor", interval_ms=IntervalMode.OFF)
 ```
 
 ### Local signal interval
 
-Use `set_local_interval()` to stream local signals at a fixed rate:
+Use `hub.local.set_interval()` to stream local signals at a fixed rate:
 
 ```python
-hub.set_local_interval(500)  # local signals every 500 ms
+hub.local.set_interval(500)                  # local signals every 500 ms
+hub.local.set_interval(IntervalMode.CLIENT)  # follow client ACTIVATE/DEACTIVATE (default)
+hub.local.set_interval(IntervalMode.OFF)     # disable timed local data
 ```
-
-If not set, local signals follow the client's ACTIVATE interval.
 
 ### Relaying upstream signals
 
@@ -220,7 +246,7 @@ Set `relay_downstream=False` to decode upstream signals hub-side without exposin
 arduino = hub.add_tcp("192.168.1.10", 24, name="Arduino", relay_downstream=False)
 
 # Expose a computed signal instead
-dew_point = hub.add_signal("DewPoint", "float")
+dew_point = hub.local.add_signal("DewPoint", "float")
 ```
 
 The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream to clients.

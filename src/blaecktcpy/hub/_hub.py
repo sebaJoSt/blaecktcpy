@@ -10,8 +10,8 @@ Example::
     from blaecktcpy import BlaeckHub
 
     hub = BlaeckHub("0.0.0.0", 23, "My Hub", "Python", "1.0")
-    hub.add_tcp("ESP32", "192.168.1.10", 23)
-    hub.add_tcp("Python", "127.0.0.1", 24)
+    hub.add_tcp("192.168.1.10", 23, "ESP32")
+    hub.add_tcp("127.0.0.1", 24, "Python")
     hub.start()
 
     while True:
@@ -21,8 +21,9 @@ Example::
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import Union
 
-from .._signal import Signal
+from .._signal import Signal, SignalList, IntervalMode
 from .._server import BlaeckServer, LIB_VERSION, LIB_NAME, STATUS_UPSTREAM_LOST, _IntervalTimer
 from . import _decoder as decoder
 from ._upstream import UpstreamTCP, UpstreamSerial, _UpstreamBase
@@ -38,47 +39,6 @@ _MSG_ID_HUB = 185273100  # 0x0B0B0B0C — hub-overridden interval
 logger = logging.getLogger("blaecktcpy")
 
 
-class UpstreamSignals:
-    """Signal collection for an upstream device.
-
-    Supports access by index (int) or signal name (str)::
-
-        upstream.signals[0].value
-        upstream.signals["temperature"].value
-    """
-
-    def __init__(self, signals: list[Signal]) -> None:
-        self._signals = signals
-        self._name_map: dict[str, int] = {}
-        for i, sig in enumerate(signals):
-            self._name_map[sig.signal_name] = i
-
-    def __getitem__(self, key: int | str) -> Signal:
-        if isinstance(key, int):
-            return self._signals[key]
-        if isinstance(key, str):
-            idx = self._name_map.get(key)
-            if idx is None:
-                raise KeyError(f"No signal named {key!r}")
-            return self._signals[idx]
-        raise TypeError(f"Expected int or str, got {type(key).__name__}")
-
-    def __len__(self) -> int:
-        return len(self._signals)
-
-    def __iter__(self):
-        return iter(self._signals)
-
-    def __repr__(self) -> str:
-        return f"UpstreamSignals({self._signals!r})"
-
-    def _rebuild_name_map(self) -> None:
-        """Rebuild after signals list is populated (e.g. during start)."""
-        self._name_map.clear()
-        for i, sig in enumerate(self._signals):
-            self._name_map[sig.signal_name] = i
-
-
 @dataclass
 class _UpstreamDevice:
     """Internal bookkeeping for one upstream connection."""
@@ -89,14 +49,14 @@ class _UpstreamDevice:
     index_map: dict[int, int] = field(default_factory=dict)
     device_infos: list[decoder.DecodedDeviceInfo] = field(default_factory=list)
     slave_id_map: dict[tuple[int, int], int] = field(default_factory=dict)
-    interval_ms: int = 0
+    interval_ms: int = IntervalMode.CLIENT
     connected: bool = True
     relay_downstream: bool = True
     _signals: list[Signal] = field(default_factory=list)
-    _upstream_signals: UpstreamSignals | None = field(default=None, repr=False)
+    _upstream_signals: SignalList | None = field(default=None, repr=False)
 
     @property
-    def signals(self) -> UpstreamSignals:
+    def signals(self) -> SignalList:
         if self._upstream_signals is None:
             raise RuntimeError(
                 "Signals not available yet — call hub.start() first"
@@ -105,6 +65,365 @@ class _UpstreamDevice:
 
     def __getitem__(self, key: int | str) -> Signal:
         return self.signals[key]
+
+
+class HubLocalSignals:
+    """Manages local signals on a BlaeckHub.
+
+    Accessed via ``hub.local``. Provides the same signal write/update API
+    as :class:`BlaeckServer`, scoped to hub-local signals only.
+
+    Example::
+
+        sig = hub.local.add_signal("temperature", "float")
+        hub.local.set_interval(300)
+        hub.start()
+
+        while True:
+            hub.tick()
+            hub.local.tick()
+    """
+
+    def __init__(self, hub: "BlaeckHub"):
+        self._hub = hub
+        self._signals: SignalList = SignalList()
+        self._before_write_callback = None
+        self._fixed_interval_ms: int = IntervalMode.CLIENT
+        self._timed_activated: bool = False
+        self._timer = _IntervalTimer()
+
+    # ---- Setup (before start) ----
+
+    def add_signal(
+        self,
+        signal_or_name: Union[Signal, str],
+        datatype: str = "",
+        value: Union[int, float] = 0,
+    ) -> Signal:
+        """Add a local signal to the hub.
+
+        Can be called with a Signal object or with individual arguments::
+
+            hub.local.add_signal(Signal('temp', 'float', 0.0))
+            hub.local.add_signal('temp', 'float', 0.0)         # shorthand
+
+        Local signals appear before upstream signals in the signal list.
+        Can be called before or after :meth:`BlaeckHub.start`.
+
+        .. warning::
+           Adding signals after start changes the signal list.
+           Ensure no client is actively logging when you do this.
+
+        Returns:
+            The Signal object. Update its ``.value`` and ``.updated``
+            attributes in your main loop.
+        """
+        if isinstance(signal_or_name, Signal):
+            sig = signal_or_name
+        elif isinstance(signal_or_name, str):
+            sig = Signal(signal_or_name, datatype, value)
+        else:
+            raise TypeError(f"Expected Signal or str, got {type(signal_or_name)}")
+        self._signals.append(sig)
+        if self._hub._started and self._hub._server is not None:
+            insert_pos = len(self._signals) - 1
+            self._hub._server.signals.insert(insert_pos, sig)
+            self._rebuild_upstream_indices()
+        return sig
+
+    def add_signals(self, signals) -> None:
+        """Add multiple local signals at once.
+
+        Accepts any iterable of Signal objects::
+
+            hub.local.add_signals([
+                Signal('temp', 'float', 0.0),
+                Signal('led',  'bool',  False),
+            ])
+
+        .. warning::
+           Adding signals after start changes the signal list.
+           Ensure no client is actively logging when you do this.
+        """
+        for sig in signals:
+            if isinstance(sig, Signal):
+                self.add_signal(sig.signal_name, sig.datatype, sig.value)
+            else:
+                self.add_signal(*sig)
+
+    def delete_signals(self) -> None:
+        """Remove all local signals.
+
+        .. warning::
+           Ensure no client is actively logging when you call this.
+        """
+        if self._hub._started and self._hub._server is not None:
+            n = len(self._signals)
+            if n > 0:
+                del self._hub._server.signals[:n]
+                self._rebuild_upstream_indices()
+        self._signals.clear()
+
+    def _rebuild_upstream_indices(self) -> None:
+        """Rebuild relayed upstream index_map from current server.signals."""
+        server = self._hub._server
+        for upstream in self._hub._upstreams:
+            if upstream.relay_downstream:
+                for k, sig in enumerate(upstream._signals):
+                    upstream.index_map[k] = server.signals.index(sig)
+
+    def set_interval(self, interval_ms: int) -> None:
+        """Set the timed data interval mode for local signals.
+
+        Controls how timed data transmission is managed:
+
+        * **interval_ms >= 0** — Lock at the given rate.  Client
+          ``ACTIVATE`` / ``DEACTIVATE`` commands are ignored.
+          ``0`` means "as fast as possible."
+        * **IntervalMode.OFF** — Timed data is off.  Client
+          ``ACTIVATE`` is ignored.
+        * **IntervalMode.CLIENT** — Client controlled (default).
+          The client's ``ACTIVATE`` / ``DEACTIVATE`` commands
+          determine the rate.
+
+        Args:
+            interval_ms: Interval in milliseconds, or an
+                :class:`IntervalMode` member.
+        """
+        if interval_ms >= 0:
+            self._fixed_interval_ms = interval_ms
+            self._timed_activated = True
+            self._timer.activate(interval_ms)
+            logger.info(
+                f"Local fixed interval set ({interval_ms} ms) — client control locked"
+            )
+        elif interval_ms == IntervalMode.OFF:
+            self._fixed_interval_ms = IntervalMode.OFF
+            self._timed_activated = False
+            self._timer.deactivate()
+            logger.info("Local timed data locked off — client control locked")
+        elif interval_ms == IntervalMode.CLIENT:
+            self._fixed_interval_ms = IntervalMode.CLIENT
+            logger.info("Local client control restored")
+
+    def on_before_write(self):
+        """Decorator to register a callback that fires before local data is sent.
+
+        Use this to update local signal values right before they are
+        transmitted — especially useful for client-triggered ``WRITE_DATA``
+        one-shot requests.
+
+        Example::
+
+            @hub.local.on_before_write()
+            def refresh():
+                hub.local.signals["temperature"].value = read_sensor()
+        """
+
+        def decorator(func):
+            self._before_write_callback = func
+            return func
+
+        return decorator
+
+    def _fire_before_write(self) -> None:
+        """Invoke the before-write callback if registered."""
+        if self._before_write_callback is not None:
+            self._before_write_callback()
+
+    # ---- Signal resolution ----
+
+    def _resolve(self, key: Union[str, int]) -> int:
+        """Resolve a signal name or index to a valid local signal index.
+
+        Raises:
+            IndexError: If index is out of range for local signals.
+            KeyError: If signal name is not found among local signals.
+        """
+        if isinstance(key, int):
+            if not self._signals:
+                raise IndexError("No local signals configured")
+            if 0 <= key < len(self._signals):
+                return key
+            raise IndexError(
+                f"Local signal index {key} out of range "
+                f"(0..{len(self._signals) - 1})"
+            )
+        for i, sig in enumerate(self._signals):
+            if sig.signal_name == key:
+                return i
+        raise KeyError(f"Local signal '{key}' not found")
+
+    def _require_started(self) -> BlaeckServer:
+        """Return the hub's server, raising if not started."""
+        if not self._hub._started or self._hub._server is None:
+            raise RuntimeError("Must call start() before using hub.local methods")
+        return self._hub._server
+
+    # ---- Single-signal methods ----
+
+    def write(
+        self, key: Union[str, int], value: Union[int, float], *, msg_id: int = 1
+    ) -> None:
+        """Update a local signal's value and immediately send it.
+
+        Args:
+            key: Signal name (str) or local index (int)
+            value: New value to set
+            msg_id: Message ID for the protocol frame
+        """
+        server = self._require_started()
+        idx = self._resolve(key)
+        server.write(idx, value, msg_id=msg_id)
+
+    def update(self, key: Union[str, int], value: Union[int, float]) -> None:
+        """Update a local signal's value and mark it as updated (no send).
+
+        Args:
+            key: Signal name (str) or local index (int)
+            value: New value to set
+        """
+        server = self._require_started()
+        idx = self._resolve(key)
+        server.update(idx, value)
+
+    def mark_signal_updated(self, key: Union[str, int]) -> None:
+        """Mark a local signal as updated without changing its value."""
+        self._require_started()
+        idx = self._resolve(key)
+        self._signals[idx].updated = True
+
+    def mark_all_signals_updated(self) -> None:
+        """Mark all local signals as updated."""
+        self._require_started()
+        for sig in self._signals:
+            sig.updated = True
+
+    def clear_all_update_flags(self) -> None:
+        """Clear the updated flag on all local signals."""
+        self._require_started()
+        for sig in self._signals:
+            sig.updated = False
+
+    @property
+    def has_updated_signals(self) -> bool:
+        """True if any local signal is marked as updated."""
+        return any(sig.updated for sig in self._signals)
+
+    @property
+    def signals(self) -> SignalList:
+        """Local signals, accessible by index or name.
+
+        Example::
+
+            hub.local.signals[0].value
+            hub.local.signals["temperature"].value
+        """
+        return self._signals
+
+    # ---- Immediate bulk methods ----
+
+    def write_all_data(self, msg_id: int = 1) -> None:
+        """Send all local signal data to data-enabled clients immediately."""
+        server = self._require_started()
+        if not self._signals or not server.connected:
+            return
+        self._fire_before_write()
+        local_count = len(self._signals)
+        header = server.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
+        data = (
+            b"<BLAECK:"
+            + server._build_data_msg(header, start=0, end=local_count - 1)
+            + b"/BLAECK>\r\n"
+        )
+        server._tcp_send_data(data)
+
+    def write_updated_data(self, msg_id: int = 1) -> None:
+        """Send only updated local signals to data-enabled clients immediately.
+
+        Args:
+            msg_id: Message ID for the protocol frame
+        """
+        server = self._require_started()
+        if not self._signals or not server.connected:
+            return
+        if not self.has_updated_signals:
+            return
+        self._fire_before_write()
+        local_count = len(self._signals)
+        header = server.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
+        data = (
+            b"<BLAECK:"
+            + server._build_data_msg(
+                header, start=0, end=local_count - 1, only_updated=True,
+            )
+            + b"/BLAECK>\r\n"
+        )
+        server._tcp_send_data(data)
+
+    # ---- Timed methods ----
+
+    def timed_write_all_data(self, msg_id: int = 185273099) -> bool:
+        """Send all local signals if the timer interval has elapsed."""
+        server = self._require_started()
+        if not self._timed_activated or not self._signals:
+            return False
+        if not server.connected:
+            return False
+        if not self._timer.elapsed():
+            return False
+
+        self._fire_before_write()
+        local_count = len(self._signals)
+        header = server.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
+        data = (
+            b"<BLAECK:"
+            + server._build_data_msg(header, start=0, end=local_count - 1)
+            + b"/BLAECK>\r\n"
+        )
+        return server._tcp_send_data(data)
+
+    def timed_write_updated_data(self, msg_id: int = 185273099) -> bool:
+        """Send only updated local signals if the timer interval has elapsed."""
+        server = self._require_started()
+        if not self._timed_activated or not self._signals:
+            return False
+        if not server.connected:
+            return False
+        if not self._timer.elapsed():
+            return False
+        if not self.has_updated_signals:
+            return False
+
+        self._fire_before_write()
+        local_count = len(self._signals)
+        header = server.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
+        data = (
+            b"<BLAECK:"
+            + server._build_data_msg(
+                header, start=0, end=local_count - 1, only_updated=True
+            )
+            + b"/BLAECK>\r\n"
+        )
+        return server._tcp_send_data(data)
+
+    def tick(self, msg_id: int = 185273099) -> bool:
+        """Send all local signal data if the timer interval has elapsed.
+
+        Convenience alias for :meth:`timed_write_all_data`.
+        Call this in your main loop alongside :meth:`BlaeckHub.tick`.
+        Returns True if timed data was sent.
+        """
+        return self.timed_write_all_data(msg_id)
+
+    def tick_updated(self, msg_id: int = 185273099) -> bool:
+        """Send only updated local signals if the timer interval has elapsed.
+
+        Convenience alias for :meth:`timed_write_updated_data`.
+        Call this in your main loop alongside :meth:`BlaeckHub.tick`.
+        Returns True if timed data was sent.
+        """
+        return self.timed_write_updated_data(msg_id)
 
 
 class BlaeckHub:
@@ -130,13 +449,10 @@ class BlaeckHub:
         self._port = port
 
         self._upstreams: list[_UpstreamDevice] = []
-        self._local_signals: list[Signal] = []
         self._server: BlaeckServer | None = None
         self._started = False
 
-        self._local_interval_ms: int = 0
-        self._local_fixed_interval: bool = False
-        self._local_timer = _IntervalTimer()
+        self.local = HubLocalSignals(self)
 
         self._disconnect_callback = None
         self._client_connect_callback = None
@@ -149,59 +465,13 @@ class BlaeckHub:
     # Setup — call before start()
     # ====================================================================
 
-    def set_local_interval(self, interval_ms: int) -> None:
-        """Set a fixed sending rate for local signals.
-
-        When set, local signals are sent at this hub-managed interval
-        and downstream clients cannot override the rate via ACTIVATE.
-        Without this call, local signals follow the downstream client's
-        ACTIVATE/DEACTIVATE commands — just like upstreams without
-        ``interval_ms``.
-
-        Must be called before :meth:`start`.
-
-        Args:
-            interval_ms: Interval in milliseconds.
-        """
-        if self._started:
-            raise RuntimeError("Cannot set local interval after start()")
-        self._local_interval_ms = interval_ms
-        self._local_fixed_interval = True
-        self._local_timer.activate(interval_ms)
-
-    def add_signal(
-        self,
-        name: str,
-        datatype: str,
-        value: int | float = 0,
-    ) -> Signal:
-        """Add a local signal to the hub.
-
-        Local signals appear before upstream signals in the signal list.
-        Must be called before :meth:`start`.
-
-        Args:
-            name: Signal name
-            datatype: Signal datatype (e.g. 'float', 'int', 'bool')
-            value: Initial value
-
-        Returns:
-            The Signal object. Update its ``.value`` and ``.updated``
-            attributes in your main loop.
-        """
-        if self._started:
-            raise RuntimeError("Cannot add signals after start()")
-        sig = Signal(name, datatype, value)
-        self._local_signals.append(sig)
-        return sig
-
     def add_tcp(
         self,
         ip: str,
         port: int,
         name: str = "",
         timeout: float = 5.0,
-        interval_ms: int = 0,
+        interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream TCP device and discover its signals.
@@ -214,8 +484,9 @@ class BlaeckHub:
             port: TCP port of the upstream device
             name: Optional friendly name; defaults to upstream device name
             timeout: Connection and discovery timeout in seconds
-            interval_ms: If > 0, activate timed data at this interval on
-                start.  The downstream client cannot override this rate.
+            interval_ms: Interval in milliseconds, or an
+                :class:`IntervalMode` member.  Default is
+                ``IntervalMode.CLIENT`` (client controlled).
             relay_downstream: If False, signals are decoded hub-side but not exposed
                 to downstream clients (no symbols, devices, or data).
 
@@ -236,7 +507,7 @@ class BlaeckHub:
         name: str = "",
         timeout: float = 5.0,
         dtr: bool = True,
-        interval_ms: int = 0,
+        interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream serial device and discover its signals.
@@ -250,8 +521,9 @@ class BlaeckHub:
             name: Optional friendly name; defaults to upstream device name
             timeout: Connection and discovery timeout in seconds
             dtr: Enable DTR (set False for Arduino Mega to prevent reset)
-            interval_ms: If > 0, activate timed data at this interval on
-                start.  The downstream client cannot override this rate.
+            interval_ms: Interval in milliseconds, or an
+                :class:`IntervalMode` member.  Default is
+                ``IntervalMode.CLIENT`` (client controlled).
             relay_downstream: If False, signals are decoded hub-side but not exposed
                 to downstream clients (no symbols, devices, or data).
 
@@ -371,11 +643,11 @@ class BlaeckHub:
         )
 
         # Register local signals first
-        for sig in self._local_signals:
+        for sig in self.local._signals:
             self._server.add_signal(sig)
 
         # Register upstream signals and build index maps
-        offset = len(self._local_signals)
+        offset = len(self.local._signals)
         hub_slave_idx = 0
         for upstream in self._upstreams:
             if upstream.relay_downstream:
@@ -414,7 +686,7 @@ class BlaeckHub:
                     upstream.index_map[i] = i
 
             # Freeze signal collection now that _signals is fully populated
-            upstream._upstream_signals = UpstreamSignals(upstream._signals)
+            upstream._upstream_signals = SignalList(upstream._signals)
 
         self._started = True
 
@@ -424,15 +696,9 @@ class BlaeckHub:
         if self._client_disconnect_callback is not None:
             self._server._disconnect_callback = self._client_disconnect_callback
 
-        # Wire up command handlers
-        for cmd, handler in self._command_handlers.items():
-            self._server._command_handlers[cmd] = handler
-        if self._command_catchall is not None:
-            self._server._read_callback = self._command_catchall
-
         # Activate upstreams with a fixed interval
         for upstream in self._upstreams:
-            if upstream.interval_ms > 0:
+            if upstream.interval_ms >= 0:
                 b = upstream.interval_ms.to_bytes(4, "little")
                 params = ",".join(str(x) for x in b)
                 upstream.transport.send_command(f"BLAECK.ACTIVATE,{params}")
@@ -459,18 +725,31 @@ class BlaeckHub:
     # Main loop
     # ====================================================================
 
+    def read(self) -> None:
+        """Read and process commands from downstream clients.
+
+        Call this repeatedly in your main loop when you only need to handle
+        client commands (e.g. WRITE_SYMBOLS, WRITE_DATA) without polling
+        upstreams. Useful when the hub has only local signals and no upstreams.
+        """
+        if not self._started or self._server is None:
+            raise RuntimeError("Must call start() before read()")
+        self._read()
+
     def tick(self) -> None:
-        """Main loop tick — poll upstreams, serve downstream.
+        """Main loop tick — read commands and poll upstreams.
 
         Call this repeatedly in your main loop.
         Reads commands from downstream clients and forwards them to upstreams.
         Reads data from upstreams and immediately relays updated signals downstream.
+
+        Does **not** send local signal data — use :meth:`HubLocalSignals.tick`
+        (``hub.local.tick()``) for that.
         """
         if not self._started or self._server is None:
             raise RuntimeError("Must call start() before tick()")
         self._read()
         self._poll_upstreams()
-        self._tick_local()
 
     def _read(self) -> None:
         """Simplified read — no built-in data/timer handling.
@@ -512,24 +791,30 @@ class BlaeckHub:
                     for upstream in self._upstreams:
                         if (
                             upstream.relay_downstream
-                            and upstream.interval_ms == 0
+                            and upstream.interval_ms == IntervalMode.CLIENT
                             and upstream.transport.connected
                         ):
                             upstream.transport.send_command(full_cmd)
 
-                # Local signals: respond to client when not hub-managed
-                if self._local_signals and not self._local_fixed_interval:
+                # Local signals: respond to client when in client-controlled mode
+                if (
+                    self.local._signals
+                    and self.local._fixed_interval_ms == IntervalMode.CLIENT
+                ):
                     if command == "BLAECK.ACTIVATE":
-                        self._local_interval_ms = self._server._decode_four_byte(params)
-                        self._local_timer.activate(self._local_interval_ms)
+                        self.local._timed_activated = True
+                        self.local._timer.activate(
+                            self._server._decode_four_byte(params)
+                        )
                     elif command == "BLAECK.DEACTIVATE":
-                        self._local_interval_ms = 0
-                        self._local_timer.deactivate()
+                        self.local._timed_activated = False
+                        self.local._timer.deactivate()
 
                 # WRITE_DATA: one-shot send of local signals
-                if self._local_signals and command == "BLAECK.WRITE_DATA":
+                if self.local._signals and command == "BLAECK.WRITE_DATA":
+                    self.local._fire_before_write()
                     msg_id = self._server._decode_four_byte(params)
-                    local_count = len(self._local_signals)
+                    local_count = len(self.local._signals)
                     header = (
                         self._server.MSG_DATA
                         + b":"
@@ -544,6 +829,15 @@ class BlaeckHub:
                         + b"/BLAECK>\r\n"
                     )
                     self._server._tcp_send_data(data)
+
+            # Dispatch to specific command handler
+            handler = self._command_handlers.get(command)
+            if handler is not None:
+                handler(*params)
+
+            # Fire catch-all callback
+            if self._command_catchall is not None:
+                self._command_catchall(command, *params)
 
     def _poll_upstreams(self) -> None:
         """Read frames from all upstream devices, update signals, and relay immediately."""
@@ -586,7 +880,13 @@ class BlaeckHub:
                                 idx = upstream.index_map.get(sig_id)
                                 if idx is not None and idx < len(upstream._signals):
                                     upstream._signals[idx].value = value
-                            self._fire_data_received(upstream)
+                            try:
+                                self._fire_data_received(upstream)
+                            except Exception as e:
+                                logger.warning(
+                                    f"on_data_received callback error for "
+                                    f"'{upstream.device_name}': {e}"
+                                )
                             continue
 
                         for sig_id, value in decoded.signals.items():
@@ -607,11 +907,11 @@ class BlaeckHub:
                             )
                         # Forward upstream timestamp only with a single relayed device
                         relayed_count = sum(1 for u in self._upstreams if u.relay_downstream)
-                        single = relayed_count == 1 and not self._local_signals
+                        single = relayed_count == 1 and not self.local._signals
                         ts = decoded.timestamp if single else None
                         # Replace msg_id only when hub overrides BLAECK.ACTIVATE
                         msg_id = decoded.msg_id
-                        if upstream.interval_ms > 0 and msg_id == _MSG_ID_ACTIVATE:
+                        if upstream.interval_ms >= 0 and msg_id == _MSG_ID_ACTIVATE:
                             msg_id = _MSG_ID_HUB
                         # Determine this upstream's signal index range
                         hub_indices = sorted(upstream.index_map.values())
@@ -683,33 +983,6 @@ class BlaeckHub:
         self._server._tcp_send_data(data)
 
     # ====================================================================
-    # Local signal timing
-    # ====================================================================
-
-    def _tick_local(self) -> None:
-        """Send local signals at the configured interval."""
-        if self._local_interval_ms <= 0 or not self._local_signals:
-            return
-        if not self._server or not self._server.connected:
-            return
-        if not self._local_timer_elapsed():
-            return
-
-        msg_id = _MSG_ID_HUB if self._local_fixed_interval else _MSG_ID_ACTIVATE
-        local_count = len(self._local_signals)
-        header = self._server.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
-        data = (
-            b"<BLAECK:"
-            + self._server._build_data_msg(header, start=0, end=local_count - 1)
-            + b"/BLAECK>\r\n"
-        )
-        self._server._tcp_send_data(data)
-
-    def _local_timer_elapsed(self) -> bool:
-        """Check if the local signal interval has elapsed."""
-        return self._local_timer.elapsed()
-
-    # ====================================================================
     # Upstream command forwarding
     # ====================================================================
 
@@ -730,7 +1003,7 @@ class BlaeckHub:
 
         payload = b""
         # Local (master) signals first
-        for sig in self._local_signals:
+        for sig in self.local._signals:
             payload += (
                 _MSC_MASTER
                 + b"\x00"
@@ -758,7 +1031,7 @@ class BlaeckHub:
         data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
         logger.debug(f"WRITE_SYMBOLS frame ({len(data)} bytes): {data.hex(' ')}")
         # Human-readable symbol dump
-        for sig in self._local_signals:
+        for sig in self.local._signals:
             logger.debug(
                 f"  SlaveID=0 (local) name={sig.signal_name!r} dtype={sig.datatype}"
             )
@@ -975,12 +1248,8 @@ class BlaeckHub:
         def decorator(func):
             if command is None:
                 self._command_catchall = func
-                if self._server is not None:
-                    self._server._read_callback = func
             else:
                 self._command_handlers[command] = func
-                if self._server is not None:
-                    self._server._command_handlers[command] = func
             return func
 
         return decorator
@@ -1021,6 +1290,13 @@ class BlaeckHub:
         if self._server:
             return self._server.connected
         return False
+
+    @property
+    def commanding_client(self):
+        """The client socket that sent the most recent command, or None."""
+        if self._server:
+            return self._server.commanding_client
+        return None
 
     @property
     def server(self) -> BlaeckServer | None:

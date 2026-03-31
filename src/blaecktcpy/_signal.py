@@ -1,8 +1,21 @@
 """Signal dataclass for BlaeckTCP typed data."""
 
 import struct
+from enum import IntEnum
 from typing import Union
 from dataclasses import dataclass, field
+
+
+class IntervalMode(IntEnum):
+    """Timed data interval modes for :meth:`set_interval`.
+
+    * **OFF** (-1) — Timed data disabled; client ACTIVATE ignored.
+    * **CLIENT** (-2) — Client controlled (default); the client's
+      ACTIVATE / DEACTIVATE commands determine the rate.
+    """
+
+    OFF = -1
+    CLIENT = -2
 
 
 @dataclass(init=False)
@@ -132,3 +145,21 @@ class Signal:
 
     def __repr__(self):
         return f"{self.signal_name}: {self.datatype} = {self.value}"
+
+
+class SignalList(list):
+    """A list of signals with name-based access.
+
+    Supports indexing by integer or signal name::
+
+        signals[0].value
+        signals["temperature"].value
+    """
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            for sig in self:
+                if sig.signal_name == key:
+                    return sig
+            raise KeyError(f"No signal named {key!r}")
+        return super().__getitem__(key)

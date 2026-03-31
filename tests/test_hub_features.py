@@ -2,7 +2,7 @@
 
 Covers:
 - STATUS_OK / STATUS_UPSTREAM_LOST in _build_data_msg
-- UpstreamSignals collection (index, name, len, iter, errors)
+- SignalList collection (index, name, len, iter, errors)
 - Callback registration and dispatch (on_data_received, client callbacks)
 - relay_downstream=False signal registration in start()
 """
@@ -18,10 +18,11 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from blaecktcpy import Signal, STATUS_OK, STATUS_UPSTREAM_LOST
+from blaecktcpy import Signal, STATUS_OK, STATUS_UPSTREAM_LOST, IntervalMode
 from blaecktcpy.hub._hub import (
     BlaeckHub,
-    UpstreamSignals,
+    HubLocalSignals,
+    SignalList,
     _UpstreamDevice,
     _MSG_ID_HUB,
 )
@@ -116,12 +117,12 @@ class TestStatusByte:
 
 
 # ========================================================================
-# UpstreamSignals tests
+# SignalList tests
 # ========================================================================
 
 
-class TestUpstreamSignals:
-    """Verify UpstreamSignals collection access patterns."""
+class TestSignalList:
+    """Verify SignalList collection access patterns."""
 
     def setup_method(self):
         self.signals = [
@@ -129,7 +130,7 @@ class TestUpstreamSignals:
             Signal("humidity", "float", 65.0),
             Signal("pressure", "float", 1013.25),
         ]
-        self.collection = UpstreamSignals(self.signals)
+        self.collection = SignalList(self.signals)
 
     def test_access_by_index(self):
         assert self.collection[0].signal_name == "temperature"
@@ -160,7 +161,7 @@ class TestUpstreamSignals:
         assert names == ["temperature", "humidity", "pressure"]
 
     def test_empty_collection(self):
-        empty = UpstreamSignals([])
+        empty = SignalList([])
         assert len(empty) == 0
         assert list(empty) == []
 
@@ -179,8 +180,9 @@ class TestCallbackRegistration:
 
     def setup_method(self):
         self.hub = BlaeckHub.__new__(BlaeckHub)
+        self.hub.local = HubLocalSignals(self.hub)
         self.hub._upstreams = []
-        self.hub._local_signals = []
+        self.hub.local._signals = []
         self.hub._server = None
         self.hub._started = False
         self.hub._disconnect_callback = None
@@ -271,11 +273,111 @@ class TestCallbackRegistration:
         assert len(self.hub._command_handlers) == 2
 
 
+class TestCommandHandlerDispatch:
+    """Verify on_command handlers are actually called when commands arrive."""
+
+    def _make_hub(self):
+        import socket
+
+        server = _make_server_on_free_port()
+
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
+        hub._upstreams = []
+        hub.local._signals = []
+        hub._callbacks = {"data_received": []}
+        hub._data_received_callbacks = []
+        hub._disconnect_callback = None
+        hub._started = False
+        hub._server = None
+        hub._command_handlers = {}
+        hub._command_catchall = None
+        hub.local._fixed_interval_ms = IntervalMode.CLIENT
+        hub.local._timed_activated = False
+        hub.local._timer = _IntervalTimer()
+
+        hub._server = server
+        hub._started = True
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", server._port))
+        server._accept_new_clients()
+
+        return hub, server, client
+
+    def test_specific_command_handler_fires(self):
+        hub, server, client = self._make_hub()
+        received = []
+
+        @hub.on_command("SET_LED")
+        def handler(*params):
+            received.append(params)
+
+        try:
+            import time
+
+            client.sendall(b"<SET_LED,1>")
+            time.sleep(0.05)
+            hub._read()
+            assert len(received) == 1
+            assert received[0] == ("1",)
+        finally:
+            client.close()
+            server.close()
+
+    def test_catchall_handler_fires(self):
+        hub, server, client = self._make_hub()
+        received = []
+
+        @hub.on_command()
+        def handler(command, *params):
+            received.append((command, params))
+
+        try:
+            import time
+
+            client.sendall(b"<MY_CMD,42>")
+            time.sleep(0.05)
+            hub._read()
+            assert len(received) == 1
+            assert received[0] == ("MY_CMD", ("42",))
+        finally:
+            client.close()
+            server.close()
+
+    def test_both_specific_and_catchall_fire(self):
+        hub, server, client = self._make_hub()
+        specific = []
+        catchall = []
+
+        @hub.on_command("SET_LED")
+        def h1(*params):
+            specific.append(params)
+
+        @hub.on_command()
+        def h2(command, *params):
+            catchall.append((command, params))
+
+        try:
+            import time
+
+            client.sendall(b"<SET_LED,1>")
+            time.sleep(0.05)
+            hub._read()
+            assert len(specific) == 1
+            assert len(catchall) == 1
+        finally:
+            client.close()
+            server.close()
+
+
 class TestFireDataReceived:
     """Verify _fire_data_received dispatches to correct callbacks."""
 
     def setup_method(self):
         self.hub = BlaeckHub.__new__(BlaeckHub)
+        self.hub.local = HubLocalSignals(self.hub)
         self.hub._data_received_callbacks = []
 
     def _make_upstream(self, name):
@@ -362,7 +464,7 @@ class TestRelayFalseRegistration:
                 upstream._signals.append(server.signals[offset])
                 upstream.index_map[i] = offset
                 offset += 1
-            upstream._upstream_signals = UpstreamSignals(upstream._signals)
+            upstream._upstream_signals = SignalList(upstream._signals)
 
             assert len(server.signals) == 2
             assert upstream.index_map == {0: 0, 1: 1}
@@ -389,7 +491,7 @@ class TestRelayFalseRegistration:
             sig = Signal(sym.name, sig_type)
             upstream._signals.append(sig)
             upstream.index_map[i] = i
-        upstream._upstream_signals = UpstreamSignals(upstream._signals)
+        upstream._upstream_signals = SignalList(upstream._signals)
 
         assert len(upstream._signals) == 2
         assert upstream.index_map == {0: 0, 1: 1}
@@ -405,7 +507,7 @@ class TestRelayFalseRegistration:
             Signal("temp", "float", 22.5),
             Signal("hum", "float", 65.0),
         ]
-        upstream._upstream_signals = UpstreamSignals(upstream._signals)
+        upstream._upstream_signals = SignalList(upstream._signals)
 
         assert upstream.signals["temp"].value == 22.5
         assert upstream.signals[1].value == 65.0
@@ -425,7 +527,7 @@ class TestRelayFalseRegistration:
             _ = upstream.signals
 
         # Simulate what start() does
-        upstream._upstream_signals = UpstreamSignals(upstream._signals)
+        upstream._upstream_signals = SignalList(upstream._signals)
 
         # Now accessible and cached
         s1 = upstream.signals
@@ -445,7 +547,7 @@ class TestRelayFalseRegistration:
             server.add_signal("temp_f", "float", 212.0)
             upstream._signals.append(server.signals[0])
             upstream.index_map[0] = 0
-            upstream._upstream_signals = UpstreamSignals(upstream._signals)
+            upstream._upstream_signals = SignalList(upstream._signals)
 
             # Transform via upstream reference
             upstream.signals["temp_f"].value = (upstream.signals["temp_f"].value - 32) * 5 / 9
@@ -466,6 +568,7 @@ class TestCallbackExceptionResilience:
 
     def setup_method(self):
         self.hub = BlaeckHub.__new__(BlaeckHub)
+        self.hub.local = HubLocalSignals(self.hub)
         self.hub._data_received_callbacks = []
 
     def test_exception_does_not_prevent_other_callbacks(self):
@@ -965,9 +1068,10 @@ class TestRestartFlagRelay:
         try:
             server.add_signal("sig1", "float", 0.0)
             hub = BlaeckHub.__new__(BlaeckHub)
+            hub.local = HubLocalSignals(hub)
             hub._server = server
             hub._upstreams = []
-            hub._local_signals = []
+            hub.local._signals = []
             hub._callbacks = {"data_received": []}
 
             upstream = _UpstreamDevice(
@@ -1080,9 +1184,10 @@ class TestStatusByteRelay:
 
             # Build hub internals manually
             hub = BlaeckHub.__new__(BlaeckHub)
+            hub.local = HubLocalSignals(hub)
             hub._server = server
             hub._upstreams = []
-            hub._local_signals = []
+            hub.local._signals = []
             hub._callbacks = {"data_received": []}
             hub._disconnect_callback = None
 
@@ -1175,9 +1280,10 @@ class TestRelayFrameScoping:
         server.add_signal("B_sig1", "float", 0.0)
 
         hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
         hub._server = server
         hub._upstreams = []
-        hub._local_signals = []
+        hub.local._signals = []
         hub._callbacks = {"data_received": []}
         hub._disconnect_callback = None
         hub._data_received_callbacks = []
@@ -1429,4 +1535,658 @@ class TestRelayFrameScoping:
             )
         finally:
             client.close()
+            server.close()
+
+
+# ========================================================================
+# Hub local signal write / update tests
+# ========================================================================
+
+from blaecktcpy._server import _IntervalTimer
+
+
+class TestHubWriteUpdate:
+    """Verify write(), update(), and related methods on BlaeckHub local signals."""
+
+    def _make_hub_with_local_signals(self):
+        """Create a hub with two local signals and a connected downstream client."""
+        import socket
+
+        server = _make_server_on_free_port()
+
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
+        hub._upstreams = []
+        hub.local._signals = []
+        hub._callbacks = {"data_received": []}
+        hub._disconnect_callback = None
+        hub._command_handlers = {}
+        hub._command_catchall = None
+        hub._started = False
+        hub._server = None
+        hub.local._fixed_interval_ms = IntervalMode.CLIENT
+        hub.local._timed_activated = False
+        hub.local._timer = _IntervalTimer()
+
+        sig_a = Signal("SigA", "float", 1.0)
+        sig_b = Signal("SigB", "float", 2.0)
+        hub.local._signals = [sig_a, sig_b]
+
+        # Mirror what start() does: register local signals on the server
+        for sig in hub.local._signals:
+            server.add_signal(sig)
+        hub._server = server
+        hub._started = True
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", server._port))
+        server._accept_new_clients()
+
+        return hub, server, client, sig_a, sig_b
+
+    def _parse_signal_data(self, raw: bytes):
+        """Parse signal (id, value) pairs from a downstream data frame."""
+        import struct
+
+        start = raw.find(b"<BLAECK:") + len(b"<BLAECK:")
+        end = raw.find(b"/BLAECK>")
+        content = raw[start:end]
+
+        colon_positions = [i for i, b in enumerate(content) if b == ord(":")]
+        sig_start = colon_positions[3] + 1
+        sig_end = len(content) - 5  # exclude status(1) + crc(4)
+        sig_data = content[sig_start:sig_end]
+
+        signals = []
+        pos = 0
+        while pos < len(sig_data):
+            sig_id = int.from_bytes(sig_data[pos:pos + 2], "little")
+            value = struct.unpack("<f", sig_data[pos + 2:pos + 6])[0]
+            signals.append((sig_id, value))
+            pos += 6
+        return signals
+
+    # ---- write() ----
+
+    def test_write_sends_single_signal_by_name(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.write("SigA", 42.0)
+            downstream = client.recv(4096)
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 1
+            assert signals[0] == (0, 42.0)
+            assert sig_a.value == 42.0
+        finally:
+            client.close()
+            server.close()
+
+    def test_write_sends_single_signal_by_index(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.write(1, 99.0)
+            downstream = client.recv(4096)
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 1
+            assert signals[0] == (1, 99.0)
+            assert sig_b.value == 99.0
+        finally:
+            client.close()
+            server.close()
+
+    def test_write_updates_value(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.write("SigB", 7.5)
+            assert sig_b.value == 7.5
+        finally:
+            client.close()
+            server.close()
+
+    def test_write_noop_when_no_client(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            client.close()
+            import time
+            time.sleep(0.05)
+            server._accept_new_clients()
+            # Should not raise even with no clients
+            hub.local.write("SigA", 10.0)
+            assert sig_a.value == 10.0
+        finally:
+            server.close()
+
+    def test_write_rejects_invalid_name(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            with pytest.raises(KeyError):
+                hub.local.write("NonExistent", 1.0)
+        finally:
+            client.close()
+            server.close()
+
+    def test_write_rejects_out_of_range_index(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            with pytest.raises(IndexError):
+                hub.local.write(5, 1.0)
+        finally:
+            client.close()
+            server.close()
+
+    def test_write_before_start_raises(self):
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
+        hub._started = False
+        hub._server = None
+        hub.local._signals = []
+        with pytest.raises(RuntimeError):
+            hub.local.write("x", 1.0)
+
+    # ---- update() ----
+
+    def test_update_sets_value_and_flag(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.update("SigA", 55.0)
+            assert sig_a.value == 55.0
+            assert sig_a.updated is True
+        finally:
+            client.close()
+            server.close()
+
+    def test_update_does_not_send(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.update("SigB", 66.0)
+            import time
+            time.sleep(0.05)
+            client.setblocking(False)
+            try:
+                data = client.recv(4096)
+            except BlockingIOError:
+                data = b""
+            client.setblocking(True)
+            assert data == b""
+        finally:
+            client.close()
+            server.close()
+
+    def test_update_before_start_raises(self):
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
+        hub._started = False
+        hub._server = None
+        hub.local._signals = []
+        with pytest.raises(RuntimeError):
+            hub.local.update("x", 1.0)
+
+    # ---- mark_signal_updated() ----
+
+    def test_mark_signal_updated_by_name(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            assert sig_a.updated is False
+            hub.local.mark_signal_updated("SigA")
+            assert sig_a.updated is True
+            assert sig_b.updated is False
+        finally:
+            client.close()
+            server.close()
+
+    def test_mark_signal_updated_by_index(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.mark_signal_updated(1)
+            assert sig_b.updated is True
+            assert sig_a.updated is False
+        finally:
+            client.close()
+            server.close()
+
+    # ---- mark_all_signals_updated() / clear_all_update_flags() ----
+
+    def test_mark_all_and_clear_all(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.mark_all_signals_updated()
+            assert sig_a.updated is True
+            assert sig_b.updated is True
+
+            hub.local.clear_all_update_flags()
+            assert sig_a.updated is False
+            assert sig_b.updated is False
+        finally:
+            client.close()
+            server.close()
+
+    # ---- has_updated_signals ----
+
+    def test_has_updated_signals(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            assert hub.local.has_updated_signals is False
+            sig_a.updated = True
+            assert hub.local.has_updated_signals is True
+        finally:
+            client.close()
+            server.close()
+
+    # ---- write_all_data() ----
+
+    def test_write_all_data_sends_all_local(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.write_all_data()
+            downstream = client.recv(4096)
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 2
+            assert signals[0] == (0, 1.0)
+            assert signals[1] == (1, 2.0)
+        finally:
+            client.close()
+            server.close()
+
+    def test_write_all_data_noop_when_no_client(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            client.close()
+            import time
+            time.sleep(0.05)
+            server._accept_new_clients()
+            # Should not raise
+            hub.local.write_all_data()
+        finally:
+            server.close()
+
+    # ---- write_updated_data() ----
+
+    def test_write_updated_data_sends_only_updated(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            sig_b.updated = True
+            hub.local.write_updated_data()
+            downstream = client.recv(4096)
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 1
+            assert signals[0] == (1, 2.0)
+            # updated flag should be cleared after send
+            assert sig_b.updated is False
+        finally:
+            client.close()
+            server.close()
+
+    def test_write_updated_data_noop_when_none_updated(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.write_updated_data()
+            import time
+            time.sleep(0.05)
+            client.setblocking(False)
+            try:
+                data = client.recv(4096)
+            except BlockingIOError:
+                data = b""
+            client.setblocking(True)
+            assert data == b""
+        finally:
+            client.close()
+            server.close()
+
+    # ---- tick() ----
+
+    def test_tick_sends_all_on_timer(self):
+        import time
+
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local._fixed_interval_ms = 50
+            hub.local._timed_activated = True
+            hub.local._timer.activate(50)
+
+            # Wait for timer to elapse
+            time.sleep(0.06)
+            hub.local.tick()
+
+            downstream = client.recv(4096)
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 2
+            assert signals[0] == (0, 1.0)  # SigA
+            assert signals[1] == (1, 2.0)  # SigB
+        finally:
+            client.close()
+            server.close()
+
+    def test_tick_noop_before_interval(self):
+        import time
+
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local._fixed_interval_ms = 500
+            hub.local._timed_activated = True
+            hub.local._timer.activate(500)
+
+            # Consume the first-tick send
+            hub.local.tick()
+            client.recv(4096)
+
+            # Don't wait — timer hasn't elapsed
+            hub.local.tick()
+
+            time.sleep(0.05)
+            client.setblocking(False)
+            try:
+                data = client.recv(4096)
+            except BlockingIOError:
+                data = b""
+            client.setblocking(True)
+            assert data == b""
+        finally:
+            client.close()
+            server.close()
+
+    # ---- tick_updated() ----
+
+    def test_tick_updated_sends_only_updated_on_timer(self):
+        import time
+
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local._fixed_interval_ms = 50
+            hub.local._timed_activated = True
+            hub.local._timer.activate(50)
+
+            sig_a.updated = True
+
+            # Wait for timer to elapse
+            time.sleep(0.06)
+            hub.local.tick_updated()
+
+            downstream = client.recv(4096)
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 1
+            assert signals[0][0] == 0  # SigA index
+        finally:
+            client.close()
+            server.close()
+
+    def test_tick_updated_noop_when_no_updated(self):
+        import time
+
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local._fixed_interval_ms = 50
+            hub.local._timed_activated = True
+            hub.local._timer.activate(50)
+
+            time.sleep(0.06)
+            hub.local.tick_updated()
+
+            time.sleep(0.05)
+            client.setblocking(False)
+            try:
+                data = client.recv(4096)
+            except BlockingIOError:
+                data = b""
+            client.setblocking(True)
+            assert data == b""
+        finally:
+            client.close()
+            server.close()
+
+    # ---- read() ----
+
+    def test_read_before_start_raises(self):
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
+        hub._started = False
+        hub._server = None
+        hub.local._signals = []
+        with pytest.raises(RuntimeError):
+            hub.read()
+
+    def test_read_processes_write_data_command(self):
+        """read() handles a WRITE_DATA command and sends local signals."""
+        import time
+
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            # Send WRITE_DATA command from the downstream client
+            client.sendall(b"<BLAECK.WRITE_DATA,1>")
+            time.sleep(0.05)
+            hub.read()
+            time.sleep(0.05)
+            downstream = client.recv(4096)
+            assert b"<BLAECK:" in downstream
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 2
+        finally:
+            client.close()
+            server.close()
+
+    # ---- resolve edge cases ----
+
+    def test_resolve_index_empty_signals(self):
+        """Index access with no local signals gives a clear error."""
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
+        hub._started = True
+        hub._server = None
+        hub.local._signals = []
+        with pytest.raises(IndexError, match="No local signals configured"):
+            hub.local._resolve(0)
+
+    # ---- add_signals() / delete_signals() ----
+
+    def test_add_signals_bulk_before_start(self):
+        hub = BlaeckHub.__new__(BlaeckHub)
+        hub.local = HubLocalSignals(hub)
+        hub._started = False
+        hub._server = None
+        hub._upstreams = []
+        hub.local.add_signals([
+            Signal("A", "float"),
+            Signal("B", "int"),
+        ])
+        assert len(hub.local.signals) == 2
+        assert hub.local.signals[0].signal_name == "A"
+        assert hub.local.signals[1].signal_name == "B"
+
+    def test_add_signal_after_start_inserts_in_server(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            assert len(server.signals) == 2
+            sig_c = hub.local.add_signal("SigC", "float", 3.0)
+            assert len(server.signals) == 3
+            assert server.signals[2] is sig_c
+            assert hub.local.signals[2] is sig_c
+        finally:
+            client.close()
+            server.close()
+
+    def test_delete_signals_after_start_removes_from_server(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            assert len(server.signals) == 2
+            hub.local.delete_signals()
+            assert len(server.signals) == 0
+            assert len(hub.local.signals) == 0
+        finally:
+            client.close()
+            server.close()
+
+    def test_delete_then_add_after_start(self):
+        hub, server, client, sig_a, sig_b = self._make_hub_with_local_signals()
+        try:
+            hub.local.delete_signals()
+            sig_x = hub.local.add_signal("X", "float", 99.0)
+            assert len(server.signals) == 1
+            assert server.signals[0] is sig_x
+
+            # Verify we can still send data
+            hub.local.write("X", 42.0)
+            downstream = client.recv(4096)
+            signals = self._parse_signal_data(downstream)
+            assert len(signals) == 1
+            assert signals[0] == (0, 42.0)
+        finally:
+            client.close()
+            server.close()
+
+
+# ========================================================================
+# Server set_interval tests
+# ========================================================================
+
+
+class TestServerSetInterval:
+    """Verify BlaeckServer.set_interval() locked/unlocked behaviour."""
+
+    def _make_server_with_client(self):
+        """Return (server, client_socket) with one connected client."""
+        import socket
+
+        server = _make_server_on_free_port()
+        sig = server.add_signal("temp", "float", 0.0)
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", server._port))
+        server._accept_new_clients()
+        return server, client
+
+    def test_set_interval_activates_timed_data(self):
+        """set_interval(>0) should activate timed data immediately."""
+        server, client = self._make_server_with_client()
+        try:
+            assert not server._timed_activated
+            server.set_interval(500)
+            assert server._timed_activated
+            assert server._fixed_interval_ms == 500
+        finally:
+            client.close()
+            server.close()
+
+    def test_set_interval_zero_locks_at_zero(self):
+        """set_interval(0) should lock at 0ms (fastest possible)."""
+        server, client = self._make_server_with_client()
+        try:
+            server.set_interval(0)
+            assert server._fixed_interval_ms == 0
+            assert server._timed_activated
+        finally:
+            client.close()
+            server.close()
+
+    def test_interval_client_releases_lock(self):
+        """set_interval(IntervalMode.CLIENT) should release the lock."""
+        server, client = self._make_server_with_client()
+        try:
+            server.set_interval(500)
+            assert server._fixed_interval_ms == 500
+            server.set_interval(IntervalMode.CLIENT)
+            assert server._fixed_interval_ms == IntervalMode.CLIENT
+        finally:
+            client.close()
+            server.close()
+
+    def test_interval_off_deactivates(self):
+        """set_interval(IntervalMode.OFF) should deactivate timed data."""
+        server, client = self._make_server_with_client()
+        try:
+            server.set_interval(500)
+            assert server._timed_activated
+            server.set_interval(IntervalMode.OFF)
+            assert not server._timed_activated
+            assert server._fixed_interval_ms == IntervalMode.OFF
+        finally:
+            client.close()
+            server.close()
+
+    def test_locked_ignores_client_activate(self):
+        """When locked, client ACTIVATE command should be ignored."""
+        server, client = self._make_server_with_client()
+        try:
+            server.set_interval(500)
+            # Send ACTIVATE command from client with different interval
+            activate_cmd = "<BLAECK.ACTIVATE,208,7,0,0>"
+            client.sendall(activate_cmd.encode())
+            import time
+            time.sleep(0.05)
+            server.read()
+            # Lock still active, interval unchanged
+            assert server._fixed_interval_ms == 500
+            assert server._timed_activated
+        finally:
+            client.close()
+            server.close()
+
+    def test_locked_ignores_client_deactivate(self):
+        """When locked, client DEACTIVATE should be ignored."""
+        server, client = self._make_server_with_client()
+        try:
+            server.set_interval(500)
+            assert server._timed_activated
+            # Send DEACTIVATE from client
+            deactivate_cmd = "<BLAECK.DEACTIVATE>"
+            client.sendall(deactivate_cmd.encode())
+            import time
+            time.sleep(0.05)
+            server.read()
+            # Still activated because lock is on
+            assert server._timed_activated
+        finally:
+            client.close()
+            server.close()
+
+    def test_unlocked_allows_client_activate(self):
+        """When unlocked (default), client ACTIVATE works normally."""
+        server, client = self._make_server_with_client()
+        try:
+            assert not server._timed_activated
+            # interval=1000 → 0x03E8 → bytes 232,3,0,0
+            activate_cmd = "<BLAECK.ACTIVATE,232,3,0,0>"
+            client.sendall(activate_cmd.encode())
+            import time
+            time.sleep(0.05)
+            server.read()
+            assert server._timed_activated
+        finally:
+            client.close()
+            server.close()
+
+    def test_locked_timed_write_works_after_reconnect(self):
+        """After client disconnect+reconnect, locked interval keeps working."""
+        import socket
+        import time
+
+        server, client = self._make_server_with_client()
+        try:
+            server.set_interval(50)
+            assert server._timed_activated
+
+            # Disconnect
+            client.close()
+            time.sleep(0.05)
+            try:
+                server.read()
+            except Exception:
+                pass
+
+            # _timed_activated may be False after disconnect, but fixed_interval
+            # should make timed_write still work after reconnect
+            client2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client2.settimeout(2.0)
+            client2.connect(("127.0.0.1", server._port))
+            server._accept_new_clients()
+
+            # Wait for timer to fire
+            time.sleep(0.1)
+            result = server.timed_write_all_data()
+            assert result is True
+        finally:
+            try:
+                client2.close()
+            except Exception:
+                pass
             server.close()

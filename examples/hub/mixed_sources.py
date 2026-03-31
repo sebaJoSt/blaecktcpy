@@ -57,8 +57,9 @@ hub = BlaeckHub(HUB_IP, HUB_PORT, "Stress Board Hub", "Python Script", EXAMPLE_V
 hub.add_tcp(BOARD_IP, BOARD_PORT, "StressBoard", interval_ms=500)
 
 # Local signals for PSU readings
-psu_voltage = hub.add_signal("PSU_Voltage", "float")
-psu_current = hub.add_signal("PSU_Current", "float")
+psu_voltage = hub.local.add_signal("PSU_Voltage", "float")
+psu_current = hub.local.add_signal("PSU_Current", "float")
+hub.local.set_interval(500)
 
 
 # -- SCPI helper --
@@ -94,3 +95,4 @@ print("##LOGGBOK:READY##")
 
 while True:
     hub.tick()
+    hub.local.tick()

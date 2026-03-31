@@ -33,10 +33,10 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 # -- Eager re-exports -------------------------------------------------------
-from ._signal import Signal  # noqa: E402
+from ._signal import Signal, SignalList, IntervalMode  # noqa: E402
 from ._server import BlaeckServer, LIB_VERSION, LIB_NAME, STATUS_OK, STATUS_UPSTREAM_LOST  # noqa: E402
 
-__all__ = ["Signal", "BlaeckServer", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST", "BlaeckHub"]
+__all__ = ["Signal", "SignalList", "IntervalMode", "BlaeckServer", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST", "BlaeckHub"]
 
 
 # -- Lazy imports (avoid pulling in hub dependencies on simple usage) --------

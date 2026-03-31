@@ -58,8 +58,8 @@ time.sleep(0.2)
 hub = BlaeckHub("127.0.0.1", 23, "Basic Hub", "Python Script", EXAMPLE_VERSION)
 
 # Local signal
-sawtooth = hub.add_signal("Sawtooth_1", "float")
-hub.set_local_interval(500)
+sawtooth = hub.local.add_signal("Sawtooth_1", "float")
+hub.local.set_interval(500)
 
 # Connect to upstream servers
 hub.add_tcp("127.0.0.1", 10024, "Sine", interval_ms=300)
@@ -73,3 +73,4 @@ while True:
     elapsed_ms = (time.time() - start_time) * 1000
     sawtooth.value = (elapsed_ms % 5000) / 5000.0  # 0..1 over 5 seconds
     hub.tick()
+    hub.local.tick()

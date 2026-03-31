@@ -56,7 +56,7 @@ time.sleep(0.2)
 hub = BlaeckHub("127.0.0.1", 23, "Sensor Hub", "Python Script", EXAMPLE_VERSION)
 
 # Computed local signal
-dew_point = hub.add_signal("dew_point", "float")
+dew_point = hub.local.add_signal("dew_point", "float")
 
 # Upstream — relayed so Loggbok sees temp_f and humidity
 hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=500)
@@ -84,3 +84,4 @@ print("##LOGGBOK:READY##")
 
 while True:
     hub.tick()
+    hub.local.tick()
