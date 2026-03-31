@@ -6,20 +6,20 @@ Demonstrates processing upstream data before it reaches Loggbok:
 - Compute a new local signal from upstream values (dew point)
 
   ┌────────────────────┐
-  │  Sensor Server     │   ← upstream (temp_f, humidity) on port 10024
+  │  Sensor Server     │   ← upstream (temperature, humidity) on port 10024
   └─────────┬──────────┘
             │
             ▼
   ┌─────────────────────────────────────────┐
   │            Hub :23                       │
-  │  temp_f → transformed to Celsius       │
+  │  temperature → transformed to Celsius       │
   │  humidity → relayed as-is              │
   │  dew_point → computed locally          │
   └───────────────────┬─────────────────────┘
                       │
                       ▼
               ┌──────────────┐
-              │   Loggbok    │   ← sees temp_f (°C), humidity, dew_point
+              │   Loggbok    │   ← sees temperature (°C), humidity, dew_point
               └──────────────┘
 
 Setup:  python examples/hub/signal_processing.py
@@ -36,7 +36,7 @@ EXAMPLE_VERSION = "1.0"
 
 # --- Upstream server simulating a sensor board ---
 server = BlaeckTCPy("127.0.0.1", 10024, "Sensor Board", "Python Script", EXAMPLE_VERSION)
-server.add_signal("temp_f", "float")       # temperature in Fahrenheit
+server.add_signal("temperature", "float")   # temperature in Fahrenheit (transformed by hub)
 server.add_signal("humidity", "float")     # relative humidity %
 server.start()
 
@@ -59,14 +59,14 @@ hub = BlaeckTCPy("127.0.0.1", 23, "Sensor Hub", "Python Script", EXAMPLE_VERSION
 # Computed local signal
 dew_point = hub.add_signal("dew_point", "float")
 
-# Upstream — relayed so Loggbok sees temp_f and humidity
+# Upstream — relayed so Loggbok sees temperature and humidity
 hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=500)
 
 
 @hub.on_data_received("Sensor")
 def on_sensor_data(upstream):
-    """Transform temp_f to Celsius and compute dew point."""
-    temp_sig = upstream.signals["temp_f"]
+    """Transform temperature to Celsius and compute dew point."""
+    temp_sig = upstream.signals["temperature"]
     rh = upstream.signals["humidity"].value
 
     # Transform in-place: Loggbok receives Celsius, not Fahrenheit

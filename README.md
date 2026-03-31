@@ -258,6 +258,22 @@ dew_point = hub.add_signal("DewPoint", "float")
 
 The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream to clients.
 
+### Signal list caching
+
+Upstream signal lists are cached when the hub discovers each upstream at startup.
+
+```
+Server              Hub                 Loggbok
+┌──────────┐       ┌──────────┐       ┌──────────┐
+│ locals:  │       │ locals:  │       │          │
+│  mutable │──────▶│  mutable │──────▶│          │
+│          │cached │ upstream:│       │          │
+│          │at     │  frozen  │       │          │
+└──────────┘start  └──────────┘       └──────────┘
+```
+
+If an upstream device changes its signals at runtime, the hub must be restarted to re-discover the new layout.
+
 ## Examples
 
 See the [examples](examples/) folder:
