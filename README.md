@@ -266,7 +266,7 @@ Upstream signal lists are cached when the hub discovers each upstream at startup
 Server              Hub                 Loggbok
 ┌────────────┐     ┌────────────────┐  ┌────────────┐
 │ locals:    │     │ upstream:      │  │ (logging)  │
-│   frozen   │────▶│   frozen       │─▶│            │
+│   frozen   │────>│   frozen       │─>│            │
 │            │     │ locals:        │  │  discovers  │
 │            │     │   mutable      │  │  signals    │
 └────────────┘     └────────────────┘  └────────────┘
