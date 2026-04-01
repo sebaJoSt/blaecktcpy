@@ -446,9 +446,9 @@ class BlaeckTCPy:
         self.signals[idx].value = value
         if not self.connected:
             return
-        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
+        ts = self._resolve_timestamp(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
-        data = b"<BLAECK:" + self._build_data_msg(header, idx, idx, timestamp_us=ts) + b"/BLAECK>\r\n"
+        data = b"<BLAECK:" + self._build_data_msg(header, idx, idx, timestamp=ts) + b"/BLAECK>\r\n"
         self._tcp_send_data(data)
 
     def update(self, key: Union[str, int], value: Union[int, float]) -> None:
@@ -1031,7 +1031,7 @@ class BlaeckTCPy:
                         if self._before_write_callback is not None:
                             self._before_write_callback()
                         msg_id = self._decode_four_byte(params)
-                        ts = self._auto_timestamp_us()
+                        ts = self._auto_timestamp()
                         header = (
                             self.MSG_DATA
                             + b":"
@@ -1042,7 +1042,7 @@ class BlaeckTCPy:
                             b"<BLAECK:"
                             + self._build_data_msg(
                                 header, start=0, end=self._local_signal_count - 1,
-                                timestamp_us=ts,
+                                timestamp=ts,
                             )
                             + b"/BLAECK>\r\n"
                         )
@@ -1275,11 +1275,11 @@ class BlaeckTCPy:
             return
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
+        ts = self._resolve_timestamp(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, timestamp_us=ts)
+            + self._build_data_msg(header, start=0, end=lc - 1, timestamp=ts)
             + b"/BLAECK>\r\n"
         )
         self._tcp_send_data(data)
@@ -1301,11 +1301,11 @@ class BlaeckTCPy:
             return
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
+        ts = self._resolve_timestamp(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp_us=ts)
+            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp=ts)
             + b"/BLAECK>\r\n"
         )
         self._tcp_send_data(data)
@@ -1335,11 +1335,11 @@ class BlaeckTCPy:
             return False
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
+        ts = self._resolve_timestamp(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, timestamp_us=ts)
+            + self._build_data_msg(header, start=0, end=lc - 1, timestamp=ts)
             + b"/BLAECK>\r\n"
         )
         return self._tcp_send_data(data)
@@ -1367,11 +1367,11 @@ class BlaeckTCPy:
             return False
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
+        ts = self._resolve_timestamp(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp_us=ts)
+            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp=ts)
             + b"/BLAECK>\r\n"
         )
         return self._tcp_send_data(data)
@@ -1441,7 +1441,7 @@ class BlaeckTCPy:
     def timestamp_mode(self, value: TimestampMode) -> None:
         self._timestamp_mode = TimestampMode(value)
 
-    def _resolve_timestamp_us(
+    def _resolve_timestamp(
         self,
         unix_timestamp: float | int | None,
         micros_timestamp: int | None,
@@ -1483,9 +1483,9 @@ class BlaeckTCPy:
                 raise TypeError("micros_timestamp must be int (µs)")
             return micros_timestamp
 
-        return self._auto_timestamp_us()
+        return self._auto_timestamp()
 
-    def _auto_timestamp_us(self) -> int | None:
+    def _auto_timestamp(self) -> int | None:
         """Return the auto-generated timestamp for the current mode, or None."""
         if self._timestamp_mode == TimestampMode.MICROS:
             return int((time.time() - self._start_time) * 1_000_000)
@@ -1618,7 +1618,7 @@ class BlaeckTCPy:
                                 start=start_idx,
                                 end=end_idx,
                                 only_updated=True,
-                                timestamp_us=ts,
+                                timestamp=ts,
                                 timestamp_mode=ts_mode,
                                 status=decoded.status_byte,
                             )
@@ -1691,7 +1691,7 @@ class BlaeckTCPy:
         start: int = 0,
         end: int = -1,
         only_updated: bool = False,
-        timestamp_us: int | None = None,
+        timestamp: int | None = None,
         timestamp_mode: TimestampMode | None = None,
         status: int = STATUS_OK,
     ) -> bytes:
@@ -1702,7 +1702,7 @@ class BlaeckTCPy:
             start: First signal index (inclusive)
             end: Last signal index (inclusive), -1 = last signal
             only_updated: If True, include only signals with updated=True
-            timestamp_us: Timestamp in microseconds (uint64), or None
+            timestamp: Timestamp in microseconds (uint64), or None
             timestamp_mode: Timestamp mode byte. If None, uses the
                 instance's :attr:`timestamp_mode`.
             status: Status byte (STATUS_OK or STATUS_UPSTREAM_LOST)
@@ -1716,13 +1716,13 @@ class BlaeckTCPy:
 
         # Timestamp
         mode = timestamp_mode if timestamp_mode is not None else self._timestamp_mode
-        if timestamp_us is not None and mode != TimestampMode.NONE:
+        if timestamp is not None and mode != TimestampMode.NONE:
             mode_byte = int(mode).to_bytes(1, "little")
             meta = (
                 restart_flag
                 + b":"
                 + mode_byte
-                + timestamp_us.to_bytes(8, "little")
+                + timestamp.to_bytes(8, "little")
                 + b":"
             )
         else:
