@@ -22,7 +22,7 @@ import sys
 import tempfile
 import time
 
-from blaecktcpy import BlaeckTCPy
+from blaecktcpy import BlaeckTCPy, TimestampMode
 
 CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "test_data.csv")
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 23
@@ -59,6 +59,7 @@ def main():
     bltcp = BlaeckTCPy(
         "127.0.0.1", PORT, "CSV Tail Reader", "Python Script", EXAMPLE_VERSION
     )
+    bltcp.timestamp_mode = TimestampMode.RTC
 
     for name in signal_names:
         bltcp.add_signal(name, "double")
@@ -86,11 +87,13 @@ def main():
                 for row in new_rows:
                     if len(row) < len(header):
                         continue  # skip incomplete rows
+                    # Convert CSV timestamp (epoch seconds) to microseconds
+                    timestamp_us = int(float(row[0]) * 1_000_000)
                     for i, name in enumerate(signal_names):
                         cell = row[i + 1]
                         if cell:  # skip empty cells (partial row)
                             bltcp.update(name, float(cell))
-                    bltcp.write_updated_data()
+                    bltcp.write_updated_data(timestamp_us=timestamp_us)
                     rows_sent += 1
                     print(
                         f"\r  Rows sent: {rows_sent}  "
