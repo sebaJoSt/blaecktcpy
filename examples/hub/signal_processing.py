@@ -42,9 +42,8 @@ server.start()
 
 
 def run_server():
-    start = time.time()
     while True:
-        t = (time.time() - start) * 1000
+        t = (time.time() - server.start_time) * 1000
         server.signals[0].value = 72.0 + math.sin(t * 0.0005) * 5.0   # ~68-77 °F
         server.signals[1].value = 55.0 + math.sin(t * 0.0003) * 15.0  # ~40-70 %
         server.tick()

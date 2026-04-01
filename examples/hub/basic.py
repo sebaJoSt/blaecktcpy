@@ -44,9 +44,8 @@ cosine.start()
 
 
 def run_server(server, gen_func):
-    start = time.time()
     while True:
-        t = (time.time() - start) * 1000
+        t = (time.time() - server.start_time) * 1000
         for s in server.signals:
             s.value = gen_func(t)
         server.tick()
@@ -70,8 +69,7 @@ hub.add_tcp("127.0.0.1", 10025, "Cosine", interval_ms=300)
 hub.start()
 print("##LOGGBOK:READY##")
 
-start_time = time.time()
 while True:
-    elapsed_ms = (time.time() - start_time) * 1000
+    elapsed_ms = (time.time() - hub.start_time) * 1000
     sawtooth.value = (elapsed_ms % 5000) / 5000.0  # 0..1 over 5 seconds
     hub.tick()

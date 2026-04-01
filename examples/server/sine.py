@@ -13,11 +13,10 @@ for i in range(1, 4):
     bltcp.add_signal(f"Sine_{i}", "float")
 
 bltcp.start()
-start_time = time.time()
 print("##LOGGBOK:READY##")
 
 while True:
-    elapsed_ms = (time.time() - start_time) * 1000
+    elapsed_ms = (time.time() - bltcp.start_time) * 1000
     value = math.sin(elapsed_ms * 0.001)
     for s in bltcp.signals:
         s.value = value
