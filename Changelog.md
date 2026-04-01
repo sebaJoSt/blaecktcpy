@@ -10,14 +10,18 @@ All notable changes to this project will be documented in this file.
   devices. Use `forward_custom_commands=True` on `add_tcp()`/`add_serial()` to
   opt-in per upstream, and `forward=True` on `@on_command()` or `forward_command()`
   to mark which commands should be forwarded.
+- **`TimestampMode.MICROS` removed from user API**: `TimestampMode.MICROS` can no
+  longer be set on blaecktcpy servers. Use `TimestampMode.UNIX` instead. The enum
+  value is retained internally for protocol parsing and hub relay of upstream
+  Arduino devices. The `micros_timestamp` parameter has been removed from all
+  write methods.
 - **Timestamps**: Data frames can now include timestamps via `timestamp_mode`
-  property (`TimestampMode.MICROS` for µs since start, `TimestampMode.UNIX` for
-  µs since epoch). Write methods accept `unix_timestamp` (float seconds or int µs)
-  and `micros_timestamp` (int µs) overrides matched to their respective modes.
+  property (`TimestampMode.UNIX` for µs since epoch). Write methods accept
+  `unix_timestamp` (float seconds or int µs) overrides.
   Wire format is uint64 (8 bytes).
 - **`interval_ms` property**: Replaces `set_interval()` method.
 - **`start_time` property**: Exposes the `time.time()` value captured at `start()`.
-- **`TimestampMode` enum**: `NONE`, `MICROS`, `UNIX`.
+- **`TimestampMode` enum**: `NONE`, `MICROS` (protocol-level only, not user-facing), `UNIX`.
 
 ### Changed (v3.0 — Breaking)
 

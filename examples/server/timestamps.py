@@ -1,12 +1,11 @@
 """
 Timestamp Modes — blaecktcpy Example
 =====================================
-Demonstrates the three timestamp modes available for data frames.
+Demonstrates the timestamp modes available for data frames.
 
 Pick one mode by uncommenting the corresponding block below:
 
   NONE    — no timestamp in the frame (default, backward-compatible)
-  MICROS  — microseconds since start() was called
   UNIX    — microseconds since Unix epoch (wall-clock time)
 
 You can also override the automatic timestamp on any individual write
@@ -36,10 +35,7 @@ bltcp.add_signal("Cosine", "float")
 # Mode 1: No timestamp (default)
 # bltcp.timestamp_mode = TimestampMode.NONE
 
-# Mode 2: Microseconds since start()
-# bltcp.timestamp_mode = TimestampMode.MICROS
-
-# Mode 3: Wall-clock microseconds (Unix epoch)
+# Mode 2: Wall-clock microseconds (Unix epoch)
 bltcp.timestamp_mode = TimestampMode.UNIX
 
 # ── Interval & start ─────────────────────────────────────────────────

@@ -116,21 +116,11 @@ class TestTimestampInDataFrames:
             device.close()
 
     def test_micros_mode_sends_relative_timestamp(self):
-        """MICROS mode should send us since start()."""
+        """Setting MICROS mode should raise ValueError."""
         device, client = self._make_device()
         try:
-            device.timestamp_mode = TimestampMode.MICROS
-            time.sleep(0.05)
-            device.write_all_data()
-            frame = self._recv_frame(client)
-            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
-            content = frame[start:]
-            parts = content.split(b":", 4)
-            ts_mode_section = parts[3]
-            assert ts_mode_section[0] == 0x01
-            ts_bytes = ts_mode_section[1:9]
-            ts = int.from_bytes(ts_bytes, "little")
-            assert 10_000 < ts < 5_000_000
+            with pytest.raises(ValueError, match="MICROS is not supported"):
+                device.timestamp_mode = TimestampMode.MICROS
         finally:
             client.close()
             device.close()
@@ -181,39 +171,6 @@ class TestTimestampInDataFrames:
             assert device.timestamp_mode == TimestampMode.NONE
             with pytest.raises(ValueError, match="UNIX"):
                 device.write_all_data(unix_timestamp=time.time())
-        finally:
-            client.close()
-            device.close()
-
-    def test_unix_timestamp_rejected_in_micros_mode(self):
-        """unix_timestamp should raise ValueError in MICROS mode."""
-        device, client = self._make_device()
-        try:
-            device.timestamp_mode = TimestampMode.MICROS
-            with pytest.raises(ValueError, match="UNIX"):
-                device.write_all_data(unix_timestamp=time.time())
-        finally:
-            client.close()
-            device.close()
-
-    def test_micros_timestamp_rejected_in_unix_mode(self):
-        """micros_timestamp should raise ValueError in UNIX mode."""
-        device, client = self._make_device()
-        try:
-            device.timestamp_mode = TimestampMode.UNIX
-            with pytest.raises(ValueError, match="MICROS"):
-                device.write_all_data(micros_timestamp=123456)
-        finally:
-            client.close()
-            device.close()
-
-    def test_both_timestamps_rejected(self):
-        """Passing both unix_timestamp and micros_timestamp should raise."""
-        device, client = self._make_device()
-        try:
-            device.timestamp_mode = TimestampMode.UNIX
-            with pytest.raises(ValueError, match="both"):
-                device.write_all_data(unix_timestamp=1.0, micros_timestamp=123)
         finally:
             client.close()
             device.close()

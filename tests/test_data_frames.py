@@ -317,7 +317,6 @@ class TestRelayFrameScoping:
         for i, b in enumerate(content):
             if b == ord(":"):
                 colon_positions.append(i)
-        # Signal data starts after 4th colon, ends 5 bytes before end (status+crc)
         sig_start = colon_positions[3] + 1
         sig_end = len(content) - 5
         sig_data = content[sig_start:sig_end]
@@ -512,6 +511,66 @@ class TestRelayFrameScoping:
         finally:
             client.close()
             device.close()
+
+
+class TestDecoderUnknownDatatype:
+    """Decoder should fail safely on unknown datatype codes."""
+
+    def test_parse_symbol_list_rejects_unknown_dtype(self):
+        msg_key = b"\xb0"
+        msg_id = (1).to_bytes(4, "little")
+        data = b"\x00\x00" + b"mystery\x00" + bytes([255])
+        frame = msg_key + b":" + msg_id + b":" + data
+
+        with pytest.raises(ValueError, match="Unknown datatype code"):
+            decoder.parse_symbol_list(frame)
+
+    def test_parse_data_rejects_unknown_symbol_dtype(self):
+        msg_key = b"\xd2"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x00:"  # restart=0, timestamp_mode=0
+        payload = (0).to_bytes(2, "little")  # symbol_id only, no value bytes
+        crc_input = msg_key + b":" + msg_id + b":" + meta + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        frame = msg_key + b":" + msg_id + b":" + meta + payload + b"\x00" + crc
+
+        symbol_table = [decoder.DecodedSymbol("mystery", 255, "unknown(255)", 0)]
+
+        with pytest.raises(ValueError, match="Unknown datatype code"):
+            decoder.parse_data(frame, symbol_table)
+
+
+class TestDecoderTruncatedPayload:
+    """Decoder should reject truncated signal payloads."""
+
+    def test_parse_data_d2_rejects_truncated_signal_payload(self):
+        msg_key = b"\xd2"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x00:"  # restart=0, timestamp_mode=0
+        # symbol_id=0 + only 2 bytes of float payload (needs 4)
+        payload = (0).to_bytes(2, "little") + b"\x01\x02"
+        crc_input = msg_key + b":" + msg_id + b":" + meta + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        frame = msg_key + b":" + msg_id + b":" + meta + payload + b"\x00" + crc
+
+        symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+
+        with pytest.raises(ValueError, match="Truncated signal payload"):
+            decoder.parse_data(frame, symbol_table)
+
+    def test_parse_data_b1_rejects_truncated_signal_payload(self):
+        msg_key = b"\xb1"
+        msg_id = (1).to_bytes(4, "little")
+        # B1 payload only 2 bytes, but symbol expects 4-byte float
+        payload = b"\x01\x02"
+        crc_input = msg_key + b":" + msg_id + b":" + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        frame = msg_key + b":" + msg_id + b":" + payload + b"\x00" + crc
+
+        symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+
+        with pytest.raises(ValueError, match="Truncated B1 payload"):
+            decoder.parse_data(frame, symbol_table)
 
 
 class TestHubWriteUpdate:

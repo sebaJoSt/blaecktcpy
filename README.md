@@ -138,22 +138,16 @@ Data frames can include timestamps. Set the `timestamp_mode` property to enable:
 ```python
 from blaecktcpy import TimestampMode
 
-# Microseconds since start() (relative)
-bltcp.timestamp_mode = TimestampMode.MICROS
-
 # Microseconds since Unix epoch (absolute, real-time clock)
 bltcp.timestamp_mode = TimestampMode.UNIX
 ```
 
-Every write method auto-fills the timestamp based on the mode. Use `unix_timestamp` or `micros_timestamp` to override per-write:
+Every write method auto-fills the timestamp based on the mode. Use `unix_timestamp` to override per-write:
 
 ```python
 # UNIX mode — float seconds (converted internally) or int µs
 bltcp.write_all_data(unix_timestamp=time.time())
 bltcp.write_all_data(unix_timestamp=csv_epoch_seconds)
-
-# MICROS mode — int µs
-bltcp.write_all_data(micros_timestamp=elapsed_us)
 ```
 
 The `start_time` property exposes the `time.time()` value captured at `start()`:
@@ -233,7 +227,7 @@ Messages use the following binary format:
 | `DeviceType` | String0 | `server` or `hub` |
 | `Parent` | String0 | SlaveID of the parent device (`0` = master) |
 | `RestartFlag` | byte | `1` on the first data frame after startup, `0` otherwise |
-| `TimestampMode` | byte | `0` = NONE (default), `1` = MICROS (µs since start), `2` = UNIX (µs since epoch) |
+| `TimestampMode` | byte | `0` = NONE (default), `1` = MICROS (µs since start; upstream/Arduino devices only), `2` = UNIX (µs since epoch) |
 | `Timestamp` | uint64 | 8-byte microsecond timestamp (only present if TimestampMode > 0) |
 | `StatusByte` | byte | `0x00` = normal, `0x01` = I2C CRC error, `0x02` = upstream connection lost |
 | `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |

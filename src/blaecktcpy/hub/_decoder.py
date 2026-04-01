@@ -154,8 +154,9 @@ def parse_symbol_list(content: bytes) -> list[DecodedSymbol]:
         if info:
             dtype_name, dtype_size, _ = info
         else:
-            dtype_name = f"unknown({dtype_code})"
-            dtype_size = 0
+            raise ValueError(
+                f"Unknown datatype code {dtype_code} for symbol '{name}' in B0 frame"
+            )
 
         symbols.append(
             DecodedSymbol(
@@ -307,7 +308,16 @@ def _parse_data_b1(
     for i, symbol in enumerate(symbol_table):
         size = symbol.datatype_size
         info = _DTYPE_INFO.get(symbol.datatype_code)
-        if info and pos + size <= signal_data_end:
+        if not info or size <= 0:
+            raise ValueError(
+                f"Unknown datatype code {symbol.datatype_code} for symbol index {i}"
+            )
+        if pos + size > signal_data_end:
+            raise ValueError(
+                f"Truncated B1 payload at symbol index {i}: "
+                f"need {size} bytes, have {signal_data_end - pos}"
+            )
+        if info:
             _, _, fmt = info
             value = struct.unpack(fmt, data[pos : pos + size])[0]
             signals[i] = value
@@ -338,8 +348,17 @@ def _unpack_signals(
         symbol = symbol_table[symbol_id]
         size = symbol.datatype_size
         info = _DTYPE_INFO.get(symbol.datatype_code)
+        if not info or size <= 0:
+            raise ValueError(
+                f"Unknown datatype code {symbol.datatype_code} for symbol ID {symbol_id}"
+            )
 
-        if info and pos + size <= end:
+        if pos + size > end:
+            raise ValueError(
+                f"Truncated signal payload for symbol ID {symbol_id}: "
+                f"need {size} bytes, have {end - pos}"
+            )
+        if info:
             _, _, fmt = info
             value = struct.unpack(fmt, data[pos : pos + size])[0]
             signals[symbol_id] = value
