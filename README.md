@@ -260,19 +260,19 @@ The hub can decode upstream frames using older protocol versions (`B2`–`B5` fo
 
 ### Signal list caching
 
-Upstream signal lists are cached when the hub discovers each upstream at startup.
+Upstream signal lists are cached when the hub discovers each upstream at startup. Loggbok discovers the signal list once at logging start.
 
 ```
 Server              Hub                 Loggbok
-┌──────────┐       ┌──────────┐       ┌──────────┐
-│ locals:  │       │ locals:  │       │          │
-│  mutable │──────▶│  mutable │──────▶│          │
-│          │cached │ upstream:│       │          │
-│          │at     │  frozen  │       │          │
-└──────────┘start  └──────────┘       └──────────┘
+┌────────────┐     ┌────────────────┐  ┌────────────┐
+│ locals:    │     │ upstream:      │  │ (logging)  │
+│   frozen   │────▶│   frozen       │─▶│            │
+│            │     │ locals:        │  │  discovers  │
+│            │     │   mutable      │  │  signals    │
+└────────────┘     └────────────────┘  └────────────┘
 ```
 
-If an upstream device changes its signals at runtime, the hub must be restarted to re-discover the new layout.
+If an upstream device needs to change its signals, stop logging in Loggbok first, then restart the Hub to re-discover the new layout. The locals on the Hub can always be changed (e.g., by sending a custom command with putty/terminal program). But when you start Logging all the signals are discovered and no more changes are allowed.
 
 ## Examples
 
