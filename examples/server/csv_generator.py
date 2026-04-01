@@ -24,14 +24,15 @@ CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else "test_data.csv"
 COLUMNS = ["timestamp", "temperature", "pressure", "humidity"]
 
 
-def generate_row(t: float) -> list:
+def generate_row(elapsed: float) -> list:
     """Produce one row of random but plausible sensor data.
 
+    *elapsed* drives the sine waves; the timestamp column uses wall-clock time.
     ~30% of rows are partial: one or two channels are left empty.
     """
-    temperature = 20.0 + 5.0 * math.sin(t * 0.1) + random.gauss(0, 0.3)
-    pressure = 1013.25 + 2.0 * math.sin(t * 0.05) + random.gauss(0, 0.5)
-    humidity = 55.0 + 10.0 * math.sin(t * 0.08) + random.gauss(0, 1.0)
+    temperature = 20.0 + 5.0 * math.sin(elapsed * 0.1) + random.gauss(0, 0.3)
+    pressure = 1013.25 + 2.0 * math.sin(elapsed * 0.05) + random.gauss(0, 0.5)
+    humidity = 55.0 + 10.0 * math.sin(elapsed * 0.08) + random.gauss(0, 1.0)
     values = [round(temperature, 2), round(pressure, 2), round(humidity, 1)]
 
     # ~30% chance to make this a partial row
@@ -41,7 +42,7 @@ def generate_row(t: float) -> list:
         for idx in blanks:
             values[idx] = ""
 
-    return [round(t, 3)] + values
+    return [round(time.time(), 6)] + values
 
 
 def main():
@@ -61,13 +62,13 @@ def main():
 
         try:
             while True:
-                t = time.time() - start
-                row = generate_row(t)
+                elapsed = time.time() - start
+                row = generate_row(elapsed)
                 writer.writerow(row)
                 f.flush()
                 row_count += 1
                 print(
-                    f"\r  Rows written: {row_count}  (t={row[0]:.1f}s)",
+                    f"\r  Rows written: {row_count}  (t={elapsed:.1f}s)",
                     end="",
                     flush=True,
                 )
