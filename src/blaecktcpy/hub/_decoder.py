@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 # Message keys
 MSGKEY_SYMBOL_LIST = 0xB0
 MSGKEY_DATA_LEGACY = 0xB1  # v4.0.1 or older
-MSGKEY_DATA = 0xD1  # v5+
+MSGKEY_DATA_D1 = 0xD1  # BlaeckTCP Arduino v5+ (4-byte timestamp)
+MSGKEY_DATA_D2 = 0xD2  # blaecktcpy (8-byte timestamp)
 MSGKEY_DEVICES_LEGACY = 0xB2  # BlaeckSerial v3.0.3 or older
 MSGKEY_DEVICES_V1 = 0xB3  # BlaeckSerial v3+ / BlaeckTCP v1
 MSGKEY_DEVICES_V2 = 0xB4  # BlaeckTCP v2
@@ -21,7 +22,7 @@ MSGKEY_DEVICES_V4 = 0xB5  # BlaeckTCP v3
 MSGKEY_DEVICES = 0xB6  # BlaeckTCP v4+
 
 # Grouped sets for dispatch
-MSGKEY_DATA_ALL = {MSGKEY_DATA, MSGKEY_DATA_LEGACY}
+MSGKEY_DATA_ALL = {MSGKEY_DATA_D2, MSGKEY_DATA_D1, MSGKEY_DATA_LEGACY}
 MSGKEY_DEVICES_ALL = {
     MSGKEY_DEVICES,
     MSGKEY_DEVICES_V4,
@@ -171,7 +172,7 @@ def parse_symbol_list(content: bytes) -> list[DecodedSymbol]:
 
 
 def parse_data(content: bytes, symbol_table: list[DecodedSymbol]) -> DecodedData:
-    """Parse a D1 (v5) or B1 (v4) data frame.
+    """Parse a D2 (blaecktcpy), D1 (Arduino v5), or B1 (v4) data frame.
 
     Args:
         content: bytes between <BLAECK: and /BLAECK>
@@ -184,12 +185,14 @@ def parse_data(content: bytes, symbol_table: list[DecodedSymbol]) -> DecodedData
     _validate_data_frame(content)
 
     match msg_key:
-        case 0xD1:  # MSGKEY_DATA (v5+)
+        case 0xD2:  # MSGKEY_DATA_D2 (blaecktcpy, 8-byte timestamp)
+            return _parse_data_d2(msg_id, data, symbol_table)
+        case 0xD1:  # MSGKEY_DATA_D1 (Arduino v5+, 4-byte timestamp)
             return _parse_data_d1(msg_id, data, symbol_table)
         case 0xB1:  # MSGKEY_DATA_LEGACY (v4)
             return _parse_data_b1(msg_id, data, symbol_table)
         case _:
-            raise ValueError(f"Expected D1 or B1 data frame, got {msg_key:#x}")
+            raise ValueError(f"Expected D2, D1 or B1 data frame, got {msg_key:#x}")
 
 
 def _validate_data_frame(content: bytes) -> None:
@@ -205,10 +208,52 @@ def _validate_data_frame(content: bytes) -> None:
         )
 
 
+def _parse_data_d2(
+    msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
+) -> DecodedData:
+    """Parse D2 format: RestartFlag : TimestampMode [Timestamp(8)] : signals... StatusByte CRC32"""
+    pos = 0
+
+    # Restart flag (1 byte)
+    restart_flag = data[pos] != 0
+    pos += 1
+
+    # ':' separator
+    pos += 1
+
+    # Timestamp mode (1 byte)
+    timestamp_mode = data[pos]
+    pos += 1
+
+    # Optional timestamp (8 bytes uint64 if mode > 0)
+    timestamp = None
+    if timestamp_mode > 0:
+        timestamp = int.from_bytes(data[pos : pos + 8], "little")
+        pos += 8
+
+    # ':' separator
+    pos += 1
+
+    # Signal data ends before StatusByte(1) + CRC32(4)
+    signal_data_end = len(data) - 5
+    status_byte = data[signal_data_end]
+
+    signals = _unpack_signals(data, pos, signal_data_end, symbol_table)
+
+    return DecodedData(
+        msg_id=msg_id,
+        restart_flag=restart_flag,
+        timestamp_mode=timestamp_mode,
+        timestamp=timestamp,
+        status_byte=status_byte,
+        signals=signals,
+    )
+
+
 def _parse_data_d1(
     msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
 ) -> DecodedData:
-    """Parse D1 format: RestartFlag : TimestampMode [Timestamp] : signals... StatusByte CRC32"""
+    """Parse D1 format: RestartFlag : TimestampMode [Timestamp(4)] : signals... StatusByte CRC32"""
     pos = 0
 
     # Restart flag (1 byte)

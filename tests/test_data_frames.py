@@ -306,12 +306,12 @@ class TestRelayFrameScoping:
         return device, client, upstream_a, upstream_b, transport_a, transport_b
 
     def _parse_downstream_signal_ids(self, raw: bytes) -> list[int]:
-        """Extract signal index IDs from a downstream D1 frame."""
+        """Extract signal index IDs from a downstream D2 frame."""
         start = raw.find(b"<BLAECK:") + len(b"<BLAECK:")
         end = raw.find(b"/BLAECK>")
         content = raw[start:end]
 
-        # D1 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : signals... status(1) crc(4)
+        # D2 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : signals... status(1) crc(4)
         # Find the signal data after the last ":"
         colon_positions = []
         for i, b in enumerate(content):
@@ -376,7 +376,7 @@ class TestRelayFrameScoping:
             assert ids2 == [2, 3], f"Frame 2 should contain B's signals [2,3], got {ids2}"
 
             # Check restart flag: frame 1 should have it, frame 2 should not
-            # D1 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : ...
+            # D2 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : ...
             # restart_flag byte is at colons[1]+1
             content1_start = frame1_raw.find(b"<BLAECK:") + len(b"<BLAECK:")
             content1 = frame1_raw[content1_start:frame1_raw.find(b"/BLAECK>")]

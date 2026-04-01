@@ -121,7 +121,7 @@ class BlaeckTCPy:
 
     # Message type keys (pre-computed bytes for wire encoding)
     MSG_SYMBOL_LIST = b"\xb0"
-    MSG_DATA = b"\xd1"
+    MSG_DATA = b"\xd2"
     MSG_DEVICES = b"\xb6"
 
     def __init__(

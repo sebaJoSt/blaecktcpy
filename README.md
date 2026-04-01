@@ -206,7 +206,7 @@ Messages use the following binary format:
 | Type | MSGKEY | Elements | Description |
 |------|--------|----------|-------------|
 | Symbol List | `B0` | **`<MSC><SlaveID><SymbolName><DTYPE>`** | **Up to n symbols.** Response to `<BLAECK.WRITE_SYMBOLS>` |
-| Data | `D1` | `<RestartFlag>:<TimestampMode><Timestamp>:`**`<SymbolID><DATA>`**`<StatusByte><CRC32>` | **Up to n data items.** Response to `<BLAECK.WRITE_DATA>` |
+| Data | `D2` | `<RestartFlag>:<TimestampMode><Timestamp>:`**`<SymbolID><DATA>`**`<StatusByte><CRC32>` | **Up to n data items.** Response to `<BLAECK.WRITE_DATA>` |
 | Data | `B1` | **`<SymbolID><DATA>`**`<StatusByte><CRC32>` | Deprecated; decoded from upstream only |
 | Devices | `B6` | `<MSC><SlaveID><DeviceName><DeviceHWVersion><DeviceFWVersion><LibraryVersion><LibraryName><Client#><ClientDataEnabled><ServerRestarted><DeviceType><Parent>` | **Up to n devices.** Response to `<BLAECK.GET_DEVICES>` |
 
@@ -312,7 +312,7 @@ arduino = hub.add_tcp("192.168.1.10", 24, name="Arduino", relay_downstream=False
 dew_point = hub.add_signal("DewPoint", "float")
 ```
 
-The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1` for legacy data) but always sends `B6`/`D1` downstream to clients.
+The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1`/`D1` for legacy/Arduino data) but always sends `B6`/`D2` downstream to clients.
 
 ### Signal list caching
 
