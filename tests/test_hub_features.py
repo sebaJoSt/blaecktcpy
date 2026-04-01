@@ -2402,7 +2402,7 @@ class TestTimestampModeEnum:
     def test_values(self):
         assert TimestampMode.NONE == 0
         assert TimestampMode.MICROS == 1
-        assert TimestampMode.RTC == 2
+        assert TimestampMode.UNIX == 2
 
     def test_is_int(self):
         assert isinstance(TimestampMode.NONE, int)
@@ -2417,8 +2417,8 @@ class TestTimestampProperties:
 
     def test_set_timestamp_mode(self):
         device = _make_server_on_free_port()
-        device.timestamp_mode = TimestampMode.RTC
-        assert device.timestamp_mode == TimestampMode.RTC
+        device.timestamp_mode = TimestampMode.UNIX
+        assert device.timestamp_mode == TimestampMode.UNIX
 
     def test_start_time_set_at_start(self):
         import time
@@ -2487,10 +2487,10 @@ class TestTimestampInDataFrames:
             device.close()
 
     def test_rtc_mode_sends_8_byte_timestamp(self):
-        """RTC mode should include an 8-byte timestamp."""
+        """UNIX mode should include an 8-byte timestamp."""
         device, client = self._make_device()
         try:
-            device.timestamp_mode = TimestampMode.RTC
+            device.timestamp_mode = TimestampMode.UNIX
             device.write_all_data()
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
@@ -2533,7 +2533,7 @@ class TestTimestampInDataFrames:
         """Explicit timestamp_us should override auto-generated value."""
         device, client = self._make_device()
         try:
-            device.timestamp_mode = TimestampMode.RTC
+            device.timestamp_mode = TimestampMode.UNIX
             explicit_ts = 1234567890_000000
             device.write_all_data(timestamp_us=explicit_ts)
             frame = self._recv_frame(client)
@@ -2569,7 +2569,7 @@ class TestTimestampInDataFrames:
         """write_updated_data should also include timestamps."""
         device, client = self._make_device()
         try:
-            device.timestamp_mode = TimestampMode.RTC
+            device.timestamp_mode = TimestampMode.UNIX
             device.update("temp", 42.0)
             device.write_updated_data()
             frame = self._recv_frame(client)
@@ -2586,7 +2586,7 @@ class TestTimestampInDataFrames:
         """write() should also include timestamps."""
         device, client = self._make_device()
         try:
-            device.timestamp_mode = TimestampMode.RTC
+            device.timestamp_mode = TimestampMode.UNIX
             device.write("temp", 42.0)
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")

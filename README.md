@@ -142,7 +142,7 @@ from blaecktcpy import TimestampMode
 bltcp.timestamp_mode = TimestampMode.MICROS
 
 # Microseconds since Unix epoch (absolute, real-time clock)
-bltcp.timestamp_mode = TimestampMode.RTC
+bltcp.timestamp_mode = TimestampMode.UNIX
 ```
 
 Every write method auto-fills the timestamp based on the mode. Use the `timestamp_us` parameter to override with an explicit value (e.g. from a CSV file):

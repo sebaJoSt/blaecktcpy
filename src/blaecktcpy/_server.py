@@ -1422,7 +1422,7 @@ class BlaeckTCPy:
 
         * **TimestampMode.NONE** — No timestamp (default).
         * **TimestampMode.MICROS** — Microseconds since :meth:`start`.
-        * **TimestampMode.RTC** — Microseconds since Unix epoch.
+        * **TimestampMode.UNIX** — Microseconds since Unix epoch.
         """
         return self._timestamp_mode
 
@@ -1434,7 +1434,7 @@ class BlaeckTCPy:
         """Return the auto-generated timestamp for the current mode, or None."""
         if self._timestamp_mode == TimestampMode.MICROS:
             return int((time.time() - self._start_time) * 1_000_000)
-        elif self._timestamp_mode == TimestampMode.RTC:
+        elif self._timestamp_mode == TimestampMode.UNIX:
             return int(time.time() * 1_000_000)
         return None
 

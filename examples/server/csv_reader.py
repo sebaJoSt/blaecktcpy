@@ -59,7 +59,7 @@ def main():
     bltcp = BlaeckTCPy(
         "127.0.0.1", PORT, "CSV Tail Reader", "Python Script", EXAMPLE_VERSION
     )
-    bltcp.timestamp_mode = TimestampMode.RTC
+    bltcp.timestamp_mode = TimestampMode.UNIX
 
     for name in signal_names:
         bltcp.add_signal(name, "double")

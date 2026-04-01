@@ -7,7 +7,7 @@ Pick one mode by uncommenting the corresponding block below:
 
   NONE    — no timestamp in the frame (default, backward-compatible)
   MICROS  — microseconds since start() was called
-  RTC     — microseconds since Unix epoch (wall-clock time)
+  UNIX    — microseconds since Unix epoch (wall-clock time)
 
 You can also override the automatic timestamp on any individual write
 by passing the ``timestamp_us`` parameter explicitly.
@@ -40,7 +40,7 @@ bltcp.add_signal("Cosine", "float")
 # bltcp.timestamp_mode = TimestampMode.MICROS
 
 # Mode 3: Wall-clock microseconds (Unix epoch)
-bltcp.timestamp_mode = TimestampMode.RTC
+bltcp.timestamp_mode = TimestampMode.UNIX
 
 # ── Interval & start ─────────────────────────────────────────────────
 

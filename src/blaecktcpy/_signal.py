@@ -23,12 +23,12 @@ class TimestampMode(IntEnum):
 
     * **NONE** (0) — No timestamp in data frames (default).
     * **MICROS** (1) — Microseconds since :meth:`start`.
-    * **RTC** (2) — Microseconds since Unix epoch (real-time clock).
+    * **UNIX** (2) — Microseconds since Unix epoch (1970-01-01 UTC).
     """
 
     NONE = 0
     MICROS = 1
-    RTC = 2
+    UNIX = 2
 
 
 @dataclass(init=False)

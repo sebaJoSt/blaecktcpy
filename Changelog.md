@@ -11,12 +11,12 @@ All notable changes to this project will be documented in this file.
   opt-in per upstream, and `forward=True` on `@on_command()` or `forward_command()`
   to mark which commands should be forwarded.
 - **Timestamps**: Data frames can now include timestamps via `timestamp_mode`
-  property (`TimestampMode.MICROS` for µs since start, `TimestampMode.RTC` for
+  property (`TimestampMode.MICROS` for µs since start, `TimestampMode.UNIX` for
   µs since epoch). All write methods accept an explicit `timestamp_us` override.
   Wire format is uint64 (8 bytes).
 - **`interval_ms` property**: Replaces `set_interval()` method.
 - **`start_time` property**: Exposes the `time.time()` value captured at `start()`.
-- **`TimestampMode` enum**: `NONE`, `MICROS`, `RTC`.
+- **`TimestampMode` enum**: `NONE`, `MICROS`, `UNIX`.
 
 ### Changed (v3.0 — Breaking)
 
