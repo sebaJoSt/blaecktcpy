@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Union
 
-from ._signal import Signal, SignalList, IntervalMode
+from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from .hub import _decoder as decoder
 from .hub._upstream import UpstreamTCP, _UpstreamBase
 
@@ -168,6 +168,8 @@ class BlaeckTCPy:
         self.data_clients: set[int] = set()
         self._recv_buffers: dict = {}
         self._closed = False
+        self._timestamp_mode = TimestampMode.NONE
+        self._start_time: float = 0.0
 
         # Upstream state
         self._upstreams: list[_UpstreamDevice] = []
@@ -265,6 +267,7 @@ class BlaeckTCPy:
                 upstream._upstream_signals = SignalList(upstream._signals)
 
         self._started = True
+        self._start_time = time.time()
         self._install_signal_handler()
 
         # Activate upstreams with a fixed interval
@@ -420,7 +423,12 @@ class BlaeckTCPy:
         raise KeyError(f"Signal '{key}' not found")
 
     def write(
-        self, key: Union[str, int], value: Union[int, float], *, msg_id: int = 1
+        self,
+        key: Union[str, int],
+        value: Union[int, float],
+        *,
+        msg_id: int = 1,
+        timestamp_us: int | None = None,
     ) -> None:
         """Update a single local signal's value and immediately send it.
 
@@ -428,13 +436,16 @@ class BlaeckTCPy:
             key: Signal name (str) or index (int)
             value: New value to set
             msg_id: Message ID for the protocol frame
+            timestamp_us: Explicit timestamp in microseconds. When omitted,
+                auto-filled from :attr:`timestamp_mode`.
         """
         idx = self._resolve_signal(key)
         self.signals[idx].value = value
         if not self.connected:
             return
+        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
-        data = b"<BLAECK:" + self._build_data_msg(header, idx, idx) + b"/BLAECK>\r\n"
+        data = b"<BLAECK:" + self._build_data_msg(header, idx, idx, timestamp_us=ts) + b"/BLAECK>\r\n"
         self._tcp_send_data(data)
 
     def update(self, key: Union[str, int], value: Union[int, float]) -> None:
@@ -1017,6 +1028,7 @@ class BlaeckTCPy:
                         if self._before_write_callback is not None:
                             self._before_write_callback()
                         msg_id = self._decode_four_byte(params)
+                        ts = self._auto_timestamp_us()
                         header = (
                             self.MSG_DATA
                             + b":"
@@ -1026,7 +1038,8 @@ class BlaeckTCPy:
                         data = (
                             b"<BLAECK:"
                             + self._build_data_msg(
-                                header, start=0, end=self._local_signal_count - 1
+                                header, start=0, end=self._local_signal_count - 1,
+                                timestamp_us=ts,
                             )
                             + b"/BLAECK>\r\n"
                         )
@@ -1242,8 +1255,14 @@ class BlaeckTCPy:
 
         self._server_restarted = False
 
-    def write_all_data(self, msg_id: int = 1) -> None:
-        """Send all local signal data to data-enabled clients."""
+    def write_all_data(self, msg_id: int = 1, *, timestamp_us: int | None = None) -> None:
+        """Send all local signal data to data-enabled clients.
+
+        Args:
+            msg_id: Message ID for the protocol frame.
+            timestamp_us: Explicit timestamp in microseconds. When omitted,
+                auto-filled from :attr:`timestamp_mode`.
+        """
         if not self.connected:
             return
         lc = self._local_signal_count if self._started else len(self.signals)
@@ -1251,16 +1270,23 @@ class BlaeckTCPy:
             return
         if self._before_write_callback is not None:
             self._before_write_callback()
+        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1)
+            + self._build_data_msg(header, start=0, end=lc - 1, timestamp_us=ts)
             + b"/BLAECK>\r\n"
         )
         self._tcp_send_data(data)
 
-    def write_updated_data(self, msg_id: int = 1) -> None:
-        """Send only updated local signals to data-enabled clients."""
+    def write_updated_data(self, msg_id: int = 1, *, timestamp_us: int | None = None) -> None:
+        """Send only updated local signals to data-enabled clients.
+
+        Args:
+            msg_id: Message ID for the protocol frame.
+            timestamp_us: Explicit timestamp in microseconds. When omitted,
+                auto-filled from :attr:`timestamp_mode`.
+        """
         if not self.connected or not self.has_updated_signals:
             return
         lc = self._local_signal_count if self._started else len(self.signals)
@@ -1268,10 +1294,11 @@ class BlaeckTCPy:
             return
         if self._before_write_callback is not None:
             self._before_write_callback()
+        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True)
+            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp_us=ts)
             + b"/BLAECK>\r\n"
         )
         self._tcp_send_data(data)
@@ -1280,8 +1307,14 @@ class BlaeckTCPy:
         """Check if the timed interval has elapsed."""
         return self._timer.elapsed()
 
-    def timed_write_all_data(self, msg_id: int = 185273099) -> bool:
-        """Send all local data if timer interval has elapsed."""
+    def timed_write_all_data(self, msg_id: int = 185273099, *, timestamp_us: int | None = None) -> bool:
+        """Send all local data if timer interval has elapsed.
+
+        Args:
+            msg_id: Message ID for the protocol frame.
+            timestamp_us: Explicit timestamp in microseconds. When omitted,
+                auto-filled from :attr:`timestamp_mode`.
+        """
         if not self.connected:
             return False
         if not self._timed_activated:
@@ -1293,16 +1326,23 @@ class BlaeckTCPy:
             return False
         if self._before_write_callback is not None:
             self._before_write_callback()
+        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1)
+            + self._build_data_msg(header, start=0, end=lc - 1, timestamp_us=ts)
             + b"/BLAECK>\r\n"
         )
         return self._tcp_send_data(data)
 
-    def timed_write_updated_data(self, msg_id: int = 185273099) -> bool:
-        """Send only updated local signals if timer interval has elapsed."""
+    def timed_write_updated_data(self, msg_id: int = 185273099, *, timestamp_us: int | None = None) -> bool:
+        """Send only updated local signals if timer interval has elapsed.
+
+        Args:
+            msg_id: Message ID for the protocol frame.
+            timestamp_us: Explicit timestamp in microseconds. When omitted,
+                auto-filled from :attr:`timestamp_mode`.
+        """
         if not self.connected:
             return False
         if not self._timed_activated:
@@ -1316,10 +1356,11 @@ class BlaeckTCPy:
             return False
         if self._before_write_callback is not None:
             self._before_write_callback()
+        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True)
+            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp_us=ts)
             + b"/BLAECK>\r\n"
         )
         return self._tcp_send_data(data)
@@ -1334,12 +1375,11 @@ class BlaeckTCPy:
             self._timer.deactivate()
             logger.info("Timed data deactivated")
 
-    def set_interval(self, interval_ms: int) -> None:
-        """Set the timed data interval mode.
+    @property
+    def interval_ms(self) -> int:
+        """Timed data interval mode.
 
-        Controls how timed data transmission is managed:
-
-        * **interval_ms >= 0** — Lock at the given rate.  Client
+        * **value >= 0** — Lock at the given rate (ms).  Client
           ``ACTIVATE`` / ``DEACTIVATE`` commands are ignored.
           ``0`` means "as fast as possible."
         * **IntervalMode.OFF** — Timed data is off.  Client
@@ -1347,26 +1387,56 @@ class BlaeckTCPy:
         * **IntervalMode.CLIENT** — Client controlled (default).
           The client's ``ACTIVATE`` / ``DEACTIVATE`` commands
           determine the rate.
-
-        Args:
-            interval_ms: Interval in milliseconds, or an
-                :class:`IntervalMode` member.
         """
-        if interval_ms >= 0:
-            self._fixed_interval_ms = interval_ms
+        return self._fixed_interval_ms
+
+    @interval_ms.setter
+    def interval_ms(self, value: int) -> None:
+        if value >= 0:
+            self._fixed_interval_ms = value
             self._timed_activated = True
-            self._timer.activate(interval_ms)
+            self._timer.activate(value)
             logger.info(
-                f"Fixed interval set ({interval_ms} ms) — client control locked"
+                f"Fixed interval set ({value} ms) — client control locked"
             )
-        elif interval_ms == IntervalMode.OFF:
+        elif value == IntervalMode.OFF:
             self._fixed_interval_ms = IntervalMode.OFF
             self._timed_activated = False
             self._timer.deactivate()
             logger.info("Timed data locked off — client control locked")
-        elif interval_ms == IntervalMode.CLIENT:
+        elif value == IntervalMode.CLIENT:
             self._fixed_interval_ms = IntervalMode.CLIENT
             logger.info("Client control restored")
+
+    @property
+    def start_time(self) -> float:
+        """Wall-clock time when :meth:`start` was called (``time.time()``).
+
+        Useful as a reference point for elapsed-time calculations.
+        """
+        return self._start_time
+
+    @property
+    def timestamp_mode(self) -> TimestampMode:
+        """Timestamp mode for outgoing data frames.
+
+        * **TimestampMode.NONE** — No timestamp (default).
+        * **TimestampMode.MICROS** — Microseconds since :meth:`start`.
+        * **TimestampMode.RTC** — Microseconds since Unix epoch.
+        """
+        return self._timestamp_mode
+
+    @timestamp_mode.setter
+    def timestamp_mode(self, value: TimestampMode) -> None:
+        self._timestamp_mode = TimestampMode(value)
+
+    def _auto_timestamp_us(self) -> int | None:
+        """Return the auto-generated timestamp for the current mode, or None."""
+        if self._timestamp_mode == TimestampMode.MICROS:
+            return int((time.time() - self._start_time) * 1_000_000)
+        elif self._timestamp_mode == TimestampMode.RTC:
+            return int(time.time() * 1_000_000)
+        return None
 
     # ========================================================================
     # Main Loop
@@ -1465,7 +1535,9 @@ class BlaeckTCPy:
                         # Forward upstream timestamp only with a single relayed device
                         relayed_count = sum(1 for u in self._upstreams if u.relay_downstream)
                         single = relayed_count == 1 and self._local_signal_count == 0
-                        ts = decoded.timestamp if single else None
+                        # Widen upstream uint32 timestamp to uint64
+                        ts = decoded.timestamp if single and decoded.timestamp is not None else None
+                        ts_mode = TimestampMode(decoded.timestamp_mode) if ts is not None else None
 
                         # Replace msg_id only when hub overrides BLAECK.ACTIVATE
                         relay_msg_id = decoded.msg_id
@@ -1491,7 +1563,8 @@ class BlaeckTCPy:
                                 start=start_idx,
                                 end=end_idx,
                                 only_updated=True,
-                                timestamp=ts,
+                                timestamp_us=ts,
+                                timestamp_mode=ts_mode,
                                 status=decoded.status_byte,
                             )
                             + b"/BLAECK>\r\n"
@@ -1563,7 +1636,8 @@ class BlaeckTCPy:
         start: int = 0,
         end: int = -1,
         only_updated: bool = False,
-        timestamp: int | None = None,
+        timestamp_us: int | None = None,
+        timestamp_mode: TimestampMode | None = None,
         status: int = STATUS_OK,
     ) -> bytes:
         """Build data message with CRC32 checksum (v5 format).
@@ -1573,7 +1647,9 @@ class BlaeckTCPy:
             start: First signal index (inclusive)
             end: Last signal index (inclusive), -1 = last signal
             only_updated: If True, include only signals with updated=True
-            timestamp: Optional upstream timestamp (millis) to forward
+            timestamp_us: Timestamp in microseconds (uint64), or None
+            timestamp_mode: Timestamp mode byte. If None, uses the
+                instance's :attr:`timestamp_mode`.
             status: Status byte (STATUS_OK or STATUS_UPSTREAM_LOST)
         """
         if end == -1:
@@ -1584,18 +1660,18 @@ class BlaeckTCPy:
         self._restart_flag_pending = False
 
         # Timestamp
-        if timestamp is not None:
-            timestamp_mode = b"\x01"
+        mode = timestamp_mode if timestamp_mode is not None else self._timestamp_mode
+        if timestamp_us is not None and mode != TimestampMode.NONE:
+            mode_byte = int(mode).to_bytes(1, "little")
             meta = (
                 restart_flag
                 + b":"
-                + timestamp_mode
-                + timestamp.to_bytes(4, "little")
+                + mode_byte
+                + timestamp_us.to_bytes(8, "little")
                 + b":"
             )
         else:
-            timestamp_mode = b"\x00"
-            meta = restart_flag + b":" + timestamp_mode + b":"
+            meta = restart_flag + b":" + b"\x00" + b":"
 
         payload = b""
         for idx in range(start, end + 1):

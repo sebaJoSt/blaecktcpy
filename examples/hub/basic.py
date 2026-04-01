@@ -61,7 +61,7 @@ hub = BlaeckTCPy("127.0.0.1", 23, "Basic Hub", "Python Script", EXAMPLE_VERSION)
 
 # Local signal
 sawtooth = hub.add_signal("Sawtooth_1", "float")
-hub.set_interval(500)
+hub.interval_ms = 500
 
 # Connect to upstream servers
 hub.add_tcp("127.0.0.1", 10024, "Sine", interval_ms=300)

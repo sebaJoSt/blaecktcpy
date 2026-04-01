@@ -18,7 +18,7 @@ SRC_PATH = PROJECT_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-from blaecktcpy import Signal, SignalList, STATUS_OK, STATUS_UPSTREAM_LOST, IntervalMode, BlaeckTCPy
+from blaecktcpy import Signal, SignalList, STATUS_OK, STATUS_UPSTREAM_LOST, IntervalMode, TimestampMode, BlaeckTCPy
 from blaecktcpy._server import _UpstreamDevice, _MSG_ID_HUB, _IntervalTimer
 from blaecktcpy.hub._upstream import _UpstreamBase
 from blaecktcpy.hub import _decoder as decoder
@@ -1948,12 +1948,12 @@ class TestHubWriteUpdate:
 
 
 # ========================================================================
-# Server set_interval tests
+# Server interval_ms property tests
 # ========================================================================
 
 
-class TestServerSetInterval:
-    """Verify BlaeckTCPy.set_interval() locked/unlocked behaviour."""
+class TestServerIntervalProperty:
+    """Verify BlaeckTCPy.interval_ms property locked/unlocked behaviour."""
 
     def _make_server_with_client(self):
         """Return (device, client_socket) with one connected client."""
@@ -1969,49 +1969,49 @@ class TestServerSetInterval:
         return device, client
 
     def test_set_interval_activates_timed_data(self):
-        """set_interval(>0) should activate timed data immediately."""
+        """interval_ms = >0 should activate timed data immediately."""
         server, client = self._make_server_with_client()
         try:
             assert not server._timed_activated
-            server.set_interval(500)
+            server.interval_ms = 500
             assert server._timed_activated
-            assert server._fixed_interval_ms == 500
+            assert server.interval_ms == 500
         finally:
             client.close()
             server.close()
 
     def test_set_interval_zero_locks_at_zero(self):
-        """set_interval(0) should lock at 0ms (fastest possible)."""
+        """interval_ms = 0 should lock at 0ms (fastest possible)."""
         server, client = self._make_server_with_client()
         try:
-            server.set_interval(0)
-            assert server._fixed_interval_ms == 0
+            server.interval_ms = 0
+            assert server.interval_ms == 0
             assert server._timed_activated
         finally:
             client.close()
             server.close()
 
     def test_interval_client_releases_lock(self):
-        """set_interval(IntervalMode.CLIENT) should release the lock."""
+        """interval_ms = IntervalMode.CLIENT should release the lock."""
         server, client = self._make_server_with_client()
         try:
-            server.set_interval(500)
-            assert server._fixed_interval_ms == 500
-            server.set_interval(IntervalMode.CLIENT)
-            assert server._fixed_interval_ms == IntervalMode.CLIENT
+            server.interval_ms = 500
+            assert server.interval_ms == 500
+            server.interval_ms = IntervalMode.CLIENT
+            assert server.interval_ms == IntervalMode.CLIENT
         finally:
             client.close()
             server.close()
 
     def test_interval_off_deactivates(self):
-        """set_interval(IntervalMode.OFF) should deactivate timed data."""
+        """interval_ms = IntervalMode.OFF should deactivate timed data."""
         server, client = self._make_server_with_client()
         try:
-            server.set_interval(500)
+            server.interval_ms = 500
             assert server._timed_activated
-            server.set_interval(IntervalMode.OFF)
+            server.interval_ms = IntervalMode.OFF
             assert not server._timed_activated
-            assert server._fixed_interval_ms == IntervalMode.OFF
+            assert server.interval_ms == IntervalMode.OFF
         finally:
             client.close()
             server.close()
@@ -2020,7 +2020,7 @@ class TestServerSetInterval:
         """When locked, client ACTIVATE command should be ignored."""
         server, client = self._make_server_with_client()
         try:
-            server.set_interval(500)
+            server.interval_ms = 500
             # Send ACTIVATE command from client with different interval
             activate_cmd = "<BLAECK.ACTIVATE,208,7,0,0>"
             client.sendall(activate_cmd.encode())
@@ -2028,7 +2028,7 @@ class TestServerSetInterval:
             time.sleep(0.05)
             server.read()
             # Lock still active, interval unchanged
-            assert server._fixed_interval_ms == 500
+            assert server.interval_ms == 500
             assert server._timed_activated
         finally:
             client.close()
@@ -2038,7 +2038,7 @@ class TestServerSetInterval:
         """When locked, client DEACTIVATE should be ignored."""
         server, client = self._make_server_with_client()
         try:
-            server.set_interval(500)
+            server.interval_ms = 500
             assert server._timed_activated
             # Send DEACTIVATE from client
             deactivate_cmd = "<BLAECK.DEACTIVATE>"
@@ -2075,7 +2075,7 @@ class TestServerSetInterval:
 
         server, client = self._make_server_with_client()
         try:
-            server.set_interval(50)
+            server.interval_ms = 50
             assert server._timed_activated
 
             # Disconnect
@@ -2103,6 +2103,7 @@ class TestServerSetInterval:
             except Exception:
                 pass
             server.close()
+
 
 
 # ========================================================================
@@ -2385,6 +2386,214 @@ class TestCustomCommandForwarding:
             assert len(received) == 1
             assert received[0] == ("255", "forward")
             assert len(transport.sent) == 0
+        finally:
+            client.close()
+            device.close()
+
+
+# ========================================================================
+# Timestamp tests
+# ========================================================================
+
+
+class TestTimestampModeEnum:
+    """Verify TimestampMode enum values."""
+
+    def test_values(self):
+        assert TimestampMode.NONE == 0
+        assert TimestampMode.MICROS == 1
+        assert TimestampMode.RTC == 2
+
+    def test_is_int(self):
+        assert isinstance(TimestampMode.NONE, int)
+
+
+class TestTimestampProperties:
+    """Verify timestamp_mode, start_time properties."""
+
+    def test_default_timestamp_mode_is_none(self):
+        device = _make_server_on_free_port()
+        assert device.timestamp_mode == TimestampMode.NONE
+
+    def test_set_timestamp_mode(self):
+        device = _make_server_on_free_port()
+        device.timestamp_mode = TimestampMode.RTC
+        assert device.timestamp_mode == TimestampMode.RTC
+
+    def test_start_time_set_at_start(self):
+        import time
+
+        device = _make_server_on_free_port()
+        before = time.time()
+        _start_retry(device)
+        after = time.time()
+        try:
+            assert before <= device.start_time <= after
+        finally:
+            device.close()
+
+    def test_start_time_zero_before_start(self):
+        device = _make_server_on_free_port()
+        assert device.start_time == 0.0
+
+
+class TestTimestampInDataFrames:
+    """Verify timestamps are encoded in outgoing data frames."""
+
+    def _make_device(self):
+        import socket
+
+        device = _make_server_on_free_port()
+        device.add_signal("temp", "float", 3.14)
+        _start_retry(device)
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", device._port))
+        device._accept_new_clients()
+
+        return device, client
+
+    def _recv_frame(self, client):
+        """Receive one full BlaeckTCP frame."""
+        import time
+        time.sleep(0.05)
+        data = b""
+        while True:
+            try:
+                chunk = client.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+                if b"/BLAECK>" in data:
+                    break
+            except Exception:
+                break
+        return data
+
+    def test_no_timestamp_mode_sends_mode_zero(self):
+        """Default NO_TIMESTAMP mode should send mode byte 0x00."""
+        device, client = self._make_device()
+        try:
+            device.write_all_data()
+            frame = self._recv_frame(client)
+            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content = frame[start:]
+            parts = content.split(b":", 4)
+            ts_mode_section = parts[3]
+            assert ts_mode_section[0] == 0x00
+        finally:
+            client.close()
+            device.close()
+
+    def test_rtc_mode_sends_8_byte_timestamp(self):
+        """RTC mode should include an 8-byte timestamp."""
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.RTC
+            device.write_all_data()
+            frame = self._recv_frame(client)
+            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content = frame[start:]
+            parts = content.split(b":", 4)
+            ts_mode_section = parts[3]
+            assert ts_mode_section[0] == 0x02
+            ts_bytes = ts_mode_section[1:9]
+            ts = int.from_bytes(ts_bytes, "little")
+            import time
+            now_us = int(time.time() * 1_000_000)
+            assert abs(ts - now_us) < 5_000_000  # within 5 seconds
+        finally:
+            client.close()
+            device.close()
+
+    def test_micros_mode_sends_relative_timestamp(self):
+        """MICROS mode should send us since start()."""
+        import time
+
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.MICROS
+            time.sleep(0.05)
+            device.write_all_data()
+            frame = self._recv_frame(client)
+            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content = frame[start:]
+            parts = content.split(b":", 4)
+            ts_mode_section = parts[3]
+            assert ts_mode_section[0] == 0x01
+            ts_bytes = ts_mode_section[1:9]
+            ts = int.from_bytes(ts_bytes, "little")
+            assert 10_000 < ts < 5_000_000
+        finally:
+            client.close()
+            device.close()
+
+    def test_explicit_timestamp_overrides_auto(self):
+        """Explicit timestamp_us should override auto-generated value."""
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.RTC
+            explicit_ts = 1234567890_000000
+            device.write_all_data(timestamp_us=explicit_ts)
+            frame = self._recv_frame(client)
+            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content = frame[start:]
+            parts = content.split(b":", 4)
+            ts_mode_section = parts[3]
+            assert ts_mode_section[0] == 0x02
+            ts_bytes = ts_mode_section[1:9]
+            ts = int.from_bytes(ts_bytes, "little")
+            assert ts == explicit_ts
+        finally:
+            client.close()
+            device.close()
+
+    def test_explicit_timestamp_with_no_mode_uses_none(self):
+        """With NONE mode, even explicit timestamp should not be sent."""
+        device, client = self._make_device()
+        try:
+            assert device.timestamp_mode == TimestampMode.NONE
+            device.write_all_data(timestamp_us=1234567890)
+            frame = self._recv_frame(client)
+            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content = frame[start:]
+            parts = content.split(b":", 4)
+            ts_mode_section = parts[3]
+            assert ts_mode_section[0] == 0x00
+        finally:
+            client.close()
+            device.close()
+
+    def test_write_updated_data_includes_timestamp(self):
+        """write_updated_data should also include timestamps."""
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.RTC
+            device.update("temp", 42.0)
+            device.write_updated_data()
+            frame = self._recv_frame(client)
+            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content = frame[start:]
+            parts = content.split(b":", 4)
+            ts_mode_section = parts[3]
+            assert ts_mode_section[0] == 0x02
+        finally:
+            client.close()
+            device.close()
+
+    def test_write_single_signal_includes_timestamp(self):
+        """write() should also include timestamps."""
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.RTC
+            device.write("temp", 42.0)
+            frame = self._recv_frame(client)
+            start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content = frame[start:]
+            parts = content.split(b":", 4)
+            ts_mode_section = parts[3]
+            assert ts_mode_section[0] == 0x02
         finally:
             client.close()
             device.close()

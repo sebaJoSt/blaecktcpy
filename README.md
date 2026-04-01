@@ -60,14 +60,14 @@ while True:
 ### Server-controlled interval
 
 By default the client controls the timed data rate via `ACTIVATE`/`DEACTIVATE`.
-Use `set_interval()` to lock the device to a fixed rate:
+Use the `interval_ms` property to lock the device to a fixed rate:
 
 ```python
 from blaecktcpy import IntervalMode
 
-bltcp.set_interval(500)                  # send every 500 ms, ignore client ACTIVATE/DEACTIVATE
-bltcp.set_interval(IntervalMode.CLIENT)  # return to client control (default)
-bltcp.set_interval(IntervalMode.OFF)     # disable timed data entirely
+bltcp.interval_ms = 500                  # send every 500 ms, ignore client ACTIVATE/DEACTIVATE
+bltcp.interval_ms = IntervalMode.CLIENT  # return to client control (default)
+bltcp.interval_ms = IntervalMode.OFF     # disable timed data entirely
 ```
 
 ## Built-in commands
@@ -129,6 +129,32 @@ hub.forward_command("RESET")
 @hub.on_command("MOTOR")
 def handle_motor(speed):
     print(f"Motor = {speed}")
+```
+
+## Timestamps
+
+Data frames can include timestamps. Set the `timestamp_mode` property to enable:
+
+```python
+from blaecktcpy import TimestampMode
+
+# Microseconds since start() (relative)
+bltcp.timestamp_mode = TimestampMode.MICROS
+
+# Microseconds since Unix epoch (absolute, real-time clock)
+bltcp.timestamp_mode = TimestampMode.RTC
+```
+
+Every write method auto-fills the timestamp based on the mode. Use the `timestamp_us` parameter to override with an explicit value (e.g. from a CSV file):
+
+```python
+bltcp.write_all_data(timestamp_us=int(csv_timestamp * 1_000_000))
+```
+
+The `start_time` property exposes the `time.time()` value captured at `start()`:
+
+```python
+elapsed = time.time() - bltcp.start_time
 ```
 
 ## Client callbacks
@@ -259,12 +285,12 @@ hub.add_tcp("192.168.1.20", 24, name="Sensor", interval_ms=IntervalMode.OFF)
 
 ### Local signal interval
 
-Use `set_interval()` to stream local signals at a fixed rate:
+Use the `interval_ms` property to stream local signals at a fixed rate:
 
 ```python
-hub.set_interval(500)                  # local signals every 500 ms
-hub.set_interval(IntervalMode.CLIENT)  # follow client ACTIVATE/DEACTIVATE (default)
-hub.set_interval(IntervalMode.OFF)     # disable timed local data
+hub.interval_ms = 500                  # local signals every 500 ms
+hub.interval_ms = IntervalMode.CLIENT  # follow client ACTIVATE/DEACTIVATE (default)
+hub.interval_ms = IntervalMode.OFF     # disable timed local data
 ```
 
 ### Relaying upstream signals

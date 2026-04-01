@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 
 class IntervalMode(IntEnum):
-    """Timed data interval modes for :meth:`set_interval`.
+    """Timed data interval modes for the :attr:`interval_ms` property.
 
     * **OFF** (-1) — Timed data disabled; client ACTIVATE ignored.
     * **CLIENT** (-2) — Client controlled (default); the client's
@@ -16,6 +16,19 @@ class IntervalMode(IntEnum):
 
     OFF = -1
     CLIENT = -2
+
+
+class TimestampMode(IntEnum):
+    """Timestamp modes for data frames.
+
+    * **NONE** (0) — No timestamp in data frames (default).
+    * **MICROS** (1) — Microseconds since :meth:`start`.
+    * **RTC** (2) — Microseconds since Unix epoch (real-time clock).
+    """
+
+    NONE = 0
+    MICROS = 1
+    RTC = 2
 
 
 @dataclass(init=False)
