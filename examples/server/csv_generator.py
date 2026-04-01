@@ -18,9 +18,10 @@ import math
 import os
 import random
 import sys
+import tempfile
 import time
 
-CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else "test_data.csv"
+CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "test_data.csv")
 COLUMNS = ["timestamp", "temperature", "pressure", "humidity"]
 
 

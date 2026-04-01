@@ -19,11 +19,12 @@ Usage:
 import csv
 import os
 import sys
+import tempfile
 import time
 
 from blaecktcpy import BlaeckTCPy
 
-CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else "test_data.csv"
+CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "test_data.csv")
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 23
 
 EXAMPLE_VERSION = "1.0"
