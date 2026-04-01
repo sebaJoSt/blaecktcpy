@@ -233,8 +233,8 @@ Messages use the following binary format:
 | `DeviceType` | String0 | `server` or `hub` |
 | `Parent` | String0 | SlaveID of the parent device (`0` = master) |
 | `RestartFlag` | byte | `1` on the first data frame after startup, `0` otherwise |
-| `TimestampMode` | byte | Always `0` in blaecktcpy (timestamps not implemented) |
-| `Timestamp` | ulong | Timestamp value (only present if TimestampMode > 0); not sent by blaecktcpy |
+| `TimestampMode` | byte | `0` = NONE (default), `1` = MICROS (µs since start), `2` = UNIX (µs since epoch) |
+| `Timestamp` | uint64 | 8-byte microsecond timestamp (only present if TimestampMode > 0) |
 | `StatusByte` | byte | `0x00` = normal, `0x01` = I2C CRC error, `0x02` = upstream connection lost |
 | `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |
 

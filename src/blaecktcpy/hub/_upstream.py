@@ -1,4 +1,4 @@
-"""Upstream transport connections for BlaeckHub.
+"""Upstream transport connections for BlaeckTCPy hub mode.
 
 Provides UpstreamTCP and UpstreamSerial classes that connect to
 upstream BlaeckTCP(y)/BlaeckSerial devices as a client, reading

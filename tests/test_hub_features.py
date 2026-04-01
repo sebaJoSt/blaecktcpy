@@ -1969,7 +1969,7 @@ class TestServerIntervalProperty:
         device._accept_new_clients()
         return device, client
 
-    def test_set_interval_activates_timed_data(self):
+    def test_interval_ms_activates_timed_data(self):
         """interval_ms = >0 should activate timed data immediately."""
         server, client = self._make_server_with_client()
         try:
@@ -1981,7 +1981,7 @@ class TestServerIntervalProperty:
             client.close()
             server.close()
 
-    def test_set_interval_zero_locks_at_zero(self):
+    def test_interval_ms_zero_locks_at_zero(self):
         """interval_ms = 0 should lock at 0ms (fastest possible)."""
         server, client = self._make_server_with_client()
         try:
