@@ -106,6 +106,31 @@ def log_all(command, *params):  # receives command name + all params
     print(f"{command} {params}")
 ```
 
+### Forwarding custom commands upstream
+
+In hub mode, custom commands from downstream clients can be forwarded to upstream devices. This requires two things:
+
+1. **Opt-in per upstream** — set `forward_custom_commands=True` when adding the upstream
+2. **Mark commands for forwarding** — use `forward=True` on `@on_command()`, or `forward_command()` for forward-only (no local handler)
+
+```python
+hub.add_tcp("192.168.1.10", 24, name="Arduino", forward_custom_commands=True)
+hub.add_tcp("192.168.1.11", 25, name="Sensor")  # won't receive forwarded commands
+
+# Forward + handle locally
+@hub.on_command("SET_LED", forward=True)
+def handle_led(state):
+    print(f"LED = {state}")
+
+# Forward only (no local handler)
+hub.forward_command("RESET")
+
+# Local only (default, not forwarded)
+@hub.on_command("MOTOR")
+def handle_motor(speed):
+    print(f"Motor = {speed}")
+```
+
 ## Client callbacks
 
 Every connected client is automatically added to `data_clients` and receives data frames. Use `on_client_connected` / `on_client_disconnected` to react to connections or exclude specific clients from data:

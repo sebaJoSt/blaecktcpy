@@ -93,6 +93,7 @@ class _UpstreamDevice:
     interval_ms: int = IntervalMode.CLIENT
     connected: bool = True
     relay_downstream: bool = True
+    forward_custom_commands: bool = False
     _signals: list[Signal] = field(default_factory=list)
     _upstream_signals: SignalList | None = field(default=None, repr=False)
 
@@ -157,6 +158,7 @@ class BlaeckTCPy:
         self._master_slave_config = b"\x00"
         self._slave_id = b"\x00"
         self._command_handlers: dict[str, object] = {}
+        self._forwarded_commands: set[str] = set()
         self._read_callback = None
         self._connect_callback = None
         self._disconnect_callback = None
@@ -480,6 +482,7 @@ class BlaeckTCPy:
         timeout: float = 5.0,
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
+        forward_custom_commands: bool = False,
     ) -> _UpstreamDevice:
         """Connect to an upstream TCP device and discover its signals.
 
@@ -495,6 +498,8 @@ class BlaeckTCPy:
                 :class:`IntervalMode` member.
             relay_downstream: If False, signals are decoded but not exposed
                 to downstream clients.
+            forward_custom_commands: If True, custom commands marked for
+                forwarding are sent to this upstream.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -504,7 +509,7 @@ class BlaeckTCPy:
 
         label = name or f"{ip}:{port}"
         transport = UpstreamTCP(label, ip, port)
-        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream)
+        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream, forward_custom_commands)
 
     def add_serial(
         self,
@@ -515,6 +520,7 @@ class BlaeckTCPy:
         dtr: bool = True,
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
+        forward_custom_commands: bool = False,
     ) -> _UpstreamDevice:
         """Connect to an upstream serial device and discover its signals.
 
@@ -531,6 +537,8 @@ class BlaeckTCPy:
                 :class:`IntervalMode` member.
             relay_downstream: If False, signals are decoded but not exposed
                 to downstream clients.
+            forward_custom_commands: If True, custom commands marked for
+                forwarding are sent to this upstream.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -542,7 +550,7 @@ class BlaeckTCPy:
 
         label = name or port
         transport = UpstreamSerial(label, port, baudrate, dtr)
-        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream)
+        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream, forward_custom_commands)
 
     def _discover_upstream(
         self,
@@ -551,6 +559,7 @@ class BlaeckTCPy:
         timeout: float,
         interval_ms: int = 0,
         relay_downstream: bool = True,
+        forward_custom_commands: bool = False,
     ) -> _UpstreamDevice:
         """Connect and fetch the symbol table from an upstream device."""
         label = transport.name
@@ -591,6 +600,7 @@ class BlaeckTCPy:
         upstream = _UpstreamDevice(
             device_name=name, transport=transport,
             interval_ms=interval_ms, relay_downstream=relay_downstream,
+            forward_custom_commands=forward_custom_commands,
         )
         upstream.symbol_table = symbols
 
@@ -786,7 +796,7 @@ class BlaeckTCPy:
     # ========================================================================
     # Callbacks
     # ========================================================================
-    def on_command(self, command: str | None = None):
+    def on_command(self, command: str | None = None, *, forward: bool = False):
         """Decorator to register a command handler.
 
         With a command name, registers a handler for that specific command.
@@ -796,9 +806,14 @@ class BlaeckTCPy:
         message after built-in and specific handlers.  Receives the command
         name as the first argument followed by parameters.
 
+        Args:
+            command: Command name to handle, or None for a catch-all.
+            forward: If True, the command is also forwarded to upstreams
+                that have ``forward_custom_commands=True``.
+
         Example::
 
-            @bltcp.on_command("SET_LED")
+            @bltcp.on_command("SET_LED", forward=True)
             def handle_led(state):
                 print(f"LED = {state}")
 
@@ -812,9 +827,23 @@ class BlaeckTCPy:
                 self._read_callback = func
             else:
                 self._command_handlers[command] = func
+                if forward:
+                    self._forwarded_commands.add(command)
             return func
 
         return decorator
+
+    def forward_command(self, command: str) -> None:
+        """Mark a command for upstream forwarding without a local handler.
+
+        The command will be forwarded to all upstreams that have
+        ``forward_custom_commands=True``.  No local handler fires
+        unless one is also registered via :meth:`on_command`.
+
+        Args:
+            command: Command name to forward (e.g. ``"RESET"``).
+        """
+        self._forwarded_commands.add(command)
 
     def on_client_connected(self):
         """Decorator to register a callback when a new client connects.
@@ -1026,6 +1055,22 @@ class BlaeckTCPy:
             handler = self._command_handlers.get(command)
             if handler is not None:
                 handler(*params)
+
+            # Forward custom commands to opted-in upstreams
+            if (
+                command in self._forwarded_commands
+                and not command.startswith("BLAECK.")
+            ):
+                if params:
+                    full_cmd = f"{command},{','.join(str(p) for p in params)}"
+                else:
+                    full_cmd = command
+                for upstream in self._upstreams:
+                    if (
+                        upstream.forward_custom_commands
+                        and upstream.transport.connected
+                    ):
+                        upstream.transport.send_command(full_cmd)
 
             # Fire catch-all callback
             if self._read_callback is not None:

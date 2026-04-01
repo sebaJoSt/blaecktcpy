@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Custom command forwarding**: Custom commands can now be forwarded to upstream
+  devices. Use `forward_custom_commands=True` on `add_tcp()`/`add_serial()` to
+  opt-in per upstream, and `forward=True` on `@on_command()` or `forward_command()`
+  to mark which commands should be forwarded.
+
 ### Changed (v3.0 — Breaking)
 
 - **Unified class**: `BlaeckServer` and `BlaeckHub` merged into `BlaeckTCPy`.
