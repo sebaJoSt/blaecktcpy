@@ -12,7 +12,8 @@ All notable changes to this project will be documented in this file.
   to mark which commands should be forwarded.
 - **Timestamps**: Data frames can now include timestamps via `timestamp_mode`
   property (`TimestampMode.MICROS` for µs since start, `TimestampMode.UNIX` for
-  µs since epoch). All write methods accept an explicit `timestamp_us` override.
+  µs since epoch). Write methods accept `unix_timestamp` (float seconds or int µs)
+  and `micros_timestamp` (int µs) overrides matched to their respective modes.
   Wire format is uint64 (8 bytes).
 - **`interval_ms` property**: Replaces `set_interval()` method.
 - **`start_time` property**: Exposes the `time.time()` value captured at `start()`.

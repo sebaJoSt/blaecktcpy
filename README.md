@@ -145,10 +145,15 @@ bltcp.timestamp_mode = TimestampMode.MICROS
 bltcp.timestamp_mode = TimestampMode.UNIX
 ```
 
-Every write method auto-fills the timestamp based on the mode. Use the `timestamp_us` parameter to override with an explicit value (e.g. from a CSV file):
+Every write method auto-fills the timestamp based on the mode. Use `unix_timestamp` or `micros_timestamp` to override per-write:
 
 ```python
-bltcp.write_all_data(timestamp_us=int(csv_timestamp * 1_000_000))
+# UNIX mode — float seconds (converted internally) or int µs
+bltcp.write_all_data(unix_timestamp=time.time())
+bltcp.write_all_data(unix_timestamp=csv_epoch_seconds)
+
+# MICROS mode — int µs
+bltcp.write_all_data(micros_timestamp=elapsed_us)
 ```
 
 The `start_time` property exposes the `time.time()` value captured at `start()`:

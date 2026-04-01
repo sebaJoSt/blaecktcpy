@@ -56,6 +56,6 @@ while True:
     bltcp.signals[1].value = math.cos(t)
 
     # The timed_write methods use the auto-timestamp from the chosen mode.
-    # To supply your own timestamp instead, pass timestamp_us explicitly:
-    #   bltcp.timed_write_all_data(timestamp_us=my_custom_us)
+    # To supply your own timestamp instead, pass unix_timestamp explicitly:
+    #   bltcp.timed_write_all_data(unix_timestamp=time.time())
     bltcp.tick()

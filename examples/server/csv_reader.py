@@ -87,13 +87,13 @@ def main():
                 for row in new_rows:
                     if len(row) < len(header):
                         continue  # skip incomplete rows
-                    # Convert CSV timestamp (epoch seconds) to microseconds
-                    timestamp_us = int(float(row[0]) * 1_000_000)
+                    # Convert CSV timestamp (epoch seconds) to unix_timestamp
+                    unix_ts = float(row[0])
                     for i, name in enumerate(signal_names):
                         cell = row[i + 1]
                         if cell:  # skip empty cells (partial row)
                             bltcp.update(name, float(cell))
-                    bltcp.write_updated_data(timestamp_us=timestamp_us)
+                    bltcp.write_updated_data(unix_timestamp=unix_ts)
                     rows_sent += 1
                     print(
                         f"\r  Rows sent: {rows_sent}  "

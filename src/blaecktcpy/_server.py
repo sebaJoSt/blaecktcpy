@@ -428,7 +428,8 @@ class BlaeckTCPy:
         value: Union[int, float],
         *,
         msg_id: int = 1,
-        timestamp_us: int | None = None,
+        unix_timestamp: float | int | None = None,
+        micros_timestamp: int | None = None,
     ) -> None:
         """Update a single local signal's value and immediately send it.
 
@@ -436,14 +437,16 @@ class BlaeckTCPy:
             key: Signal name (str) or index (int)
             value: New value to set
             msg_id: Message ID for the protocol frame
-            timestamp_us: Explicit timestamp in microseconds. When omitted,
-                auto-filled from :attr:`timestamp_mode`.
+            unix_timestamp: Override timestamp for UNIX mode.
+                float = seconds since epoch (converted internally),
+                int = microseconds since epoch (used directly).
+            micros_timestamp: Override timestamp for MICROS mode (int µs).
         """
         idx = self._resolve_signal(key)
         self.signals[idx].value = value
         if not self.connected:
             return
-        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
+        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = b"<BLAECK:" + self._build_data_msg(header, idx, idx, timestamp_us=ts) + b"/BLAECK>\r\n"
         self._tcp_send_data(data)
@@ -1255,13 +1258,15 @@ class BlaeckTCPy:
 
         self._server_restarted = False
 
-    def write_all_data(self, msg_id: int = 1, *, timestamp_us: int | None = None) -> None:
+    def write_all_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None, micros_timestamp: int | None = None) -> None:
         """Send all local signal data to data-enabled clients.
 
         Args:
             msg_id: Message ID for the protocol frame.
-            timestamp_us: Explicit timestamp in microseconds. When omitted,
-                auto-filled from :attr:`timestamp_mode`.
+            unix_timestamp: Override timestamp for UNIX mode.
+                float = seconds since epoch (converted internally),
+                int = microseconds since epoch (used directly).
+            micros_timestamp: Override timestamp for MICROS mode (int µs).
         """
         if not self.connected:
             return
@@ -1270,7 +1275,7 @@ class BlaeckTCPy:
             return
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
+        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
@@ -1279,13 +1284,15 @@ class BlaeckTCPy:
         )
         self._tcp_send_data(data)
 
-    def write_updated_data(self, msg_id: int = 1, *, timestamp_us: int | None = None) -> None:
+    def write_updated_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None, micros_timestamp: int | None = None) -> None:
         """Send only updated local signals to data-enabled clients.
 
         Args:
             msg_id: Message ID for the protocol frame.
-            timestamp_us: Explicit timestamp in microseconds. When omitted,
-                auto-filled from :attr:`timestamp_mode`.
+            unix_timestamp: Override timestamp for UNIX mode.
+                float = seconds since epoch (converted internally),
+                int = microseconds since epoch (used directly).
+            micros_timestamp: Override timestamp for MICROS mode (int µs).
         """
         if not self.connected or not self.has_updated_signals:
             return
@@ -1294,7 +1301,7 @@ class BlaeckTCPy:
             return
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
+        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
@@ -1307,13 +1314,15 @@ class BlaeckTCPy:
         """Check if the timed interval has elapsed."""
         return self._timer.elapsed()
 
-    def timed_write_all_data(self, msg_id: int = 185273099, *, timestamp_us: int | None = None) -> bool:
+    def timed_write_all_data(self, msg_id: int = 185273099, *, unix_timestamp: float | int | None = None, micros_timestamp: int | None = None) -> bool:
         """Send all local data if timer interval has elapsed.
 
         Args:
             msg_id: Message ID for the protocol frame.
-            timestamp_us: Explicit timestamp in microseconds. When omitted,
-                auto-filled from :attr:`timestamp_mode`.
+            unix_timestamp: Override timestamp for UNIX mode.
+                float = seconds since epoch (converted internally),
+                int = microseconds since epoch (used directly).
+            micros_timestamp: Override timestamp for MICROS mode (int µs).
         """
         if not self.connected:
             return False
@@ -1326,7 +1335,7 @@ class BlaeckTCPy:
             return False
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
+        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
@@ -1335,13 +1344,15 @@ class BlaeckTCPy:
         )
         return self._tcp_send_data(data)
 
-    def timed_write_updated_data(self, msg_id: int = 185273099, *, timestamp_us: int | None = None) -> bool:
+    def timed_write_updated_data(self, msg_id: int = 185273099, *, unix_timestamp: float | int | None = None, micros_timestamp: int | None = None) -> bool:
         """Send only updated local signals if timer interval has elapsed.
 
         Args:
             msg_id: Message ID for the protocol frame.
-            timestamp_us: Explicit timestamp in microseconds. When omitted,
-                auto-filled from :attr:`timestamp_mode`.
+            unix_timestamp: Override timestamp for UNIX mode.
+                float = seconds since epoch (converted internally),
+                int = microseconds since epoch (used directly).
+            micros_timestamp: Override timestamp for MICROS mode (int µs).
         """
         if not self.connected:
             return False
@@ -1356,7 +1367,7 @@ class BlaeckTCPy:
             return False
         if self._before_write_callback is not None:
             self._before_write_callback()
-        ts = timestamp_us if timestamp_us is not None else self._auto_timestamp_us()
+        ts = self._resolve_timestamp_us(unix_timestamp, micros_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
@@ -1429,6 +1440,50 @@ class BlaeckTCPy:
     @timestamp_mode.setter
     def timestamp_mode(self, value: TimestampMode) -> None:
         self._timestamp_mode = TimestampMode(value)
+
+    def _resolve_timestamp_us(
+        self,
+        unix_timestamp: float | int | None,
+        micros_timestamp: int | None,
+    ) -> int | None:
+        """Resolve an explicit timestamp override to microseconds.
+
+        Returns the resolved value in microseconds, or falls back to the
+        auto-generated timestamp for the current mode.
+
+        Raises:
+            ValueError: If the override doesn't match the current mode,
+                if both overrides are given, or if used with NONE mode.
+            TypeError: If the value has the wrong type.
+        """
+        if unix_timestamp is not None and micros_timestamp is not None:
+            raise ValueError(
+                "Cannot specify both unix_timestamp and micros_timestamp"
+            )
+
+        if unix_timestamp is not None:
+            if self._timestamp_mode != TimestampMode.UNIX:
+                raise ValueError(
+                    "unix_timestamp can only be used with TimestampMode.UNIX"
+                )
+            if isinstance(unix_timestamp, float):
+                return int(unix_timestamp * 1_000_000)
+            if isinstance(unix_timestamp, int) and not isinstance(unix_timestamp, bool):
+                return unix_timestamp
+            raise TypeError(
+                "unix_timestamp must be float (seconds) or int (µs)"
+            )
+
+        if micros_timestamp is not None:
+            if self._timestamp_mode != TimestampMode.MICROS:
+                raise ValueError(
+                    "micros_timestamp can only be used with TimestampMode.MICROS"
+                )
+            if not isinstance(micros_timestamp, int) or isinstance(micros_timestamp, bool):
+                raise TypeError("micros_timestamp must be int (µs)")
+            return micros_timestamp
+
+        return self._auto_timestamp_us()
 
     def _auto_timestamp_us(self) -> int | None:
         """Return the auto-generated timestamp for the current mode, or None."""

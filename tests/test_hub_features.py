@@ -9,6 +9,7 @@ Covers:
 
 import binascii
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -2530,12 +2531,12 @@ class TestTimestampInDataFrames:
             device.close()
 
     def test_explicit_timestamp_overrides_auto(self):
-        """Explicit timestamp_us should override auto-generated value."""
+        """Explicit unix_timestamp (int µs) should override auto-generated value."""
         device, client = self._make_device()
         try:
             device.timestamp_mode = TimestampMode.UNIX
             explicit_ts = 1234567890_000000
-            device.write_all_data(timestamp_us=explicit_ts)
+            device.write_all_data(unix_timestamp=explicit_ts)
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
@@ -2549,18 +2550,65 @@ class TestTimestampInDataFrames:
             client.close()
             device.close()
 
-    def test_explicit_timestamp_with_no_mode_uses_none(self):
-        """With NONE mode, even explicit timestamp should not be sent."""
+    def test_explicit_unix_timestamp_float_converts_to_us(self):
+        """Explicit unix_timestamp (float seconds) should be converted to µs."""
         device, client = self._make_device()
         try:
-            assert device.timestamp_mode == TimestampMode.NONE
-            device.write_all_data(timestamp_us=1234567890)
+            device.timestamp_mode = TimestampMode.UNIX
+            device.write_all_data(unix_timestamp=1234567890.5)
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
             parts = content.split(b":", 4)
             ts_mode_section = parts[3]
-            assert ts_mode_section[0] == 0x00
+            assert ts_mode_section[0] == 0x02
+            ts_bytes = ts_mode_section[1:9]
+            ts = int.from_bytes(ts_bytes, "little")
+            assert ts == 1234567890_500000
+        finally:
+            client.close()
+            device.close()
+
+    def test_unix_timestamp_rejected_in_none_mode(self):
+        """unix_timestamp should raise ValueError in NONE mode."""
+        device, client = self._make_device()
+        try:
+            assert device.timestamp_mode == TimestampMode.NONE
+            with pytest.raises(ValueError, match="UNIX"):
+                device.write_all_data(unix_timestamp=time.time())
+        finally:
+            client.close()
+            device.close()
+
+    def test_unix_timestamp_rejected_in_micros_mode(self):
+        """unix_timestamp should raise ValueError in MICROS mode."""
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.MICROS
+            with pytest.raises(ValueError, match="UNIX"):
+                device.write_all_data(unix_timestamp=time.time())
+        finally:
+            client.close()
+            device.close()
+
+    def test_micros_timestamp_rejected_in_unix_mode(self):
+        """micros_timestamp should raise ValueError in UNIX mode."""
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.UNIX
+            with pytest.raises(ValueError, match="MICROS"):
+                device.write_all_data(micros_timestamp=123456)
+        finally:
+            client.close()
+            device.close()
+
+    def test_both_timestamps_rejected(self):
+        """Passing both unix_timestamp and micros_timestamp should raise."""
+        device, client = self._make_device()
+        try:
+            device.timestamp_mode = TimestampMode.UNIX
+            with pytest.raises(ValueError, match="both"):
+                device.write_all_data(unix_timestamp=1.0, micros_timestamp=123)
         finally:
             client.close()
             device.close()
