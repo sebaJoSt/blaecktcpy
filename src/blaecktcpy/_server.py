@@ -1659,10 +1659,12 @@ class BlaeckTCPy:
 
     def _rebuild_upstream_indices(self) -> None:
         """Rebuild relayed upstream index_map from current signals list."""
+        offset = self._local_signal_count
         for upstream in self._upstreams:
             if upstream.relay_downstream:
-                for k, sig in enumerate(upstream._signals):
-                    upstream.index_map[k] = self.signals.index(sig)
+                for k in range(len(upstream._signals)):
+                    upstream.index_map[k] = offset + k
+                offset += len(upstream._signals)
 
     # ========================================================================
     # Internal Protocol Methods
