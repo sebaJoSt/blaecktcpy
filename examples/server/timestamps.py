@@ -10,7 +10,7 @@ Pick one mode by uncommenting the corresponding block below:
   UNIX    — microseconds since Unix epoch (wall-clock time)
 
 You can also override the automatic timestamp on any individual write
-by passing the ``timestamp_us`` parameter explicitly.
+by passing ``unix_timestamp`` (float seconds or int µs) explicitly.
 
 Usage:
     python timestamps.py
