@@ -111,22 +111,25 @@ def log_all(command, *params):  # receives command name + all params
 In hub mode, all custom commands from downstream clients are automatically forwarded to upstream devices. No registration is needed — any command that isn't a built-in `BLAECK.*` command gets forwarded.
 
 ```python
-hub.add_tcp("192.168.1.10", 24, name="Arduino")     # accepts forwarded commands (default)
+hub.add_tcp("192.168.1.10", 24, name="Arduino")     # accepts all commands (default)
 hub.add_tcp("192.168.1.11", 25, name="Sensor",
-            forward_custom_commands=False)            # opt out per upstream
+            forward_custom_commands=False)            # accepts no commands
+hub.add_tcp("192.168.1.12", 26, name="LED",
+            forward_custom_commands=["SET_LED"])      # accepts only SET_LED
+```
 
+Use `forward=False` on `@on_command()` to keep a command local (never forwarded, regardless of upstream settings):
+
+```python
 # Handle locally AND forward (default)
 @hub.on_command("SET_LED")
 def handle_led(state):
     print(f"LED = {state}")
 
-# Local only (opt out of forwarding)
+# Local only (never forwarded)
 @hub.on_command("MOTOR", forward=False)
 def handle_motor(speed):
     print(f"Motor = {speed}")
-
-# Commands without a handler are forwarded too:
-# Client sends <RESET> → hub forwards to all upstreams automatically
 ```
 
 ## Timestamps
