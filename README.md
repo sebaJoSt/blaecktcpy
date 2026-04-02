@@ -307,21 +307,13 @@ dew_point = hub.add_signal("DewPoint", "float")
 
 The hub can decode upstream frames using older protocol versions (`B2`–`B5` for devices, `B1`/`D1` for legacy/Arduino data) but always sends `B6`/`D2` downstream to clients.
 
-### Signal list caching
+### Schema change detection
 
-Upstream signal lists are cached when the hub discovers each upstream at startup. Loggbok discovers the signal list once at logging start.
+Every D2 data frame includes a CRC16-CCITT schema hash computed from the signal names and datatype codes. When an upstream device changes its signals at runtime, the hub detects the hash mismatch and automatically re-discovers the new signal layout. This propagates through chained hubs.
 
-```
-Server              Hub                  Loggbok
-┌────────────┐     ┌────────────────┐   ┌─────────────┐
-│ locals:    │     │ upstream:      │   │ (logging)   │
-│   frozen   │────>│   frozen       │──>│             │
-│            │     │ locals:        │   │  discovers   │
-│            │     │   mutable      │   │  signals     │
-└────────────┘     └────────────────┘   └─────────────┘
-```
+Loggbok detects schema changes the same way — when the hash in a data frame no longer matches the expected value, it stops logging and notifies the user.
 
-If an upstream device needs to change its signals, stop logging in Loggbok first, then restart the Hub to re-discover the new layout. The locals on the Hub can always be changed (e.g., by sending a custom command with putty/terminal program). But when you start Logging all the signals are discovered and no more changes are allowed.
+For older upstream devices that don't include a schema hash (D1/B1 frames), the hub falls back to signal count comparison.
 
 ## Examples
 
