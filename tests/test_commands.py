@@ -1,4 +1,4 @@
-"""Tests for forward_command registration and custom command forwarding to upstreams."""
+"""Tests for custom command forwarding to upstreams."""
 
 import pytest
 
@@ -8,7 +8,7 @@ from conftest import _make_server_on_free_port, _start_retry, RecordingTransport
 
 
 class TestForwardCommandRegistration:
-    """Verify on_command(forward=False) opt-out and forward_command() backward compat."""
+    """Verify on_command(forward=False) opt-out registration."""
 
     def setup_method(self):
         self.device = BlaeckTCPy.__new__(BlaeckTCPy)
@@ -17,11 +17,6 @@ class TestForwardCommandRegistration:
         self.device._command_handlers = {}
         self.device._non_forwarded_commands = set()
         self.device._read_callback = None
-
-    def test_forward_command_is_noop(self):
-        self.device.forward_command("RESET")
-        # forward_command is a no-op now — all commands forward by default
-        assert len(self.device._non_forwarded_commands) == 0
 
     def test_on_command_forward_true_does_not_opt_out(self):
         @self.device.on_command("SET_LED", forward=True)

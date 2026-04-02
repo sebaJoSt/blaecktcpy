@@ -867,17 +867,6 @@ class BlaeckTCPy:
 
         return decorator
 
-    def forward_command(self, command: str) -> None:
-        """No-op — all custom commands are forwarded by default.
-
-        Kept for backward compatibility.  Previously this was required
-        to mark a command for upstream forwarding.  Now every custom
-        command (not starting with ``BLAECK.``) is forwarded
-        automatically unless opted out with
-        ``@on_command("CMD", forward=False)``.
-        """
-        pass
-
     def on_client_connected(self):
         """Decorator to register a callback when a new client connects.
 
