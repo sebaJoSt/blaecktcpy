@@ -231,6 +231,10 @@ Messages use the following binary format:
 | `StatusByte` | byte | `0x00` = normal, `0x01` = I2C CRC error, `0x02` = upstream connection lost |
 | `CRC32` | bytes | 4 bytes, polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out |
 
+### Schema hash
+
+Every D2 data frame includes a `SchemaHash` — a CRC16-CCITT hash computed from the signal names and datatype codes. Clients such as Loggbok use this to detect when the signal layout changes during a session, allowing them to stop logging and notify the user.
+
 ## Hub mode
 
 The same `BlaeckTCPy` class serves as a hub when you add upstream connections with `add_tcp()` or `add_serial()`. The hub aggregates signals from multiple upstream devices and serves them as a single merged device, alongside any local signals.
@@ -309,11 +313,7 @@ The hub can decode upstream frames using older protocol versions (`B2`–`B5` fo
 
 ### Schema change detection
 
-Every D2 data frame includes a CRC16-CCITT schema hash computed from the signal names and datatype codes. When an upstream device changes its signals at runtime, the hub detects the hash mismatch and automatically re-discovers the new signal layout. This propagates through chained hubs.
-
-Loggbok detects schema changes the same way — when the hash in a data frame no longer matches the expected value, it stops logging and notifies the user.
-
-For older upstream devices that don't include a schema hash (D1/B1 frames), the hub falls back to signal count comparison.
+When an upstream device changes its signals at runtime, the hub detects the schema hash mismatch and automatically re-discovers the new signal layout. This propagates through chained hubs. For older upstream devices that don't include a schema hash (D1/B1 frames), the hub falls back to signal count comparison.
 
 ## Examples
 
