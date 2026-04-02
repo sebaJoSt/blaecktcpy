@@ -207,6 +207,7 @@ Messages use the following binary format:
 | `Timestamp` | uint64 | 8-byte microsecond timestamp (only present if TimestampMode > 0) |
 | `StatusByte` | byte | `0x00` = normal, `0x02` = upstream connection lost |
 | `StatusPayload` (StatusByte=0) | bytes | 4 bytes, CRC32 (polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out) |
+| `StatusPayload` (StatusByte=2) | bytes | 4 bytes, CRC32 (polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out) |
 
 ### Schema hash
 
