@@ -108,25 +108,23 @@ def log_all(command, *params):  # receives command name + all params
 
 ### Forwarding custom commands upstream
 
-In hub mode, custom commands from downstream clients can be forwarded to upstream devices. This requires two things:
-
-1. **Opt-in per upstream** — set `forward_custom_commands=True` when adding the upstream
-2. **Mark commands for forwarding** — use `forward=True` on `@on_command()`, or `forward_command()` for forward-only (no local handler)
+In hub mode, custom commands from downstream clients are forwarded to upstream devices by default. Both the per-command `forward` flag and the per-upstream `forward_custom_commands` flag default to `True`.
 
 ```python
-hub.add_tcp("192.168.1.10", 24, name="Arduino", forward_custom_commands=True)
-hub.add_tcp("192.168.1.11", 25, name="Sensor")  # won't receive forwarded commands
+hub.add_tcp("192.168.1.10", 24, name="Arduino")     # accepts forwarded commands (default)
+hub.add_tcp("192.168.1.11", 25, name="Sensor",
+            forward_custom_commands=False)            # opt out
 
-# Forward + handle locally
-@hub.on_command("SET_LED", forward=True)
+# Forward + handle locally (forward=True is the default)
+@hub.on_command("SET_LED")
 def handle_led(state):
     print(f"LED = {state}")
 
 # Forward only (no local handler)
 hub.forward_command("RESET")
 
-# Local only (default, not forwarded)
-@hub.on_command("MOTOR")
+# Local only (not forwarded)
+@hub.on_command("MOTOR", forward=False)
 def handle_motor(speed):
     print(f"Motor = {speed}")
 ```
@@ -344,6 +342,7 @@ See the [examples](examples/) folder:
 | Example | Description |
 |---|---|
 | `basic.py` | Aggregates two upstream servers and a local signal |
+| `schema_change.py` | Runtime signal changes via custom commands with automatic re-discovery |
 | `signal_processing.py` | Transform and compute signals via `on_data_received` |
 | `mixed_sources.py` | BlaeckTCP microcontroller + SCPI power supply |
 
