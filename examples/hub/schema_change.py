@@ -104,6 +104,12 @@ hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=300, forward_custom_comman
 
 hub.start()
 
+# The second client (command sender) should not receive data frames
+@hub.on_client_connected()
+def on_connect(client_id):
+    if client_id > 1:
+        hub.data_clients.discard(client_id)
+
 print("Hub running on 127.0.0.1:23")
 print("Send <ADD_PRESSURE> or <REMOVE_PRESSURE> to the hub to change signals at runtime.")
 print("##LOGGBOK:READY##")
