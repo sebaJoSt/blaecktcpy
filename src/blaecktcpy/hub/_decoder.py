@@ -1,8 +1,8 @@
 """BlaeckTCP binary frame decoder.
 
 Parses <BLAECK:…/BLAECK> binary protocol frames from upstream devices.
-Supports B0 (symbol list), D1 (v5 data), B1 (v4 legacy data),
-and B5 (device info) message types.
+Supports B0 (symbol list), D2 (data with schema hash), D1 (v5 data),
+B1 (v4 legacy data), B6/B5 (device info) message types.
 """
 
 import binascii
