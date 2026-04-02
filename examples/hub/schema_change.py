@@ -26,8 +26,8 @@ Setup:  python examples/hub/schema_change.py
 Then:   Connect Loggbok to 127.0.0.1:23
 
 From a second terminal, send commands via netcat/telnet:
-  - Send "ADD_PRESSURE"    to add the Pressure signal
-  - Send "REMOVE_PRESSURE" to remove it (back to Temp only)
+  - Send "<ADD_PRESSURE>"    to add the Pressure signal
+  - Send "<REMOVE_PRESSURE>" to remove it (back to Temp only)
 
 The hub's schema hash changes automatically; Loggbok detects the
 mismatch and stops logging (by design — prevents data corruption).
@@ -105,7 +105,7 @@ hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=300, forward_custom_comman
 hub.start()
 
 print("Hub running on 127.0.0.1:23")
-print("Send ADD_PRESSURE or REMOVE_PRESSURE to the hub to change signals at runtime.")
+print("Send <ADD_PRESSURE> or <REMOVE_PRESSURE> to the hub to change signals at runtime.")
 print("##LOGGBOK:READY##")
 
 while True:
