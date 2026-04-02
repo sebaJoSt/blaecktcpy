@@ -36,7 +36,7 @@ class TestForwardCommandRegistration:
         assert "SET_LED" in self.device._command_handlers
 
     def test_on_command_forward_false_does_not_register(self):
-        @self.device.on_command("SET_LED")
+        @self.device.on_command("SET_LED", forward=False)
         def handler(state):
             pass
 
@@ -248,11 +248,11 @@ class TestCustomCommandForwarding:
             device.close()
 
     def test_local_handler_fires_without_forwarding(self):
-        """on_command without forward=True should NOT forward."""
+        """on_command with forward=False should NOT forward."""
         device, client, transport = self._make_hub_with_upstream()
         received = []
 
-        @device.on_command("MOTOR")
+        @device.on_command("MOTOR", forward=False)
         def handler(*params):
             received.append(params)
 

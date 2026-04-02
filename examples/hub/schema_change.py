@@ -100,7 +100,7 @@ hub.interval_ms = 500
 
 hub.forward_command("ADD_PRESSURE")
 hub.forward_command("REMOVE_PRESSURE")
-hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=300, forward_custom_commands=True)
+hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=300)
 
 hub.start()
 

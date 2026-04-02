@@ -93,7 +93,7 @@ class _UpstreamDevice:
     interval_ms: int = IntervalMode.CLIENT
     connected: bool = True
     relay_downstream: bool = True
-    forward_custom_commands: bool = False
+    forward_custom_commands: bool = True
     _signals: list[Signal] = field(default_factory=list)
     _upstream_signals: SignalList | None = field(default=None, repr=False)
     expected_schema_hash: int = 0
@@ -504,7 +504,7 @@ class BlaeckTCPy:
         timeout: float = 5.0,
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
-        forward_custom_commands: bool = False,
+        forward_custom_commands: bool = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream TCP device and discover its signals.
 
@@ -520,8 +520,8 @@ class BlaeckTCPy:
                 :class:`IntervalMode` member.
             relay_downstream: If False, signals are decoded but not exposed
                 to downstream clients.
-            forward_custom_commands: If True, custom commands marked for
-                forwarding are sent to this upstream.
+            forward_custom_commands: Whether custom commands marked for
+                forwarding are sent to this upstream.  Defaults to True.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -546,7 +546,7 @@ class BlaeckTCPy:
         dtr: bool = True,
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
-        forward_custom_commands: bool = False,
+        forward_custom_commands: bool = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream serial device and discover its signals.
 
@@ -563,8 +563,8 @@ class BlaeckTCPy:
                 :class:`IntervalMode` member.
             relay_downstream: If False, signals are decoded but not exposed
                 to downstream clients.
-            forward_custom_commands: If True, custom commands marked for
-                forwarding are sent to this upstream.
+            forward_custom_commands: Whether custom commands marked for
+                forwarding are sent to this upstream.  Defaults to True.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -589,7 +589,7 @@ class BlaeckTCPy:
         timeout: float,
         interval_ms: int = 0,
         relay_downstream: bool = True,
-        forward_custom_commands: bool = False,
+        forward_custom_commands: bool = True,
     ) -> _UpstreamDevice:
         """Connect and fetch the symbol table from an upstream device."""
         label = transport.name
@@ -826,7 +826,7 @@ class BlaeckTCPy:
     # ========================================================================
     # Callbacks
     # ========================================================================
-    def on_command(self, command: str | None = None, *, forward: bool = False):
+    def on_command(self, command: str | None = None, *, forward: bool = True):
         """Decorator to register a command handler.
 
         With a command name, registers a handler for that specific command.
@@ -838,12 +838,12 @@ class BlaeckTCPy:
 
         Args:
             command: Command name to handle, or None for a catch-all.
-            forward: If True, the command is also forwarded to upstreams
-                that have ``forward_custom_commands=True``.
+            forward: Whether the command is also forwarded to upstreams
+                that have ``forward_custom_commands=True``.  Defaults to True.
 
         Example::
 
-            @bltcp.on_command("SET_LED", forward=True)
+            @bltcp.on_command("SET_LED")
             def handle_led(state):
                 print(f"LED = {state}")
 
