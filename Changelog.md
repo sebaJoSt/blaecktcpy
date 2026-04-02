@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **D2 schema hash**: Every D2 data frame now includes a 2-byte CRC16-CCITT
+  hash of the signal schema (names + datatype codes). Hubs compare this hash
+  per-upstream on each frame; on mismatch the upstream is paused, a fresh
+  `WRITE_SYMBOLS` + `GET_DEVICES` is requested, and relay resumes only after
+  the signal table is rebuilt. Prevents silent data corruption when an upstream
+  device adds, removes, or reorders signals at runtime. D1/B1 frames use a
+  signal-count fallback for partial detection.
 - **Custom command forwarding**: Custom commands can now be forwarded to upstream
   devices. Use `forward_custom_commands=True` on `add_tcp()`/`add_serial()` to
   opt-in per upstream, and `forward=True` on `@on_command()` or `forward_command()`

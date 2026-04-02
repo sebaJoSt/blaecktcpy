@@ -88,8 +88,8 @@ class TestTimestampInDataFrames:
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
-            parts = content.split(b":", 4)
-            ts_mode_section = parts[3]
+            parts = content.split(b":", 5)
+            ts_mode_section = parts[4]
             assert ts_mode_section[0] == 0x00
         finally:
             client.close()
@@ -104,8 +104,8 @@ class TestTimestampInDataFrames:
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
-            parts = content.split(b":", 4)
-            ts_mode_section = parts[3]
+            parts = content.split(b":", 5)
+            ts_mode_section = parts[4]
             assert ts_mode_section[0] == 0x02
             ts_bytes = ts_mode_section[1:9]
             ts = int.from_bytes(ts_bytes, "little")
@@ -135,8 +135,8 @@ class TestTimestampInDataFrames:
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
-            parts = content.split(b":", 4)
-            ts_mode_section = parts[3]
+            parts = content.split(b":", 5)
+            ts_mode_section = parts[4]
             assert ts_mode_section[0] == 0x02
             ts_bytes = ts_mode_section[1:9]
             ts = int.from_bytes(ts_bytes, "little")
@@ -154,8 +154,8 @@ class TestTimestampInDataFrames:
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
-            parts = content.split(b":", 4)
-            ts_mode_section = parts[3]
+            parts = content.split(b":", 5)
+            ts_mode_section = parts[4]
             assert ts_mode_section[0] == 0x02
             ts_bytes = ts_mode_section[1:9]
             ts = int.from_bytes(ts_bytes, "little")
@@ -185,8 +185,8 @@ class TestTimestampInDataFrames:
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
-            parts = content.split(b":", 4)
-            ts_mode_section = parts[3]
+            parts = content.split(b":", 5)
+            ts_mode_section = parts[4]
             assert ts_mode_section[0] == 0x02
         finally:
             client.close()
@@ -201,8 +201,8 @@ class TestTimestampInDataFrames:
             frame = self._recv_frame(client)
             start = frame.find(b"<BLAECK:") + len(b"<BLAECK:")
             content = frame[start:]
-            parts = content.split(b":", 4)
-            ts_mode_section = parts[3]
+            parts = content.split(b":", 5)
+            ts_mode_section = parts[4]
             assert ts_mode_section[0] == 0x02
         finally:
             client.close()

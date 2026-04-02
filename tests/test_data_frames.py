@@ -311,13 +311,12 @@ class TestRelayFrameScoping:
         end = raw.find(b"/BLAECK>")
         content = raw[start:end]
 
-        # D2 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : signals... status(1) crc(4)
-        # Find the signal data after the last ":"
+        # D2 layout: msg_key(1) : msg_id(4) : restart(1) : schema_hash(2) : ts_mode(1) : signals... status(1) crc(4)
         colon_positions = []
         for i, b in enumerate(content):
             if b == ord(":"):
                 colon_positions.append(i)
-        sig_start = colon_positions[3] + 1
+        sig_start = colon_positions[4] + 1
         sig_end = len(content) - 5
         sig_data = content[sig_start:sig_end]
 
@@ -528,7 +527,7 @@ class TestDecoderUnknownDatatype:
     def test_parse_data_rejects_unknown_symbol_dtype(self):
         msg_key = b"\xd2"
         msg_id = (1).to_bytes(4, "little")
-        meta = b"\x00:\x00:"  # restart=0, timestamp_mode=0
+        meta = b"\x00:\x00\x00:\x00:"  # restart=0, schema_hash=0, timestamp_mode=0
         payload = (0).to_bytes(2, "little")  # symbol_id only, no value bytes
         crc_input = msg_key + b":" + msg_id + b":" + meta + payload
         crc = binascii.crc32(crc_input).to_bytes(4, "little")
@@ -546,7 +545,7 @@ class TestDecoderTruncatedPayload:
     def test_parse_data_d2_rejects_truncated_signal_payload(self):
         msg_key = b"\xd2"
         msg_id = (1).to_bytes(4, "little")
-        meta = b"\x00:\x00:"  # restart=0, timestamp_mode=0
+        meta = b"\x00:\x00\x00:\x00:"  # restart=0, schema_hash=0, timestamp_mode=0
         # symbol_id=0 + only 2 bytes of float payload (needs 4)
         payload = (0).to_bytes(2, "little") + b"\x01\x02"
         crc_input = msg_key + b":" + msg_id + b":" + meta + payload
@@ -603,7 +602,7 @@ class TestHubWriteUpdate:
         content = raw[start:end]
 
         colon_positions = [i for i, b in enumerate(content) if b == ord(":")]
-        sig_start = colon_positions[3] + 1
+        sig_start = colon_positions[4] + 1
         sig_end = len(content) - 5  # exclude status(1) + crc(4)
         sig_data = content[sig_start:sig_end]
 

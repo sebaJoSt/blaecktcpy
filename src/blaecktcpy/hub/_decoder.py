@@ -76,10 +76,11 @@ class DecodedSymbol:
 
 @dataclass
 class DecodedData:
-    """Decoded data from a D1/B1 data frame."""
+    """Decoded data from a D2/D1/B1 data frame."""
 
     msg_id: int
     restart_flag: bool
+    schema_hash: int
     timestamp_mode: int
     timestamp: int | None
     status_byte: int = 0
@@ -103,6 +104,14 @@ class DecodedDeviceInfo:
     parent: str = "0"
     msc: int = 0
     slave_id: int = 0
+
+
+def compute_schema_hash(names_and_codes: list[tuple[str, int]]) -> int:
+    """Compute CRC16-CCITT schema hash from signal (name, datatype_code) pairs."""
+    data = b""
+    for name, code in names_and_codes:
+        data += name.encode("utf-8") + bytes([code])
+    return binascii.crc_hqx(data, 0) & 0xFFFF
 
 
 def _parse_header(content: bytes) -> tuple[int, int, bytes]:
@@ -212,12 +221,19 @@ def _validate_data_frame(content: bytes) -> None:
 def _parse_data_d2(
     msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
 ) -> DecodedData:
-    """Parse D2 format: RestartFlag : TimestampMode [Timestamp(8)] : signals... StatusByte CRC32"""
+    """Parse D2 format: RestartFlag : SchemaHash(2) : TimestampMode [Timestamp(8)] : signals... StatusByte CRC32"""
     pos = 0
 
     # Restart flag (1 byte)
     restart_flag = data[pos] != 0
     pos += 1
+
+    # ':' separator
+    pos += 1
+
+    # Schema hash (2 bytes, CRC16 little-endian)
+    schema_hash = int.from_bytes(data[pos : pos + 2], "little")
+    pos += 2
 
     # ':' separator
     pos += 1
@@ -244,6 +260,7 @@ def _parse_data_d2(
     return DecodedData(
         msg_id=msg_id,
         restart_flag=restart_flag,
+        schema_hash=schema_hash,
         timestamp_mode=timestamp_mode,
         timestamp=timestamp,
         status_byte=status_byte,
@@ -286,6 +303,7 @@ def _parse_data_d1(
     return DecodedData(
         msg_id=msg_id,
         restart_flag=restart_flag,
+        schema_hash=0,
         timestamp_mode=timestamp_mode,
         timestamp=timestamp,
         status_byte=status_byte,
@@ -326,6 +344,7 @@ def _parse_data_b1(
     return DecodedData(
         msg_id=msg_id,
         restart_flag=False,
+        schema_hash=0,
         timestamp_mode=0,
         timestamp=None,
         status_byte=status_byte,

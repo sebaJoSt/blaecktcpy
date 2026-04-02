@@ -96,6 +96,8 @@ class _UpstreamDevice:
     forward_custom_commands: bool = False
     _signals: list[Signal] = field(default_factory=list)
     _upstream_signals: SignalList | None = field(default=None, repr=False)
+    expected_schema_hash: int = 0
+    schema_stale: bool = False
 
     @property
     def signals(self) -> SignalList:
@@ -170,6 +172,7 @@ class BlaeckTCPy:
         self._closed = False
         self._timestamp_mode = TimestampMode.NONE
         self._start_time: float = 0.0
+        self._schema_hash: int = 0
 
         # Upstream state
         self._upstreams: list[_UpstreamDevice] = []
@@ -265,9 +268,14 @@ class BlaeckTCPy:
 
                 # Freeze signal collection now that _signals is fully populated
                 upstream._upstream_signals = SignalList(upstream._signals)
+                # Cache schema hash for mismatch detection
+                upstream.expected_schema_hash = decoder.compute_schema_hash(
+                    [(s.name, s.datatype_code) for s in upstream.symbol_table]
+                )
 
         self._started = True
         self._start_time = time.time()
+        self._update_schema_hash()
         self._install_signal_handler()
 
         # Activate upstreams with a fixed interval
@@ -377,6 +385,7 @@ class BlaeckTCPy:
             self.signals.insert(self._local_signal_count, sig)
             self._local_signal_count += 1
             self._rebuild_upstream_indices()
+            self._update_schema_hash()
         else:
             self.signals.append(sig)
 
@@ -407,6 +416,7 @@ class BlaeckTCPy:
                 del self.signals[:n]
                 self._local_signal_count = 0
                 self._rebuild_upstream_indices()
+                self._update_schema_hash()
         else:
             self.signals = SignalList()
 
@@ -1531,9 +1541,77 @@ class BlaeckTCPy:
                 if len(frame) == 0:
                     continue
                 msg_key = frame[0]
+
+                # Handle B0 symbol list during re-discovery
+                if msg_key == decoder.MSGKEY_SYMBOL_LIST and upstream.schema_stale:
+                    try:
+                        new_symbols = decoder.parse_symbol_list(frame)
+                        if new_symbols:
+                            self._rebuild_upstream_schema(upstream, new_symbols)
+                            # Request device info to update slave_id_map
+                            upstream.transport.send_command("BLAECK.GET_DEVICES")
+                            upstream.schema_stale = False
+                            logger.info(
+                                f"Schema refreshed for '{upstream.device_name}': "
+                                f"{len(new_symbols)} signals"
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            f"Schema re-discovery failed for "
+                            f"'{upstream.device_name}': {e}"
+                        )
+                    continue
+
+                # Handle device info frames (update device_infos + slave_id_map)
+                if msg_key in decoder.MSGKEY_DEVICES_ALL:
+                    try:
+                        infos = decoder.parse_devices(frame)
+                        if infos:
+                            upstream.device_infos = infos
+                            self._rebuild_slave_id_map(upstream)
+                    except Exception as e:
+                        logger.debug(
+                            f"Device info parse for '{upstream.device_name}': {e}"
+                        )
+                    continue
+
                 if msg_key in decoder.MSGKEY_DATA_ALL:
+                    # Skip data frames while re-discovering schema
+                    if upstream.schema_stale:
+                        continue
+
                     try:
                         decoded = decoder.parse_data(frame, upstream.symbol_table)
+
+                        # Schema hash check (D2 frames)
+                        if (
+                            msg_key == decoder.MSGKEY_DATA_D2
+                            and decoded.schema_hash != upstream.expected_schema_hash
+                        ):
+                            upstream.schema_stale = True
+                            logger.warning(
+                                f"Schema change detected on '{upstream.device_name}' "
+                                f"(hash {decoded.schema_hash:#06x} != "
+                                f"{upstream.expected_schema_hash:#06x}), "
+                                f"requesting re-discovery"
+                            )
+                            upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+                            continue
+
+                        # Signal count check (D1/B1 fallback)
+                        if (
+                            msg_key != decoder.MSGKEY_DATA_D2
+                            and len(decoded.signals) != len(upstream.symbol_table)
+                        ):
+                            upstream.schema_stale = True
+                            logger.warning(
+                                f"Signal count mismatch on '{upstream.device_name}' "
+                                f"({len(decoded.signals)} != "
+                                f"{len(upstream.symbol_table)}), "
+                                f"requesting re-discovery"
+                            )
+                            upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+                            continue
 
                         # Relay upstream restart flag downstream
                         if decoded.restart_flag:
@@ -1629,6 +1707,69 @@ class BlaeckTCPy:
             for sig in upstream._signals:
                 sig.value = 0
 
+    def _rebuild_upstream_schema(
+        self, upstream: _UpstreamDevice, new_symbols: list[decoder.DecodedSymbol]
+    ) -> None:
+        """Rebuild an upstream's signals after schema change.
+
+        Removes all upstream signals from self.signals, then re-adds them
+        from fresh symbol tables. Rebuilds index_map for all upstreams.
+        """
+        upstream.symbol_table = new_symbols
+        upstream.expected_schema_hash = decoder.compute_schema_hash(
+            [(s.name, s.datatype_code) for s in new_symbols]
+        )
+
+        # Remove ALL upstream signals and rebuild from scratch
+        del self.signals[self._local_signal_count:]
+
+        offset = self._local_signal_count
+        for u in self._upstreams:
+            u._signals = []
+            u.index_map = {}
+            if u.relay_downstream:
+                for i, sym in enumerate(u.symbol_table):
+                    sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
+                        sym.datatype_code, "float"
+                    )
+                    sig = Signal(sym.name, sig_type)
+                    self.signals.append(sig)
+                    u._signals.append(self.signals[offset])
+                    u.index_map[i] = offset
+                    offset += 1
+            else:
+                for i, sym in enumerate(u.symbol_table):
+                    sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
+                        sym.datatype_code, "float"
+                    )
+                    sig = Signal(sym.name, sig_type)
+                    u._signals.append(sig)
+                    u.index_map[i] = i
+            u._upstream_signals = SignalList(u._signals)
+
+        self._update_schema_hash()
+
+    def _rebuild_slave_id_map(self, upstream: _UpstreamDevice) -> None:
+        """Rebuild slave_id_map for one upstream from its current data."""
+        if not upstream.relay_downstream:
+            return
+        hub_slave_idx = 0
+        for u in self._upstreams:
+            if u is not upstream and u.relay_downstream and u.slave_id_map:
+                hub_slave_idx = max(hub_slave_idx, max(u.slave_id_map.values()))
+        seen: dict[tuple[int, int], int] = {}
+        for sym in upstream.symbol_table:
+            key = (sym.msc, sym.slave_id)
+            if key not in seen:
+                hub_slave_idx += 1
+                seen[key] = hub_slave_idx
+        for info in upstream.device_infos:
+            key = (info.msc, info.slave_id)
+            if key not in seen:
+                hub_slave_idx += 1
+                seen[key] = hub_slave_idx
+        upstream.slave_id_map = seen
+
     def _send_upstream_lost_frame(self, upstream: _UpstreamDevice) -> None:
         """Send one data frame with STATUS_UPSTREAM_LOST for a disconnected upstream."""
         if not upstream.relay_downstream or not self.connected:
@@ -1666,6 +1807,14 @@ class BlaeckTCPy:
                     upstream.index_map[k] = offset + k
                 offset += len(upstream._signals)
 
+    def _update_schema_hash(self) -> None:
+        """Recompute the server's schema hash from all signals."""
+        pairs = []
+        for sig in self.signals:
+            code = Signal.DATATYPE_TO_CODE.get(sig.datatype, 0)
+            pairs.append((sig.signal_name, code))
+        self._schema_hash = decoder.compute_schema_hash(pairs)
+
     # ========================================================================
     # Internal Protocol Methods
     # ========================================================================
@@ -1698,6 +1847,9 @@ class BlaeckTCPy:
         restart_flag = b"\x01" if self._restart_flag_pending else b"\x00"
         self._restart_flag_pending = False
 
+        # Schema hash
+        schema_hash = self._schema_hash.to_bytes(2, "little")
+
         # Timestamp
         mode = timestamp_mode if timestamp_mode is not None else self._timestamp_mode
         if timestamp is not None and mode != TimestampMode.NONE:
@@ -1705,12 +1857,14 @@ class BlaeckTCPy:
             meta = (
                 restart_flag
                 + b":"
+                + schema_hash
+                + b":"
                 + mode_byte
                 + timestamp.to_bytes(8, "little")
                 + b":"
             )
         else:
-            meta = restart_flag + b":" + b"\x00" + b":"
+            meta = restart_flag + b":" + schema_hash + b":" + b"\x00" + b":"
 
         payload = b""
         for idx in range(start, end + 1):
