@@ -107,7 +107,7 @@ hub.start()
 # The second client (command sender) should not receive data frames
 @hub.on_client_connected()
 def on_connect(client_id):
-    if client_id > 1:
+    if client_id > 0:
         hub.data_clients.discard(client_id)
 
 print("Hub running on 127.0.0.1:23")
