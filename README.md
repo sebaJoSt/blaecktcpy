@@ -294,7 +294,7 @@ When an upstream device changes its signals at runtime, the hub detects the sche
 
 ### Forwarding custom commands
 
-All custom commands from downstream clients are automatically forwarded to upstream devices. Any command that isn't a built-in `BLAECK.*` command gets forwarded — no registration needed.
+All custom commands from downstream clients are automatically forwarded to upstream devices — no registration needed.
 
 ```python
 hub.add_tcp("192.168.1.10", 24, name="Arduino")     # accepts all commands (default)
