@@ -225,6 +225,46 @@ class TestMalformedSymbolIDs:
         decoded = decoder.parse_data(frame, sym_table)
         assert len(decoded.signals) == 0
 
+    def test_d2_timestamp_mode_requires_full_8_byte_timestamp(self):
+        """D2 with timestamp_mode>0 and short timestamp raises ValueError."""
+        msg_key = b"\xd2"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x34\x12:\x01" + b"\xAA\xBB\xCC\xDD" + b":"  # only 4/8 bytes ts
+        payload = b""
+        crc_input = msg_key + b":" + msg_id + b":" + meta + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        frame = msg_key + b":" + msg_id + b":" + meta + payload + b"\x00" + crc
+        sym_table = [decoder.DecodedSymbol("x", 8, "float", 4)]
+
+        try:
+            decoder.parse_data(frame, sym_table)
+            assert False, "Expected ValueError for truncated D2 timestamp"
+        except ValueError as e:
+            assert (
+                "Truncated D2 timestamp" in str(e)
+                or "D2 timestamp metadata" in str(e)
+            )
+
+    def test_d1_timestamp_mode_requires_full_4_byte_timestamp(self):
+        """D1 with timestamp_mode>0 and short timestamp raises ValueError."""
+        msg_key = b"\xd1"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x01" + b"\xAA\xBB" + b":"  # only 2/4 bytes ts
+        payload = b""
+        crc_input = msg_key + b":" + msg_id + b":" + meta + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        frame = msg_key + b":" + msg_id + b":" + meta + payload + b"\x00" + crc
+        sym_table = [decoder.DecodedSymbol("x", 8, "float", 4)]
+
+        try:
+            decoder.parse_data(frame, sym_table)
+            assert False, "Expected ValueError for truncated D1 timestamp"
+        except ValueError as e:
+            assert (
+                "Truncated D1 timestamp" in str(e)
+                or "D1 timestamp metadata" in str(e)
+            )
+
     def test_hub_ignores_extra_symbol_ids_in_relay(self):
         """Hub processes known IDs and ignores out-of-range ones in D2 frames."""
         symbols = [("temp", 8)]
@@ -582,5 +622,80 @@ class TestSchemaChangeRelay:
             # No index overlap
             all_indices = list(upstream_a.index_map.values()) + list(upstream_b.index_map.values())
             assert len(all_indices) == len(set(all_indices)), "Index overlap detected!"
+        finally:
+            device.close()
+
+    def test_long_running_single_upstream_schema_churn(self):
+        """Repeated schema changes on one upstream converge without index/value drift."""
+        device, upstream, transport = _make_hub_with_upstream([("a", 8)])
+        try:
+            schemas = [
+                [("a", 8)],
+                [("a", 8), ("b", 8)],
+            ]
+
+            for i in range(10):
+                schema = schemas[i % 2]
+                upstream.schema_stale = True
+                b0 = _build_b0_frame(schema)
+                transport.read_available = lambda frame=b0: _wrap(frame)
+                device._poll_upstreams()
+
+                # Verify mapping shape and index continuity
+                assert len(upstream.index_map) == len(schema)
+                mapped = sorted(upstream.index_map.values())
+                assert mapped == list(range(mapped[0], mapped[0] + len(schema)))
+
+                # Relay a frame with matching hash and verify values land correctly
+                expected_hash = upstream.expected_schema_hash
+                values = [float(i + j + 1) for j in range(len(schema))]
+                frame = _build_d2_frame_floats(expected_hash, values)
+                transport.read_available = lambda frame=frame: _wrap(frame)
+                device._poll_upstreams()
+
+                for j, expected in enumerate(values):
+                    hub_idx = upstream.index_map[j]
+                    assert device.signals[hub_idx].value == expected
+        finally:
+            device.close()
+
+    def test_long_running_multi_upstream_churn_isolated(self):
+        """Frequent churn on one upstream does not break steady relay on another."""
+        device, upstream_a, transport_a = _make_hub_with_upstream([("temp", 8)], device_name="A")
+        upstream_b, transport_b = _add_second_upstream(device, [("volt", 8)], device_name="B")
+        try:
+            for i in range(8):
+                # Churn A: alternate 1-signal and 2-signal schemas
+                upstream_a.schema_stale = True
+                schema_a = [("temp", 8)] if i % 2 == 0 else [("temp", 8), ("press", 8)]
+                b0_a = _build_b0_frame(schema_a)
+                transport_a.read_available = lambda frame=b0_a: _wrap(frame)
+
+                # B keeps sending normal data every cycle
+                hash_b = upstream_b.expected_schema_hash
+                frame_b = _build_d2_frame_floats(hash_b, [100.0 + i])
+                transport_b.read_available = lambda frame=frame_b: _wrap(frame)
+                device._poll_upstreams()
+
+                # After rebuild, A should accept matching data
+                hash_a = upstream_a.expected_schema_hash
+                vals_a = [10.0 + i + j for j in range(len(schema_a))]
+                frame_a = _build_d2_frame_floats(hash_a, vals_a)
+                transport_a.read_available = lambda frame=frame_a: _wrap(frame)
+                transport_b.read_available = lambda: b""
+                device._poll_upstreams()
+
+                # B keeps correct value progression (isolation)
+                b_idx = upstream_b.index_map[0]
+                assert device.signals[b_idx].value == 100.0 + i
+
+                # A values mapped correctly post-rebuild
+                for j, expected in enumerate(vals_a):
+                    a_idx = upstream_a.index_map[j]
+                    assert device.signals[a_idx].value == expected
+
+            # Final integrity: no overlapping mapped indices
+            all_indices = list(upstream_a.index_map.values()) + list(upstream_b.index_map.values())
+            assert len(all_indices) == len(set(all_indices))
         finally:
             device.close()

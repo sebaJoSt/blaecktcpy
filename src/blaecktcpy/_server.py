@@ -1582,7 +1582,7 @@ class BlaeckTCPy:
                 # Handle device info frames (update device_infos + slave_id_map)
                 if msg_key in decoder.MSGKEY_DEVICES_ALL:
                     try:
-                        infos = decoder.parse_devices(frame)
+                        infos = decoder.parse_all_devices(frame)
                         if infos:
                             upstream.device_infos = infos
                             self._rebuild_slave_id_map(upstream)

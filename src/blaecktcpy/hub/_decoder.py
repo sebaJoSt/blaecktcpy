@@ -222,6 +222,9 @@ def _parse_data_d2(
     msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
 ) -> DecodedData:
     """Parse D2 format: RestartFlag : SchemaHash(2) : TimestampMode [Timestamp(8)] : signals... StatusByte CRC32"""
+    if len(data) < 12:
+        raise ValueError(f"D2 payload too short: {len(data)} bytes")
+
     pos = 0
 
     # Restart flag (1 byte)
@@ -229,30 +232,47 @@ def _parse_data_d2(
     pos += 1
 
     # ':' separator
+    if pos >= len(data) or data[pos] != ord(":"):
+        raise ValueError("Expected ':' separator after D2 restart flag")
     pos += 1
 
     # Schema hash (2 bytes, CRC16 little-endian)
+    if pos + 2 > len(data):
+        raise ValueError("Truncated D2 schema hash")
     schema_hash = int.from_bytes(data[pos : pos + 2], "little")
     pos += 2
 
     # ':' separator
+    if pos >= len(data) or data[pos] != ord(":"):
+        raise ValueError("Expected ':' separator after D2 schema hash")
     pos += 1
 
     # Timestamp mode (1 byte)
+    if pos >= len(data):
+        raise ValueError("Missing D2 timestamp mode")
     timestamp_mode = data[pos]
     pos += 1
 
     # Optional timestamp (8 bytes uint64 if mode > 0)
     timestamp = None
     if timestamp_mode > 0:
+        if pos + 8 > len(data):
+            raise ValueError("Truncated D2 timestamp")
         timestamp = int.from_bytes(data[pos : pos + 8], "little")
         pos += 8
 
     # ':' separator
+    if pos >= len(data) or data[pos] != ord(":"):
+        raise ValueError("Expected ':' separator after D2 timestamp metadata")
     pos += 1
 
     # Signal data ends before StatusByte(1) + CRC32(4)
     signal_data_end = len(data) - 5
+    if signal_data_end < pos:
+        raise ValueError(
+            f"D2 payload too short for status/CRC after metadata: "
+            f"signal end {signal_data_end}, pos {pos}"
+        )
     status_byte = data[signal_data_end]
 
     signals = _unpack_signals(data, pos, signal_data_end, symbol_table)
@@ -272,6 +292,9 @@ def _parse_data_d1(
     msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
 ) -> DecodedData:
     """Parse D1 format: RestartFlag : TimestampMode [Timestamp(4)] : signals... StatusByte CRC32"""
+    if len(data) < 9:
+        raise ValueError(f"D1 payload too short: {len(data)} bytes")
+
     pos = 0
 
     # Restart flag (1 byte)
@@ -279,23 +302,36 @@ def _parse_data_d1(
     pos += 1
 
     # ':' separator
+    if pos >= len(data) or data[pos] != ord(":"):
+        raise ValueError("Expected ':' separator after D1 restart flag")
     pos += 1
 
     # Timestamp mode (1 byte)
+    if pos >= len(data):
+        raise ValueError("Missing D1 timestamp mode")
     timestamp_mode = data[pos]
     pos += 1
 
     # Optional timestamp (4 bytes if mode > 0)
     timestamp = None
     if timestamp_mode > 0:
+        if pos + 4 > len(data):
+            raise ValueError("Truncated D1 timestamp")
         timestamp = int.from_bytes(data[pos : pos + 4], "little")
         pos += 4
 
     # ':' separator
+    if pos >= len(data) or data[pos] != ord(":"):
+        raise ValueError("Expected ':' separator after D1 timestamp metadata")
     pos += 1
 
     # Signal data ends before StatusByte(1) + CRC32(4)
     signal_data_end = len(data) - 5
+    if signal_data_end < pos:
+        raise ValueError(
+            f"D1 payload too short for status/CRC after metadata: "
+            f"signal end {signal_data_end}, pos {pos}"
+        )
     status_byte = data[signal_data_end]
 
     signals = _unpack_signals(data, pos, signal_data_end, symbol_table)
