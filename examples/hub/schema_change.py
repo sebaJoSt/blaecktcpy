@@ -92,14 +92,12 @@ threading.Thread(target=run_sensor, daemon=True).start()
 time.sleep(0.2)
 
 # ---------------------------------------------------------------------------
-# Hub: forwards ADD/REMOVE commands to the upstream sensor
+# Hub: custom commands are forwarded to upstreams automatically
 # ---------------------------------------------------------------------------
 hub = BlaeckTCPy("127.0.0.1", 23, "Schema Change Hub", "Python Script", EXAMPLE_VERSION)
 hub.timestamp_mode = TimestampMode.UNIX
 hub.interval_ms = 500
 
-hub.forward_command("ADD_PRESSURE")
-hub.forward_command("REMOVE_PRESSURE")
 hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=300)
 
 hub.start()

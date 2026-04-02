@@ -160,7 +160,7 @@ class BlaeckTCPy:
         self._master_slave_config = b"\x00"
         self._slave_id = b"\x00"
         self._command_handlers: dict[str, object] = {}
-        self._forwarded_commands: set[str] = set()
+        self._non_forwarded_commands: set[str] = set()
         self._read_callback = None
         self._connect_callback = None
         self._disconnect_callback = None
@@ -839,7 +839,8 @@ class BlaeckTCPy:
         Args:
             command: Command name to handle, or None for a catch-all.
             forward: Whether the command is also forwarded to upstreams
-                that have ``forward_custom_commands=True``.  Defaults to True.
+                that have ``forward_custom_commands=True``.  Defaults to
+                True.  Set to False for local-only handling.
 
         Example::
 
@@ -860,23 +861,22 @@ class BlaeckTCPy:
                 self._read_callback = func
             else:
                 self._command_handlers[command] = func
-                if forward:
-                    self._forwarded_commands.add(command)
+                if not forward:
+                    self._non_forwarded_commands.add(command)
             return func
 
         return decorator
 
     def forward_command(self, command: str) -> None:
-        """Mark a command for upstream forwarding without a local handler.
+        """No-op — all custom commands are forwarded by default.
 
-        The command will be forwarded to all upstreams that have
-        ``forward_custom_commands=True``.  No local handler fires
-        unless one is also registered via :meth:`on_command`.
-
-        Args:
-            command: Command name to forward (e.g. ``"RESET"``).
+        Kept for backward compatibility.  Previously this was required
+        to mark a command for upstream forwarding.  Now every custom
+        command (not starting with ``BLAECK.``) is forwarded
+        automatically unless opted out with
+        ``@on_command("CMD", forward=False)``.
         """
-        self._forwarded_commands.add(command)
+        pass
 
     def on_client_connected(self):
         """Decorator to register a callback when a new client connects.
@@ -1093,7 +1093,7 @@ class BlaeckTCPy:
 
             # Forward custom commands to opted-in upstreams
             if (
-                command in self._forwarded_commands
+                command not in self._non_forwarded_commands
                 and not command.startswith("BLAECK.")
             ):
                 if params:

@@ -19,7 +19,7 @@ class TestCallbackRegistration:
         self.device._disconnect_callback = None
         self.device._data_received_callbacks = []
         self.device._command_handlers = {}
-        self.device._forwarded_commands = set()
+        self.device._non_forwarded_commands = set()
         self.device._read_callback = None
 
     def test_on_upstream_disconnected_registers(self):

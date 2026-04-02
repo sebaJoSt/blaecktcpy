@@ -8,39 +8,35 @@ from conftest import _make_server_on_free_port, _start_retry, RecordingTransport
 
 
 class TestForwardCommandRegistration:
-    """Verify forward_command() and on_command(forward=True) register correctly."""
+    """Verify on_command(forward=False) opt-out and forward_command() backward compat."""
 
     def setup_method(self):
         self.device = BlaeckTCPy.__new__(BlaeckTCPy)
         self.device._upstreams = []
         self.device._started = False
         self.device._command_handlers = {}
-        self.device._forwarded_commands = set()
+        self.device._non_forwarded_commands = set()
         self.device._read_callback = None
 
-    def test_forward_command_registers(self):
+    def test_forward_command_is_noop(self):
         self.device.forward_command("RESET")
-        assert "RESET" in self.device._forwarded_commands
+        # forward_command is a no-op now — all commands forward by default
+        assert len(self.device._non_forwarded_commands) == 0
 
-    def test_forward_command_multiple(self):
-        self.device.forward_command("RESET")
-        self.device.forward_command("CALIBRATE")
-        assert self.device._forwarded_commands == {"RESET", "CALIBRATE"}
-
-    def test_on_command_forward_true_registers(self):
+    def test_on_command_forward_true_does_not_opt_out(self):
         @self.device.on_command("SET_LED", forward=True)
         def handler(state):
             pass
 
-        assert "SET_LED" in self.device._forwarded_commands
+        assert "SET_LED" not in self.device._non_forwarded_commands
         assert "SET_LED" in self.device._command_handlers
 
-    def test_on_command_forward_false_does_not_register(self):
+    def test_on_command_forward_false_opts_out(self):
         @self.device.on_command("SET_LED", forward=False)
         def handler(state):
             pass
 
-        assert "SET_LED" not in self.device._forwarded_commands
+        assert "SET_LED" in self.device._non_forwarded_commands
         assert "SET_LED" in self.device._command_handlers
 
     def test_on_command_catchall_ignores_forward(self):
@@ -48,7 +44,7 @@ class TestForwardCommandRegistration:
         def handler(command, *params):
             pass
 
-        assert len(self.device._forwarded_commands) == 0
+        assert len(self.device._non_forwarded_commands) == 0
         assert self.device._read_callback is handler
 
     def test_on_command_forward_non_bool_raises(self):
@@ -85,9 +81,9 @@ class TestCustomCommandForwarding:
 
         return device, client, transport
 
-    def test_forward_command_sent_to_upstream(self):
+    def test_unknown_command_forwarded_by_default(self):
         device, client, transport = self._make_hub_with_upstream()
-        device.forward_command("RESET")
+        # No handler registered — command should still be forwarded
 
         try:
             import time
@@ -100,9 +96,8 @@ class TestCustomCommandForwarding:
             client.close()
             device.close()
 
-    def test_forward_command_with_params(self):
+    def test_unknown_command_with_params_forwarded(self):
         device, client, transport = self._make_hub_with_upstream()
-        device.forward_command("SET_LED")
 
         try:
             import time
@@ -142,7 +137,6 @@ class TestCustomCommandForwarding:
         device, client, transport = self._make_hub_with_upstream(
             forward_custom_commands=False
         )
-        device.forward_command("RESET")
 
         try:
             import time
@@ -155,25 +149,9 @@ class TestCustomCommandForwarding:
             client.close()
             device.close()
 
-    def test_not_forwarded_when_command_not_registered(self):
-        device, client, transport = self._make_hub_with_upstream()
-        # No forward_command("SET_LED") registered
-
-        try:
-            import time
-
-            client.sendall(b"<SET_LED,1>")
-            time.sleep(0.05)
-            device.read()
-            assert len(transport.sent) == 0
-        finally:
-            client.close()
-            device.close()
-
     def test_builtin_commands_not_double_forwarded(self):
         """Built-in BLAECK.* commands must not be forwarded via the custom path."""
         device, client, transport = self._make_hub_with_upstream()
-        device._forwarded_commands.add("BLAECK.WRITE_DATA")
 
         try:
             import time
@@ -214,7 +192,6 @@ class TestCustomCommandForwarding:
 
         device._upstreams.extend([upstream_a, upstream_b])
         _start_retry(device)
-        device.forward_command("RESET")
 
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.settimeout(2.0)
@@ -233,7 +210,6 @@ class TestCustomCommandForwarding:
 
     def test_forward_skips_disconnected_upstream(self):
         device, client, transport = self._make_hub_with_upstream()
-        device.forward_command("RESET")
         transport._connected = False
 
         try:
