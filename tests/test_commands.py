@@ -51,6 +51,12 @@ class TestForwardCommandRegistration:
         assert len(self.device._forwarded_commands) == 0
         assert self.device._read_callback is handler
 
+    def test_on_command_forward_non_bool_raises(self):
+        with pytest.raises(TypeError, match="forward must be True or False"):
+            @self.device.on_command("SET_LED", forward=1)
+            def handler(state):
+                pass
+
 
 class TestCustomCommandForwarding:
     """Verify custom commands are forwarded to opted-in upstreams."""

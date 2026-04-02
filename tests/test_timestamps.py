@@ -32,6 +32,21 @@ class TestTimestampProperties:
         device.timestamp_mode = TimestampMode.UNIX
         assert device.timestamp_mode == TimestampMode.UNIX
 
+    def test_set_timestamp_mode_by_int(self):
+        device = _make_server_on_free_port()
+        device.timestamp_mode = 2
+        assert device.timestamp_mode == TimestampMode.UNIX
+
+    def test_invalid_timestamp_mode_raises_with_valid_modes(self):
+        device = _make_server_on_free_port()
+        with pytest.raises(ValueError, match=r"Invalid timestamp_mode.*Valid modes"):
+            device.timestamp_mode = 99
+
+    def test_invalid_timestamp_mode_string_raises(self):
+        device = _make_server_on_free_port()
+        with pytest.raises((ValueError, TypeError)):
+            device.timestamp_mode = "UNIX"
+
     def test_start_time_set_at_start(self):
         device = _make_server_on_free_port()
         before = time.time()

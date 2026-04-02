@@ -528,6 +528,10 @@ class BlaeckTCPy:
         """
         if self._started:
             raise RuntimeError("Cannot add upstreams after start()")
+        if not isinstance(relay_downstream, bool):
+            raise TypeError("relay_downstream must be True or False")
+        if not isinstance(forward_custom_commands, bool):
+            raise TypeError("forward_custom_commands must be True or False")
 
         label = name or f"{ip}:{port}"
         transport = UpstreamTCP(label, ip, port)
@@ -567,6 +571,10 @@ class BlaeckTCPy:
         """
         if self._started:
             raise RuntimeError("Cannot add upstreams after start()")
+        if not isinstance(relay_downstream, bool):
+            raise TypeError("relay_downstream must be True or False")
+        if not isinstance(forward_custom_commands, bool):
+            raise TypeError("forward_custom_commands must be True or False")
 
         from .hub._upstream import UpstreamSerial
 
@@ -843,6 +851,9 @@ class BlaeckTCPy:
             def log_all(command, *params):
                 print(f"{command}: {params}")
         """
+
+        if not isinstance(forward, bool):
+            raise TypeError("forward must be True or False")
 
         def decorator(func):
             if command is None:
@@ -1442,7 +1453,13 @@ class BlaeckTCPy:
 
     @timestamp_mode.setter
     def timestamp_mode(self, value: TimestampMode) -> None:
-        mode = TimestampMode(value)
+        try:
+            mode = TimestampMode(value)
+        except ValueError:
+            valid = ", ".join(f"{m.name} ({m.value})" for m in TimestampMode)
+            raise ValueError(
+                f"Invalid timestamp_mode {value!r}. Valid modes: {valid}"
+            ) from None
         if mode == TimestampMode.MICROS:
             raise ValueError(
                 "TimestampMode.MICROS is not supported for blaecktcpy servers. "
@@ -1652,7 +1669,11 @@ class BlaeckTCPy:
                         single = relayed_count == 1 and self._local_signal_count == 0
                         # Widen upstream uint32 timestamp to uint64
                         ts = decoded.timestamp if single and decoded.timestamp is not None else None
-                        ts_mode = TimestampMode(decoded.timestamp_mode) if ts is not None else None
+                        try:
+                            ts_mode = TimestampMode(decoded.timestamp_mode) if ts is not None else None
+                        except ValueError:
+                            ts = None
+                            ts_mode = None
 
                         # Replace msg_id only when hub overrides BLAECK.ACTIVATE
                         relay_msg_id = decoded.msg_id
