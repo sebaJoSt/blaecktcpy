@@ -106,32 +106,6 @@ def log_all(command, *params):  # receives command name + all params
     print(f"{command} {params}")
 ```
 
-### Forwarding custom commands upstream
-
-In hub mode, all custom commands from downstream clients are automatically forwarded to upstream devices. No registration is needed — any command that isn't a built-in `BLAECK.*` command gets forwarded.
-
-```python
-hub.add_tcp("192.168.1.10", 24, name="Arduino")     # accepts all commands (default)
-hub.add_tcp("192.168.1.11", 25, name="Sensor",
-            forward_custom_commands=False)            # accepts no commands
-hub.add_tcp("192.168.1.12", 26, name="LED",
-            forward_custom_commands=["SET_LED"])      # accepts only SET_LED
-```
-
-Use `forward=False` on `@on_command()` to keep a command local (never forwarded, regardless of upstream settings):
-
-```python
-# Handle locally AND forward (default)
-@hub.on_command("SET_LED")
-def handle_led(state):
-    print(f"LED = {state}")
-
-# Local only (never forwarded)
-@hub.on_command("MOTOR", forward=False)
-def handle_motor(speed):
-    print(f"Motor = {speed}")
-```
-
 ## Timestamps
 
 Data frames can include timestamps. Set the `timestamp_mode` property to enable:
@@ -317,6 +291,32 @@ The hub can decode upstream frames using older protocol versions (`B2`–`B5` fo
 ### Schema change detection
 
 When an upstream device changes its signals at runtime, the hub detects the schema hash mismatch and automatically re-discovers the new signal layout. This propagates through chained hubs. For older upstream devices that don't include a schema hash (D1/B1 frames), the hub falls back to signal count comparison.
+
+### Forwarding custom commands
+
+All custom commands from downstream clients are automatically forwarded to upstream devices. Any command that isn't a built-in `BLAECK.*` command gets forwarded — no registration needed.
+
+```python
+hub.add_tcp("192.168.1.10", 24, name="Arduino")     # accepts all commands (default)
+hub.add_tcp("192.168.1.11", 25, name="Sensor",
+            forward_custom_commands=False)            # accepts no commands
+hub.add_tcp("192.168.1.12", 26, name="LED",
+            forward_custom_commands=["SET_LED"])      # accepts only SET_LED
+```
+
+Use `forward=False` on `@on_command()` to keep a command local (never forwarded, regardless of upstream settings):
+
+```python
+# Handle locally AND forward (default)
+@hub.on_command("SET_LED")
+def handle_led(state):
+    print(f"LED = {state}")
+
+# Local only (never forwarded)
+@hub.on_command("MOTOR", forward=False)
+def handle_motor(speed):
+    print(f"Motor = {speed}")
+```
 
 ## Examples
 
