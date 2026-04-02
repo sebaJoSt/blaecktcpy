@@ -239,3 +239,57 @@ class TestCustomCommandForwarding:
         finally:
             client.close()
             device.close()
+
+    def test_forward_custom_commands_list_filter(self):
+        """Only commands in the list are forwarded to that upstream."""
+        import socket
+        import time
+
+        device = _make_server_on_free_port()
+
+        transport_a = RecordingTransport("LED")
+        upstream_a = _UpstreamDevice(
+            device_name="LED",
+            transport=transport_a,
+            relay_downstream=True,
+            forward_custom_commands=["SET_LED"],
+        )
+
+        transport_b = RecordingTransport("Motor")
+        upstream_b = _UpstreamDevice(
+            device_name="Motor",
+            transport=transport_b,
+            relay_downstream=True,
+            forward_custom_commands=["SET_SPEED"],
+        )
+
+        device._upstreams.extend([upstream_a, upstream_b])
+        _start_retry(device)
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", device._port))
+        device._accept_new_clients()
+
+        try:
+            client.sendall(b"<SET_LED,1>")
+            time.sleep(0.05)
+            device.read()
+            assert b"<SET_LED,1>" in transport_a.sent
+            assert len(transport_b.sent) == 0
+
+            client.sendall(b"<SET_SPEED,255>")
+            time.sleep(0.05)
+            device.read()
+            assert b"<SET_SPEED,255>" in transport_b.sent
+            assert b"<SET_SPEED,255>" not in transport_a.sent
+
+            # Unknown command goes to neither (both have lists)
+            client.sendall(b"<RESET>")
+            time.sleep(0.05)
+            device.read()
+            assert b"<RESET>" not in transport_a.sent
+            assert b"<RESET>" not in transport_b.sent
+        finally:
+            client.close()
+            device.close()

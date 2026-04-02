@@ -20,7 +20,7 @@ class TestBoolCoercionStrictness:
 
     def test_add_tcp_forward_custom_commands_rejects_int(self):
         device = _make_server_on_free_port()
-        with pytest.raises(TypeError, match="forward_custom_commands must be True or False"):
+        with pytest.raises(TypeError, match="forward_custom_commands must be True, False, or a list"):
             device.add_tcp("127.0.0.1", 9999, forward_custom_commands=1)
 
     def test_add_serial_relay_downstream_rejects_int(self):
@@ -30,7 +30,7 @@ class TestBoolCoercionStrictness:
 
     def test_add_serial_forward_custom_commands_rejects_int(self):
         device = _make_server_on_free_port()
-        with pytest.raises(TypeError, match="forward_custom_commands must be True or False"):
+        with pytest.raises(TypeError, match="forward_custom_commands must be True, False, or a list"):
             device.add_serial("COM99", forward_custom_commands=1)
 
     def test_add_tcp_accepts_true_false(self):

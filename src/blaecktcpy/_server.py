@@ -93,7 +93,7 @@ class _UpstreamDevice:
     interval_ms: int = IntervalMode.CLIENT
     connected: bool = True
     relay_downstream: bool = True
-    forward_custom_commands: bool = True
+    forward_custom_commands: bool | list[str] = True
     _signals: list[Signal] = field(default_factory=list)
     _upstream_signals: SignalList | None = field(default=None, repr=False)
     expected_schema_hash: int = 0
@@ -504,7 +504,7 @@ class BlaeckTCPy:
         timeout: float = 5.0,
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
-        forward_custom_commands: bool = True,
+        forward_custom_commands: bool | list[str] = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream TCP device and discover its signals.
 
@@ -520,8 +520,10 @@ class BlaeckTCPy:
                 :class:`IntervalMode` member.
             relay_downstream: If False, signals are decoded but not exposed
                 to downstream clients.
-            forward_custom_commands: Whether custom commands marked for
-                forwarding are sent to this upstream.  Defaults to True.
+            forward_custom_commands: Controls which custom commands are
+                forwarded to this upstream.  ``True`` (default) forwards
+                all, ``False`` forwards none, or a list of command names
+                to forward only those.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -530,8 +532,8 @@ class BlaeckTCPy:
             raise RuntimeError("Cannot add upstreams after start()")
         if not isinstance(relay_downstream, bool):
             raise TypeError("relay_downstream must be True or False")
-        if not isinstance(forward_custom_commands, bool):
-            raise TypeError("forward_custom_commands must be True or False")
+        if not isinstance(forward_custom_commands, (bool, list)):
+            raise TypeError("forward_custom_commands must be True, False, or a list of command names")
 
         label = name or f"{ip}:{port}"
         transport = UpstreamTCP(label, ip, port)
@@ -546,7 +548,7 @@ class BlaeckTCPy:
         dtr: bool = True,
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
-        forward_custom_commands: bool = True,
+        forward_custom_commands: bool | list[str] = True,
     ) -> _UpstreamDevice:
         """Connect to an upstream serial device and discover its signals.
 
@@ -563,8 +565,10 @@ class BlaeckTCPy:
                 :class:`IntervalMode` member.
             relay_downstream: If False, signals are decoded but not exposed
                 to downstream clients.
-            forward_custom_commands: Whether custom commands marked for
-                forwarding are sent to this upstream.  Defaults to True.
+            forward_custom_commands: Controls which custom commands are
+                forwarded to this upstream.  ``True`` (default) forwards
+                all, ``False`` forwards none, or a list of command names
+                to forward only those.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -573,8 +577,8 @@ class BlaeckTCPy:
             raise RuntimeError("Cannot add upstreams after start()")
         if not isinstance(relay_downstream, bool):
             raise TypeError("relay_downstream must be True or False")
-        if not isinstance(forward_custom_commands, bool):
-            raise TypeError("forward_custom_commands must be True or False")
+        if not isinstance(forward_custom_commands, (bool, list)):
+            raise TypeError("forward_custom_commands must be True, False, or a list of command names")
 
         from .hub._upstream import UpstreamSerial
 
@@ -589,7 +593,7 @@ class BlaeckTCPy:
         timeout: float,
         interval_ms: int = 0,
         relay_downstream: bool = True,
-        forward_custom_commands: bool = True,
+        forward_custom_commands: bool | list[str] = True,
     ) -> _UpstreamDevice:
         """Connect and fetch the symbol table from an upstream device."""
         label = transport.name
@@ -1090,11 +1094,12 @@ class BlaeckTCPy:
                 else:
                     full_cmd = command
                 for upstream in self._upstreams:
-                    if (
-                        upstream.forward_custom_commands
-                        and upstream.transport.connected
-                    ):
-                        upstream.transport.send_command(full_cmd)
+                    fcc = upstream.forward_custom_commands
+                    if not fcc or not upstream.transport.connected:
+                        continue
+                    if isinstance(fcc, list) and command not in fcc:
+                        continue
+                    upstream.transport.send_command(full_cmd)
 
             # Fire catch-all callback
             if self._read_callback is not None:
