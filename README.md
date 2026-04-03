@@ -76,7 +76,7 @@ Here's a full list of the commands handled by this library:
 
 | Command | Description |
 |---|---|
-| `<BLAECK.GET_DEVICES,B1,B2,B3,B4>` | Writes the device information including the device name, hardware version, firmware version and library version |
+| `<BLAECK.GET_DEVICES,B1,B2,B3,B4[,Name,Type]>` | Writes the device information including the device name, hardware version, firmware version and library version. Optional `Name` and `Type` params identify the requesting client (see [Client identity](#client-identity)). |
 | `<BLAECK.WRITE_SYMBOLS,B1,B2,B3,B4>` | Writes symbol list including datatype information |
 | `<BLAECK.WRITE_DATA,B1,B2,B3,B4>` | Writes the binary data |
 | `<BLAECK.ACTIVATE,B1,B2,B3,B4>` | Activates writing the binary data in user-set interval \[ms\] |
@@ -214,6 +214,29 @@ Messages use the following binary format:
 ### Schema hash
 
 Every D2 data frame includes a `SchemaHash` — a CRC16-CCITT hash computed from the signal names and datatype codes. Clients such as Loggbok use this to detect when the signal layout changes during a session, allowing them to stop logging and notify the user.
+
+### Client identity
+
+When a client sends `<BLAECK.GET_DEVICES>`, it may include two optional parameters after the 4-byte message ID:
+
+```
+<BLAECK.GET_DEVICES,B1,B2,B3,B4,RequesterDeviceName,RequesterType>
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `RequesterDeviceName` | Device name of the requesting client (e.g. `Basic Hub`) |
+| `RequesterType` | Role of the requesting client: `hub`, `app`, or `unknown` |
+
+The server binds the identity to the client connection and uses it in log messages:
+
+```
+Client #0 connected: 192.168.1.50:51478
+Client #0 identified (hub: Basic Hub)
+Client #0 disconnected (hub: Basic Hub)
+```
+
+Both parameters are optional — older clients that omit them still work. In hub mode, blaecktcpy automatically sends its device name and `hub` type when connecting to upstreams.
 
 ## Hub mode
 
