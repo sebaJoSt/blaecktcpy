@@ -168,6 +168,8 @@ class BlaeckTCPy:
         self._server_restarted = True
         self._restart_flag_pending = True
         self.data_clients: set[int] = set()
+        self._client_meta: dict[int, dict] = {}
+        self._client_addrs: dict[int, str] = {}
         self._recv_buffers: dict = {}
         self._closed = False
         self._timestamp_mode = TimestampMode.NONE
@@ -640,7 +642,8 @@ class BlaeckTCPy:
 
         # Fetch device info with polling retries
         device_msgkeys = decoder.MSGKEY_DEVICES_ALL
-        transport.send_command("BLAECK.GET_DEVICES")
+        identity = f",0,0,0,0,{self._device_name.decode()},hub"
+        transport.send_command(f"BLAECK.GET_DEVICES{identity}")
         frame = None
         for i in range(max_polls):
             time.sleep(0.1)
@@ -652,7 +655,7 @@ class BlaeckTCPy:
             if frame is not None:
                 break
             if i > 0 and i % 10 == 0:
-                transport.send_command("BLAECK.GET_DEVICES")
+                transport.send_command(f"BLAECK.GET_DEVICES{identity}")
 
         if frame is not None:
             try:
@@ -695,6 +698,8 @@ class BlaeckTCPy:
                 self._clients[client_id] = conn
                 self._recv_buffers[conn] = ""
                 self.data_clients.add(client_id)
+                self._client_meta[client_id] = {"name": "", "type": "unknown"}
+                self._client_addrs[client_id] = f"{addr[0]}:{addr[1]}"
                 logger.info(f"Client #{client_id} connected: {addr[0]}:{addr[1]}")
                 if self._connect_callback is not None:
                     self._connect_callback(client_id)
@@ -726,10 +731,23 @@ class BlaeckTCPy:
         if client_id >= 0:
             self._clients.pop(client_id, None)
             self.data_clients.discard(client_id)
+            meta = self._client_meta.pop(client_id, {})
+            self._client_addrs.pop(client_id, None)
+        else:
+            meta = {}
         self._recv_buffers.pop(conn, None)
         if self._commanding_client is conn:
             self._commanding_client = None
-        logger.info(f"Client #{client_id if client_id >= 0 else '?'} disconnected")
+        name = meta.get("name", "")
+        if name:
+            logger.info(
+                f"Client #{client_id if client_id >= 0 else '?'} disconnected: "
+                f"{name}"
+            )
+        else:
+            logger.info(
+                f"Client #{client_id if client_id >= 0 else '?'} disconnected"
+            )
         if client_id >= 0 and self._disconnect_callback is not None:
             self._disconnect_callback(client_id)
         if not self._clients and self._fixed_interval_ms == IntervalMode.CLIENT:
@@ -978,6 +996,22 @@ class BlaeckTCPy:
                 pass
         return result
 
+    def _update_client_identity(self, params: list, conn) -> None:
+        """Extract optional RequesterDeviceName/Type from GET_DEVICES params."""
+        if len(params) <= 4:
+            return
+        client_id = self._client_id_for(conn)
+        if client_id < 0:
+            return
+        name = params[4].strip() if len(params) > 4 else ""
+        rtype = params[5].strip() if len(params) > 5 else "unknown"
+        if name:
+            self._client_meta[client_id] = {"name": name, "type": rtype}
+            addr = self._client_addrs.get(client_id, "")
+            logger.info(
+                f"Client #{client_id} identified: {addr} ({rtype}: {name})"
+            )
+
     # ========================================================================
     # Message Handlers
     # ========================================================================
@@ -999,6 +1033,7 @@ class BlaeckTCPy:
                     self.write_symbols(self._decode_four_byte(params))
 
                 elif command == "BLAECK.GET_DEVICES":
+                    self._update_client_identity(params, conn)
                     self.write_devices(self._decode_four_byte(params))
 
                 elif command in (
@@ -1069,6 +1104,7 @@ class BlaeckTCPy:
                     self.write_all_data(self._decode_four_byte(params))
 
                 elif command == "BLAECK.GET_DEVICES":
+                    self._update_client_identity(params, conn)
                     self.write_devices(self._decode_four_byte(params))
 
                 elif command == "BLAECK.ACTIVATE":
@@ -1560,7 +1596,10 @@ class BlaeckTCPy:
                         if new_symbols:
                             self._rebuild_upstream_schema(upstream, new_symbols)
                             # Request device info to update slave_id_map
-                            upstream.transport.send_command("BLAECK.GET_DEVICES")
+                            identity = f",0,0,0,0,{self._device_name.decode()},hub"
+                            upstream.transport.send_command(
+                                f"BLAECK.GET_DEVICES{identity}"
+                            )
                             upstream.schema_stale = False
                             logger.info(
                                 f"Schema refreshed for '{upstream.device_name}': "
@@ -1696,6 +1735,7 @@ class BlaeckTCPy:
                                 timestamp=ts,
                                 timestamp_mode=ts_mode,
                                 status=decoded.status_byte,
+                                status_payload=decoded.status_payload,
                             )
                             + b"/BLAECK>\r\n"
                         )
@@ -1842,6 +1882,7 @@ class BlaeckTCPy:
         timestamp: int | None = None,
         timestamp_mode: TimestampMode | None = None,
         status: int = STATUS_OK,
+        status_payload: bytes = b"\x00\x00\x00\x00",
     ) -> bytes:
         """Build data message with CRC32 checksum (v5 format).
 
@@ -1854,9 +1895,14 @@ class BlaeckTCPy:
             timestamp_mode: Timestamp mode byte. If None, uses the
                 instance's :attr:`timestamp_mode`.
             status: Status byte (STATUS_OK or STATUS_UPSTREAM_LOST)
+            status_payload: 4-byte status payload forwarded from upstream.
         """
         if end == -1:
             end = len(self.signals) - 1
+        if len(status_payload) != 4:
+            raise ValueError(
+                f"status_payload must be 4 bytes, got {len(status_payload)}"
+            )
 
         # Restart flag
         restart_flag = b"\x01" if self._restart_flag_pending else b"\x00"
@@ -1890,10 +1936,10 @@ class BlaeckTCPy:
             if only_updated:
                 sig.updated = False
 
-        crc_input = header + meta + payload
-        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        frame_no_crc = header + meta + payload + status.to_bytes(1, "little") + status_payload
+        crc = binascii.crc32(frame_no_crc).to_bytes(4, "little")
 
-        return crc_input + status.to_bytes(1, "little") + crc
+        return frame_no_crc + crc
 
     def _get_symbols(self) -> bytes:
         """Build symbol list message (simple server mode)."""
