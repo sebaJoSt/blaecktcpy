@@ -65,6 +65,8 @@ hub.interval_ms = 500
 # Connect to upstream servers
 hub.add_tcp("127.0.0.1", 10024, "Sine", interval_ms=300)
 hub.add_tcp("127.0.0.1", 10025, "Cosine", interval_ms=300)
+# Optional serial upstream (requires: pip install blaecktcpy[serial])
+# hub.add_serial("COM3", 115200, "Arduino", interval_ms=300)
 
 hub.start()
 print("##LOGGBOK:READY##")

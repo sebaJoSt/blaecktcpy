@@ -175,8 +175,8 @@ Messages use the following binary format:
 | Type | MSGKEY | Elements | Description |
 |------|--------|----------|-------------|
 | Symbol List | `B0` | **`<MSC><SlaveID><SymbolName><DTYPE>`** | **Up to n symbols.** Response to `<BLAECK.WRITE_SYMBOLS>` |
-| Data | `D2` | `<RestartFlag>:<SchemaHash>:<TimestampMode><Timestamp>:`**`<SymbolID><DATA>`**`<StatusByte><StatusPayload>` | **Up to n data items.** Response to `<BLAECK.WRITE_DATA>` |
-| Data | `B1` | **`<SymbolID><DATA>`**`<StatusByte><StatusPayload(4)>` | Deprecated; decoded from upstream only |
+| Data | `D2` | `<RestartFlag>:<SchemaHash>:<TimestampMode><Timestamp>:`**`<SymbolID><DATA>`**`<StatusByte><StatusPayload><CRC32>` | **Up to n data items.** Response to `<BLAECK.WRITE_DATA>` |
+| Data | `B1` | **`<SymbolID><DATA>`**`<StatusByte><StatusPayload>` | Deprecated; decoded from upstream only |
 | Devices | `B6` | `<MSC><SlaveID><DeviceName><DeviceHWVersion><DeviceFWVersion><LibraryVersion><LibraryName><Client#><ClientDataEnabled><ServerRestarted><DeviceType><Parent>` | **Up to n devices.** Response to `<BLAECK.GET_DEVICES>` |
 
 ### Elements
@@ -205,9 +205,11 @@ Messages use the following binary format:
 | `SchemaHash` | uint16 | CRC16-CCITT of (name bytes + datatype code byte) for each signal in order (2 bytes, little-endian). Used to detect signal layout changes at runtime. |
 | `TimestampMode` | byte | `0` = NONE (default), `1` = MICROS (µs since start; upstream/Arduino devices only), `2` = UNIX (µs since epoch) |
 | `Timestamp` | uint64 | 8-byte microsecond timestamp (only present if TimestampMode > 0) |
-| `StatusByte` | byte | `0x00` = normal, `0x02` = upstream connection lost |
-| `StatusPayload` (StatusByte=0) | bytes | 4 bytes, CRC32 (polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out) |
-| `StatusPayload` (StatusByte=2) | bytes | 4 bytes, CRC32 (polynomial `0x04C11DB7`, init `0xFFFFFFFF`, final XOR `0xFFFFFFFF`, reverse in/out) |
+| `StatusByte` | byte | `0x00` = normal, `0x01` = relayed upstream I2C CRC error, `0x02` = upstream connection lost |
+| `StatusPayload` (StatusByte=0) | bytes | 4 bytes, reserved (`0x00000000` in blaecktcpy-generated frames) |
+| `StatusPayload` (StatusByte=1) | bytes | 4-byte upstream-provided status payload relayed by hub (for example I2C error metadata from BlaeckSerial) |
+| `StatusPayload` (StatusByte=2) | bytes | 4 bytes, reserved (`0x00000000` in blaecktcpy-generated frames) |
+| `CRC32` | uint32 | CRC32 of all content bytes before CRC, including `StatusByte` and `StatusPayload` |
 
 ### Schema hash
 

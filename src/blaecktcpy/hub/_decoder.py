@@ -84,6 +84,7 @@ class DecodedData:
     timestamp_mode: int
     timestamp: int | None
     status_byte: int = 0
+    status_payload: bytes = b"\x00\x00\x00\x00"
     signals: dict[int, float | int | bool] = field(default_factory=dict)
 
 
@@ -192,38 +193,43 @@ def parse_data(content: bytes, symbol_table: list[DecodedSymbol]) -> DecodedData
         DecodedData with signal index → value mapping.
     """
     msg_key, msg_id, data = _parse_header(content)
-    _validate_data_frame(content)
 
     match msg_key:
         case 0xD2:  # MSGKEY_DATA_D2 (blaecktcpy, 8-byte timestamp)
-            return _parse_data_d2(msg_id, data, symbol_table)
+            return _parse_data_d2(msg_id, data, symbol_table, content)
         case 0xD1:  # MSGKEY_DATA_D1 (Arduino v5+, 4-byte timestamp)
-            return _parse_data_d1(msg_id, data, symbol_table)
+            return _parse_data_d1(msg_id, data, symbol_table, content)
         case 0xB1:  # MSGKEY_DATA_LEGACY (v4)
-            return _parse_data_b1(msg_id, data, symbol_table)
+            return _parse_data_b1(msg_id, data, symbol_table, content)
         case _:
             raise ValueError(f"Expected D2, D1 or B1 data frame, got {msg_key:#x}")
 
-
-def _validate_data_frame(content: bytes) -> None:
-    """Validate minimum structure and CRC for a D1/B1 data frame."""
-    if len(content) < 12:
-        raise ValueError(f"Data frame too short: {len(content)} bytes")
-
-    expected_crc = int.from_bytes(content[-4:], "little")
-    actual_crc = binascii.crc32(content[:-5]) & 0xFFFFFFFF
-    if actual_crc != expected_crc:
-        raise ValueError(
-            f"CRC mismatch: expected 0x{expected_crc:08x}, got 0x{actual_crc:08x}"
-        )
-
-
 def _parse_data_d2(
-    msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
+    msg_id: int,
+    data: bytes,
+    symbol_table: list[DecodedSymbol],
+    content: bytes,
 ) -> DecodedData:
-    """Parse D2 format: RestartFlag : SchemaHash(2) : TimestampMode [Timestamp(8)] : signals... StatusByte CRC32"""
+    """Parse D2 format.
+
+    Current tail: StatusByte + StatusPayload(4) + CRC32(4).
+    Legacy tail (accepted): StatusByte + CRC32(4).
+    """
     if len(data) < 12:
         raise ValueError(f"D2 payload too short: {len(data)} bytes")
+
+    expected_crc = int.from_bytes(content[-4:], "little")
+    actual_crc_new = binascii.crc32(content[:-4]) & 0xFFFFFFFF
+    actual_crc_legacy = binascii.crc32(content[:-5]) & 0xFFFFFFFF
+    if actual_crc_new == expected_crc:
+        has_status_payload = True
+    elif actual_crc_legacy == expected_crc:
+        has_status_payload = False
+    else:
+        raise ValueError(
+            f"CRC mismatch: expected 0x{expected_crc:08x}, "
+            f"got new-tail 0x{actual_crc_new:08x} and legacy-tail 0x{actual_crc_legacy:08x}"
+        )
 
     pos = 0
 
@@ -266,14 +272,19 @@ def _parse_data_d2(
         raise ValueError("Expected ':' separator after D2 timestamp metadata")
     pos += 1
 
-    # Signal data ends before StatusByte(1) + CRC32(4)
-    signal_data_end = len(data) - 5
+    # Signal data ends before current or legacy trailer.
+    signal_data_end = len(data) - (9 if has_status_payload else 5)
     if signal_data_end < pos:
         raise ValueError(
             f"D2 payload too short for status/CRC after metadata: "
             f"signal end {signal_data_end}, pos {pos}"
         )
     status_byte = data[signal_data_end]
+    status_payload = (
+        data[signal_data_end + 1 : signal_data_end + 5]
+        if has_status_payload
+        else b"\x00\x00\x00\x00"
+    )
 
     signals = _unpack_signals(data, pos, signal_data_end, symbol_table)
 
@@ -284,16 +295,27 @@ def _parse_data_d2(
         timestamp_mode=timestamp_mode,
         timestamp=timestamp,
         status_byte=status_byte,
+        status_payload=status_payload,
         signals=signals,
     )
 
 
 def _parse_data_d1(
-    msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
+    msg_id: int,
+    data: bytes,
+    symbol_table: list[DecodedSymbol],
+    content: bytes,
 ) -> DecodedData:
     """Parse D1 format: RestartFlag : TimestampMode [Timestamp(4)] : signals... StatusByte CRC32"""
     if len(data) < 9:
         raise ValueError(f"D1 payload too short: {len(data)} bytes")
+
+    expected_crc = int.from_bytes(content[-4:], "little")
+    actual_crc = binascii.crc32(content[:-5]) & 0xFFFFFFFF
+    if actual_crc != expected_crc:
+        raise ValueError(
+            f"CRC mismatch: expected 0x{expected_crc:08x}, got 0x{actual_crc:08x}"
+        )
 
     pos = 0
 
@@ -343,18 +365,32 @@ def _parse_data_d1(
         timestamp_mode=timestamp_mode,
         timestamp=timestamp,
         status_byte=status_byte,
+        status_payload=b"\x00\x00\x00\x00",
         signals=signals,
     )
 
 
 def _parse_data_b1(
-    msg_id: int, data: bytes, symbol_table: list[DecodedSymbol]
+    msg_id: int,
+    data: bytes,
+    symbol_table: list[DecodedSymbol],
+    content: bytes,
 ) -> DecodedData:
     """Parse B1 legacy format: signals... StatusByte CRC32
 
     B1 packs signal values sequentially in symbol-table order
     (no SymbolID prefix per value, unlike D1).
     """
+    if len(data) < 5:
+        raise ValueError(f"B1 payload too short: {len(data)} bytes")
+
+    expected_crc = int.from_bytes(content[-4:], "little")
+    actual_crc = binascii.crc32(content[:-5]) & 0xFFFFFFFF
+    if actual_crc != expected_crc:
+        raise ValueError(
+            f"CRC mismatch: expected 0x{expected_crc:08x}, got 0x{actual_crc:08x}"
+        )
+
     signal_data_end = len(data) - 5
     status_byte = data[signal_data_end] if len(data) >= 5 else 0
     signals: dict[int, float | int | bool] = {}
@@ -384,6 +420,7 @@ def _parse_data_b1(
         timestamp_mode=0,
         timestamp=None,
         status_byte=status_byte,
+        status_payload=b"\x00\x00\x00\x00",
         signals=signals,
     )
 

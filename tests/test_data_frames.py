@@ -27,19 +27,23 @@ class TestStatusByte:
     def test_default_status_is_ok(self):
         header = self.server.MSG_DATA + b":" + (1).to_bytes(4, "little") + b":"
         msg = self.server._build_data_msg(header)
-        # Status byte is at position -5 (1 byte before 4-byte CRC)
-        assert msg[-5] == STATUS_OK
+        # Status byte is at position -9 (before payload(4) + CRC(4))
+        assert msg[-9] == STATUS_OK
+        assert msg[-8:-4] == b"\x00\x00\x00\x00"
 
     def test_status_upstream_lost(self):
         header = self.server.MSG_DATA + b":" + (1).to_bytes(4, "little") + b":"
         msg = self.server._build_data_msg(header, status=STATUS_UPSTREAM_LOST)
-        assert msg[-5] == STATUS_UPSTREAM_LOST
+        assert msg[-9] == STATUS_UPSTREAM_LOST
+        assert msg[-8:-4] == b"\x00\x00\x00\x00"
 
-    def test_crc_excludes_status_byte(self):
+    def test_crc_includes_status_and_payload(self):
         header = self.server.MSG_DATA + b":" + (1).to_bytes(4, "little") + b":"
-        msg = self.server._build_data_msg(header, status=STATUS_UPSTREAM_LOST)
-        # CRC is computed over everything before status byte
-        crc_data = msg[:-5]
+        msg = self.server._build_data_msg(
+            header, status=STATUS_UPSTREAM_LOST, status_payload=b"\x04\x03\x02\x01"
+        )
+        # CRC is computed over everything before the CRC field.
+        crc_data = msg[:-4]
         expected_crc = binascii.crc32(crc_data) & 0xFFFFFFFF
         actual_crc = int.from_bytes(msg[-4:], "little")
         assert actual_crc == expected_crc
@@ -149,6 +153,15 @@ class TestStatusByteRelay:
         crc = binascii.crc32(crc_input).to_bytes(4, "little")
         return msg_key + b":" + msg_id + b":" + meta + payload + bytes([status]) + crc
 
+    def _build_b1_frame(self, status: int, signal_values: list[float]):
+        """Build a valid B1 legacy data frame with a specific status byte."""
+        msg_key = b"\xb1"
+        msg_id = (1).to_bytes(4, "little")
+        payload = b"".join(struct.pack("<f", val) for val in signal_values)
+        crc_input = msg_key + b":" + msg_id + b":" + payload
+        crc = binascii.crc32(crc_input).to_bytes(4, "little")
+        return msg_key + b":" + msg_id + b":" + payload + bytes([status]) + crc
+
     def test_decoder_reads_status_byte_ok(self):
         """D1 parser captures status_byte = 0 (OK)."""
         frame = self._build_d1_frame(status=0x00, signal_values=[1.0])
@@ -217,15 +230,101 @@ class TestStatusByteRelay:
             downstream = client.recv(4096)
             client.close()
 
-            # Parse the downstream frame — extract status byte at position [-5]
+            # Parse the downstream frame — extract status byte at position [-9]
             # Frame: <BLAECK:...content.../BLAECK>\r\n
             start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
             end = downstream.find(b"/BLAECK>")
             content = downstream[start:end]
-            # Status byte is at content[-5] (before 4-byte CRC)
-            assert content[-5] == 0x01, (
-                f"Expected status byte 0x01 (I2C CRC error), got 0x{content[-5]:02x}"
+            # Status byte is at content[-9] (before payload+CRC)
+            assert content[-9] == 0x01, (
+                f"Expected status byte 0x01 (I2C CRC error), got 0x{content[-9]:02x}"
             )
+        finally:
+            device.close()
+
+    def test_d1_upstream_relays_as_d2_downstream(self):
+        """A D1 upstream frame is always rebuilt as D2 downstream."""
+        import socket
+
+        device = _make_server_on_free_port()
+        _start_retry(device)
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(2.0)
+            client.connect(("127.0.0.1", device._port))
+            device._accept_new_clients()
+
+            transport = FakeTransport("Arduino")
+            upstream = _UpstreamDevice(
+                device_name="Arduino", transport=transport, relay_downstream=True
+            )
+            upstream.symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+            upstream.interval_ms = 0
+            upstream.connected = True
+
+            sig = Signal("temp", "float", 0.0)
+            device.signals.append(sig)
+            upstream._signals.append(device.signals[0])
+            upstream.index_map = {0: 0}
+            upstream._upstream_signals = SignalList(upstream._signals)
+            device._upstreams.append(upstream)
+
+            frame_content = self._build_d1_frame(status=0x00, signal_values=[25.0])
+            transport._pending = b"<BLAECK:" + frame_content + b"/BLAECK>\r\n"
+            transport.read_available = lambda: transport._pending
+
+            device._poll_upstreams()
+            transport._pending = b""
+
+            downstream = client.recv(4096)
+            client.close()
+            start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
+            end = downstream.find(b"/BLAECK>")
+            content = downstream[start:end]
+            assert content[0] == 0xD2, f"Expected downstream D2 frame, got 0x{content[0]:02x}"
+        finally:
+            device.close()
+
+    def test_b1_upstream_relays_as_d2_downstream(self):
+        """A B1 upstream frame is always rebuilt as D2 downstream."""
+        import socket
+
+        device = _make_server_on_free_port()
+        _start_retry(device)
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(2.0)
+            client.connect(("127.0.0.1", device._port))
+            device._accept_new_clients()
+
+            transport = FakeTransport("Legacy")
+            upstream = _UpstreamDevice(
+                device_name="Legacy", transport=transport, relay_downstream=True
+            )
+            upstream.symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+            upstream.interval_ms = 0
+            upstream.connected = True
+
+            sig = Signal("temp", "float", 0.0)
+            device.signals.append(sig)
+            upstream._signals.append(device.signals[0])
+            upstream.index_map = {0: 0}
+            upstream._upstream_signals = SignalList(upstream._signals)
+            device._upstreams.append(upstream)
+
+            frame_content = self._build_b1_frame(status=0x00, signal_values=[11.0])
+            transport._pending = b"<BLAECK:" + frame_content + b"/BLAECK>\r\n"
+            transport.read_available = lambda: transport._pending
+
+            device._poll_upstreams()
+            transport._pending = b""
+
+            downstream = client.recv(4096)
+            client.close()
+            start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
+            end = downstream.find(b"/BLAECK>")
+            content = downstream[start:end]
+            assert content[0] == 0xD2, f"Expected downstream D2 frame, got 0x{content[0]:02x}"
         finally:
             device.close()
 
@@ -311,13 +410,13 @@ class TestRelayFrameScoping:
         end = raw.find(b"/BLAECK>")
         content = raw[start:end]
 
-        # D2 layout: msg_key(1) : msg_id(4) : restart(1) : schema_hash(2) : ts_mode(1) : signals... status(1) crc(4)
+        # D2 layout: ... : signals... status(1) status_payload(4) crc(4)
         colon_positions = []
         for i, b in enumerate(content):
             if b == ord(":"):
                 colon_positions.append(i)
         sig_start = colon_positions[4] + 1
-        sig_end = len(content) - 5
+        sig_end = len(content) - 9
         sig_data = content[sig_start:sig_end]
 
         ids = []
@@ -422,11 +521,11 @@ class TestRelayFrameScoping:
 
             # Frame 1 (upstream A): status_byte should be 0x01
             content1 = frames[0][frames[0].find(b"<BLAECK:") + 8:]
-            assert content1[-5] == 0x01, f"Frame 1 status should be 0x01, got 0x{content1[-5]:02x}"
+            assert content1[-9] == 0x01, f"Frame 1 status should be 0x01, got 0x{content1[-9]:02x}"
 
             # Frame 2 (upstream B): status_byte should be 0x00
             content2 = frames[1][frames[1].find(b"<BLAECK:") + 8:]
-            assert content2[-5] == 0x00, f"Frame 2 status should be 0x00, got 0x{content2[-5]:02x}"
+            assert content2[-9] == 0x00, f"Frame 2 status should be 0x00, got 0x{content2[-9]:02x}"
         finally:
             client.close()
             device.close()
@@ -463,7 +562,7 @@ class TestRelayFrameScoping:
             start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
             end = downstream.find(b"/BLAECK>")
             content = downstream[start:end]
-            assert content[-5] == 0x02, f"Status should be 0x02, got 0x{content[-5]:02x}"
+            assert content[-9] == 0x02, f"Status should be 0x02, got 0x{content[-9]:02x}"
 
             # B's signals should still be updated (not consumed)
             assert device.signals[2].updated is True
@@ -489,7 +588,7 @@ class TestRelayFrameScoping:
 
             assert b"/BLAECK>" in downstream1, "Expected a lost frame on first poll"
             content = downstream1[downstream1.find(b"<BLAECK:") + 8:downstream1.find(b"/BLAECK>")]
-            assert content[-5] == 0x02, "First poll should send STATUS_UPSTREAM_LOST"
+            assert content[-9] == 0x02, "First poll should send STATUS_UPSTREAM_LOST"
 
             # connected should now be False
             assert up_a.connected is False
@@ -572,6 +671,55 @@ class TestDecoderTruncatedPayload:
             decoder.parse_data(frame, symbol_table)
 
 
+class TestDecoderCRCValidation:
+    """Decoder should reject frames with invalid CRC."""
+
+    def test_parse_data_d2_rejects_bad_crc(self):
+        msg_key = b"\xd2"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x00\x00:\x00:"  # restart=0, schema_hash=0, timestamp_mode=0
+        payload = (0).to_bytes(2, "little") + struct.pack("<f", 1.0)
+        status = b"\x00"
+        status_payload = b"\x00\x00\x00\x00"
+        frame_no_crc = msg_key + b":" + msg_id + b":" + meta + payload + status + status_payload
+        crc = binascii.crc32(frame_no_crc).to_bytes(4, "little")
+        bad_crc = crc[:-1] + bytes([crc[-1] ^ 0xFF])
+        frame = frame_no_crc + bad_crc
+
+        symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+        with pytest.raises(ValueError, match="CRC mismatch"):
+            decoder.parse_data(frame, symbol_table)
+
+    def test_parse_data_d1_rejects_bad_crc(self):
+        msg_key = b"\xd1"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x00:"
+        payload = (0).to_bytes(2, "little") + struct.pack("<f", 2.0)
+        status = b"\x00"
+        frame_no_crc = msg_key + b":" + msg_id + b":" + meta + payload + status
+        crc = binascii.crc32(frame_no_crc).to_bytes(4, "little")
+        bad_crc = crc[:-1] + bytes([crc[-1] ^ 0xFF])
+        frame = frame_no_crc + bad_crc
+
+        symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+        with pytest.raises(ValueError, match="CRC mismatch"):
+            decoder.parse_data(frame, symbol_table)
+
+    def test_parse_data_b1_rejects_bad_crc(self):
+        msg_key = b"\xb1"
+        msg_id = (1).to_bytes(4, "little")
+        payload = struct.pack("<f", 3.0)
+        status = b"\x00"
+        frame_no_crc = msg_key + b":" + msg_id + b":" + payload + status
+        crc = binascii.crc32(frame_no_crc).to_bytes(4, "little")
+        bad_crc = crc[:-1] + bytes([crc[-1] ^ 0xFF])
+        frame = frame_no_crc + bad_crc
+
+        symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
+        with pytest.raises(ValueError, match="CRC mismatch"):
+            decoder.parse_data(frame, symbol_table)
+
+
 class TestHubWriteUpdate:
     """Verify write(), update(), and related methods on BlaeckTCPy local signals."""
 
@@ -603,7 +751,7 @@ class TestHubWriteUpdate:
 
         colon_positions = [i for i, b in enumerate(content) if b == ord(":")]
         sig_start = colon_positions[4] + 1
-        sig_end = len(content) - 5  # exclude status(1) + crc(4)
+        sig_end = len(content) - 9  # exclude status(1) + status_payload(4) + crc(4)
         sig_data = content[sig_start:sig_end]
 
         signals = []
