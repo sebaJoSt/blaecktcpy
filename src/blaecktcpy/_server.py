@@ -1167,7 +1167,9 @@ class BlaeckTCPy:
                     continue
                 for sym in upstream.symbol_table:
                     key = (sym.msc, sym.slave_id)
-                    hub_sid = upstream.slave_id_map[key]
+                    hub_sid = upstream.slave_id_map.get(key)
+                    if hub_sid is None:
+                        continue
                     dtype_code = sym.datatype_code.to_bytes(1, "little")
                     payload += (
                         _MSC_SLAVE
@@ -1592,6 +1594,11 @@ class BlaeckTCPy:
                         new_symbols = decoder.parse_symbol_list(frame)
                         if new_symbols:
                             self._rebuild_upstream_schema(upstream, new_symbols)
+                            # Rebuild slave_id_map immediately from new symbols
+                            # (old device_infos are fine — only symbol keys matter
+                            # for write_symbols; full refresh follows when
+                            # GET_DEVICES response arrives)
+                            self._rebuild_slave_id_map(upstream)
                             # Request device info to update slave_id_map
                             identity = f",0,0,0,0,{self._device_name.decode()},hub"
                             upstream.transport.send_command(
