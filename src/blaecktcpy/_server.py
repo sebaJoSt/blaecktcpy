@@ -66,6 +66,8 @@ class _IntervalTimer:
 
     def elapsed(self) -> bool:
         """Return True if the interval has elapsed. Advances setpoint on True."""
+        if self._interval_ms == 0:
+            return True
         now = time.time_ns()
         if self._first_tick:
             self._base_ns = now
