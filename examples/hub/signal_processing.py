@@ -26,6 +26,7 @@ Setup:  python examples/hub/signal_processing.py
 Then:   Connect Loggbok to 127.0.0.1:23
 """
 
+import logging
 import math
 import time
 import threading
@@ -35,7 +36,7 @@ from blaecktcpy import BlaeckTCPy
 EXAMPLE_VERSION = "1.0"
 
 # --- Upstream server simulating a sensor board ---
-server = BlaeckTCPy("127.0.0.1", 10024, "Sensor Board", "Python Script", EXAMPLE_VERSION)
+server = BlaeckTCPy("127.0.0.1", 10024, "Sensor Board", "Python Script", EXAMPLE_VERSION, log_level=logging.WARNING)
 server.add_signal("temperature", "float")   # temperature in Fahrenheit (transformed by hub)
 server.add_signal("humidity", "float")     # relative humidity %
 server.start()

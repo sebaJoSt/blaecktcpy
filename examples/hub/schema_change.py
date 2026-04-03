@@ -33,6 +33,7 @@ The hub's schema hash changes automatically; Loggbok detects the
 mismatch and stops logging (by design — prevents data corruption).
 """
 
+import logging
 import math
 import time
 import threading
@@ -44,7 +45,7 @@ EXAMPLE_VERSION = "1.0"
 # ---------------------------------------------------------------------------
 # Upstream: a sensor that can dynamically add/remove signals
 # ---------------------------------------------------------------------------
-sensor = BlaeckTCPy("127.0.0.1", 10024, "Sensor", "Python Script", EXAMPLE_VERSION)
+sensor = BlaeckTCPy("127.0.0.1", 10024, "Sensor", "Python Script", EXAMPLE_VERSION, log_level=logging.WARNING)
 sensor.timestamp_mode = TimestampMode.UNIX
 
 temp = sensor.add_signal("Temp", "float")
@@ -96,7 +97,7 @@ time.sleep(0.2)
 # ---------------------------------------------------------------------------
 hub = BlaeckTCPy("127.0.0.1", 23, "Schema Change Hub", "Python Script", EXAMPLE_VERSION)
 hub.timestamp_mode = TimestampMode.UNIX
-hub.interval_ms = 500
+hub.local_interval_ms = 500
 
 hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=300)
 

@@ -59,7 +59,7 @@ hub.add_tcp(BOARD_IP, BOARD_PORT, "StressBoard", interval_ms=500)
 # Local signals for PSU readings
 psu_voltage = hub.add_signal("PSU_Voltage", "float")
 psu_current = hub.add_signal("PSU_Current", "float")
-hub.interval_ms = 500
+hub.local_interval_ms = 500
 
 
 # -- SCPI helper --

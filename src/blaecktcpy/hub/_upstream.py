@@ -9,8 +9,6 @@ import logging
 import socket
 import time
 
-logger = logging.getLogger("blaecktcpy")
-
 _START_MARKER = b"<BLAECK:"
 _END_MARKER = b"/BLAECK>"
 _MAX_BUFFER = 1_048_576  # 1 MB buffer limit
@@ -19,8 +17,9 @@ _MAX_BUFFER = 1_048_576  # 1 MB buffer limit
 class _UpstreamBase:
     """Base class with shared frame extraction and polling logic."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, logger: logging.Logger | None = None):
         self.name = name
+        self._logger = logger or logging.getLogger("blaecktcpy")
         self._buffer = b""
         self._connected = False
         self._last_seen = 0.0
@@ -57,7 +56,7 @@ class _UpstreamBase:
             self._buffer += chunk
 
         if len(self._buffer) > _MAX_BUFFER:
-            logger.warning(f"Upstream '{self.name}' buffer overflow, clearing")
+            self._logger.warning(f"Upstream '{self.name}' buffer overflow, clearing")
             self._buffer = b""
             return []
 
@@ -97,7 +96,7 @@ class _UpstreamBase:
         return self._last_seen
 
     def _handle_disconnect(self):
-        logger.warning(f"Upstream '{self.name}' disconnected")
+        self._logger.warning(f"Upstream '{self.name}' disconnected")
         self._cleanup()
 
     def _cleanup(self):
@@ -107,8 +106,8 @@ class _UpstreamBase:
 class UpstreamTCP(_UpstreamBase):
     """Non-blocking TCP client connection to an upstream BlaeckTCP(y) device."""
 
-    def __init__(self, name: str, ip: str, port: int):
-        super().__init__(name)
+    def __init__(self, name: str, ip: str, port: int, logger: logging.Logger | None = None):
+        super().__init__(name, logger)
         self.ip = ip
         self.port = port
         self._socket: socket.socket | None = None
@@ -122,11 +121,11 @@ class UpstreamTCP(_UpstreamBase):
             self._socket.setblocking(False)
             self._connected = True
             self._last_seen = time.time()
-            logger.info(f"Upstream '{self.name}' connected: {self.ip}:{self.port}")
+            self._logger.info(f"Upstream '{self.name}' connected: {self.ip}:{self.port}")
             return True
         except OSError as e:
             self.last_error = str(e)
-            logger.error(f"Upstream '{self.name}' connection failed: {e}")
+            self._logger.error(f"Upstream '{self.name}' connection failed: {e}")
             self._cleanup()
             return False
 
@@ -137,7 +136,7 @@ class UpstreamTCP(_UpstreamBase):
             self._socket.sendall(data)
             return True
         except OSError as e:
-            logger.debug(f"Upstream '{self.name}' send error: {e}")
+            self._logger.debug(f"Upstream '{self.name}' send error: {e}")
             self._handle_disconnect()
             return False
 
@@ -154,7 +153,7 @@ class UpstreamTCP(_UpstreamBase):
         except BlockingIOError:
             return b""
         except OSError as e:
-            logger.debug(f"Upstream '{self.name}' read error: {e}")
+            self._logger.debug(f"Upstream '{self.name}' read error: {e}")
             self._handle_disconnect()
             return b""
 
@@ -169,7 +168,7 @@ class UpstreamTCP(_UpstreamBase):
 
     def close(self):
         if self._connected:
-            logger.info(f"Upstream '{self.name}' closing")
+            self._logger.info(f"Upstream '{self.name}' closing")
         self._cleanup()
         self._buffer = b""
 
@@ -180,8 +179,8 @@ class UpstreamSerial(_UpstreamBase):
     Requires pyserial: ``pip install blaecktcpy[serial]``
     """
 
-    def __init__(self, name: str, port: str, baudrate: int = 115200, dtr: bool = True):
-        super().__init__(name)
+    def __init__(self, name: str, port: str, baudrate: int = 115200, dtr: bool = True, logger: logging.Logger | None = None):
+        super().__init__(name, logger)
         try:
             import serial as _serial  # noqa: F401
         except ImportError:
@@ -214,13 +213,13 @@ class UpstreamSerial(_UpstreamBase):
             self._serial.reset_input_buffer()
             self._connected = True
             self._last_seen = time.time()
-            logger.info(
+            self._logger.info(
                 f"Upstream '{self.name}' connected: {self.port} @ {self.baudrate}"
             )
             return True
         except Exception as e:
             self.last_error = str(e)
-            logger.error(f"Upstream '{self.name}' serial connection failed: {e}")
+            self._logger.error(f"Upstream '{self.name}' serial connection failed: {e}")
             self._cleanup()
             return False
 
@@ -230,10 +229,10 @@ class UpstreamSerial(_UpstreamBase):
         try:
             self._serial.write(data)
             self._serial.flush()
-            logger.debug(f"Upstream '{self.name}' sent: {data}")
+            self._logger.debug(f"Upstream '{self.name}' sent: {data}")
             return True
         except Exception as e:
-            logger.debug(f"Upstream '{self.name}' send error: {e}")
+            self._logger.debug(f"Upstream '{self.name}' send error: {e}")
             self._handle_disconnect()
             return False
 
@@ -245,14 +244,14 @@ class UpstreamSerial(_UpstreamBase):
             if waiting > 0:
                 data = self._serial.read(waiting)
                 if data:
-                    logger.debug(
+                    self._logger.debug(
                         f"Upstream '{self.name}' raw recv: {len(data)} bytes: {data[:80]}"
                     )
                     self._last_seen = time.time()
                     return data
             return b""
         except Exception as e:
-            logger.debug(f"Upstream '{self.name}' read error: {e}")
+            self._logger.debug(f"Upstream '{self.name}' read error: {e}")
             self._handle_disconnect()
             return b""
 
@@ -267,6 +266,6 @@ class UpstreamSerial(_UpstreamBase):
 
     def close(self):
         if self._connected:
-            logger.info(f"Upstream '{self.name}' closing")
+            self._logger.info(f"Upstream '{self.name}' closing")
         self._cleanup()
         self._buffer = b""

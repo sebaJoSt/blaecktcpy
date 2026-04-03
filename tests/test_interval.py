@@ -1,4 +1,4 @@
-"""Tests for BlaeckTCPy.interval_ms property locked/unlocked behaviour."""
+"""Tests for BlaeckTCPy.local_interval_ms property locked/unlocked behaviour."""
 
 import socket
 import time
@@ -10,7 +10,7 @@ from conftest import _make_server_on_free_port, _start_retry
 
 
 class TestServerIntervalProperty:
-    """Verify BlaeckTCPy.interval_ms property locked/unlocked behaviour."""
+    """Verify BlaeckTCPy.local_interval_ms property locked/unlocked behaviour."""
 
     def _make_server_with_client(self):
         """Return (device, client_socket) with one connected client."""
@@ -28,9 +28,9 @@ class TestServerIntervalProperty:
         server, client = self._make_server_with_client()
         try:
             assert not server._timed_activated
-            server.interval_ms = 500
+            server.local_interval_ms = 500
             assert server._timed_activated
-            assert server.interval_ms == 500
+            assert server.local_interval_ms == 500
         finally:
             client.close()
             server.close()
@@ -39,8 +39,8 @@ class TestServerIntervalProperty:
         """interval_ms = 0 should lock at 0ms (fastest possible)."""
         server, client = self._make_server_with_client()
         try:
-            server.interval_ms = 0
-            assert server.interval_ms == 0
+            server.local_interval_ms = 0
+            assert server.local_interval_ms == 0
             assert server._timed_activated
         finally:
             client.close()
@@ -50,10 +50,10 @@ class TestServerIntervalProperty:
         """interval_ms = IntervalMode.CLIENT should release the lock."""
         server, client = self._make_server_with_client()
         try:
-            server.interval_ms = 500
-            assert server.interval_ms == 500
-            server.interval_ms = IntervalMode.CLIENT
-            assert server.interval_ms == IntervalMode.CLIENT
+            server.local_interval_ms = 500
+            assert server.local_interval_ms == 500
+            server.local_interval_ms = IntervalMode.CLIENT
+            assert server.local_interval_ms == IntervalMode.CLIENT
         finally:
             client.close()
             server.close()
@@ -62,11 +62,11 @@ class TestServerIntervalProperty:
         """interval_ms = IntervalMode.OFF should deactivate timed data."""
         server, client = self._make_server_with_client()
         try:
-            server.interval_ms = 500
+            server.local_interval_ms = 500
             assert server._timed_activated
-            server.interval_ms = IntervalMode.OFF
+            server.local_interval_ms = IntervalMode.OFF
             assert not server._timed_activated
-            assert server.interval_ms == IntervalMode.OFF
+            assert server.local_interval_ms == IntervalMode.OFF
         finally:
             client.close()
             server.close()
@@ -75,14 +75,14 @@ class TestServerIntervalProperty:
         """When locked, client ACTIVATE command should be ignored."""
         server, client = self._make_server_with_client()
         try:
-            server.interval_ms = 500
+            server.local_interval_ms = 500
             # Send ACTIVATE command from client with different interval
             activate_cmd = "<BLAECK.ACTIVATE,208,7,0,0>"
             client.sendall(activate_cmd.encode())
             time.sleep(0.05)
             server.read()
             # Lock still active, interval unchanged
-            assert server.interval_ms == 500
+            assert server.local_interval_ms == 500
             assert server._timed_activated
         finally:
             client.close()
@@ -92,7 +92,7 @@ class TestServerIntervalProperty:
         """When locked, client DEACTIVATE should be ignored."""
         server, client = self._make_server_with_client()
         try:
-            server.interval_ms = 500
+            server.local_interval_ms = 500
             assert server._timed_activated
             # Send DEACTIVATE from client
             deactivate_cmd = "<BLAECK.DEACTIVATE>"
@@ -124,7 +124,7 @@ class TestServerIntervalProperty:
         """After client disconnect+reconnect, locked interval keeps working."""
         server, client = self._make_server_with_client()
         try:
-            server.interval_ms = 50
+            server.local_interval_ms = 50
             assert server._timed_activated
 
             # Disconnect

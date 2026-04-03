@@ -36,7 +36,6 @@ _MSC_SLAVE = b"\x02"
 _MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B — client-controlled (BLAECK.ACTIVATE)
 _MSG_ID_HUB = 185273100  # 0x0B0B0B0C — hub-overridden interval
 
-logger = logging.getLogger("blaecktcpy")
 
 
 class _IntervalTimer:
@@ -100,6 +99,7 @@ class _UpstreamDevice:
     _upstream_signals: SignalList | None = field(default=None, repr=False)
     expected_schema_hash: int = 0
     schema_stale: bool = False
+    _initial_restart_seen: bool = False
 
     @property
     def signals(self) -> SignalList:
@@ -135,6 +135,7 @@ class BlaeckTCPy:
         device_name: str,
         device_hw_version: str,
         device_fw_version: str,
+        log_level: int | None = logging.INFO,
     ):
         """
         Initialize BlaeckTCPy.
@@ -145,9 +146,20 @@ class BlaeckTCPy:
             device_name: Name of the device
             device_hw_version: Hardware version string
             device_fw_version: Firmware version string
+            log_level: Logging level for this instance (e.g.
+                ``logging.DEBUG``, ``logging.WARNING``).  Defaults to
+                ``logging.INFO``.  Pass ``None`` to silence all output.
         """
         self._ip = ip
         self._port = port
+
+        # Per-instance logger
+        logger_name = device_name.replace(" ", "_") if device_name else f"{ip}_{port}"
+        self._logger = logging.getLogger(f"blaecktcpy.{logger_name}")
+        if log_level is None:
+            self._logger.disabled = True
+        else:
+            self._logger.setLevel(log_level)
 
         # Device info
         self.signals = SignalList()
@@ -214,8 +226,8 @@ class BlaeckTCPy:
             if not self._stdin_is_interactive():
                 raise OSError(f"Port {self._port} is already in use")
             alt_port = self._find_free_port(self._ip, self._port)
-            print(
-                f"\033[33m[WARNING]\033[0m Something is already running on port {self._port}."
+            self._logger.warning(
+                f"Something is already running on port {self._port}."
             )
             answer = input(
                 f"Would you like to run blaecktcpy on port {alt_port} instead? \033[1m(Y/n)\033[0m "
@@ -282,25 +294,27 @@ class BlaeckTCPy:
         self._update_schema_hash()
         self._install_signal_handler()
 
-        # Activate upstreams with a fixed interval
+        # Activate/deactivate upstreams based on interval setting
         for upstream in self._upstreams:
             if upstream.interval_ms >= 0:
                 b = upstream.interval_ms.to_bytes(4, "little")
                 params = ",".join(str(x) for x in b)
                 upstream.transport.send_command(f"BLAECK.ACTIVATE,{params}")
+            elif upstream.interval_ms == IntervalMode.OFF:
+                upstream.transport.send_command("BLAECK.DEACTIVATE")
 
         total = len(self.signals)
         n_up = len(self._upstreams)
         if n_up:
-            print(
-                f"\033[32mblaecktcpy v{LIB_VERSION}\033[0m — Listening on "
-                f"\033[36m{self._ip}:{self._port}\033[0m "
+            self._logger.info(
+                f"blaecktcpy v{LIB_VERSION} — Listening on "
+                f"{self._ip}:{self._port} "
                 f"({total} signals, {n_up} upstream{'s' if n_up != 1 else ''})"
             )
         else:
-            print(
-                f"\033[32mblaecktcpy v{LIB_VERSION}\033[0m — Listening on "
-                f"\033[36m{self._ip}:{self._port}\033[0m"
+            self._logger.info(
+                f"blaecktcpy v{LIB_VERSION} — Listening on "
+                f"{self._ip}:{self._port}"
             )
 
         atexit.register(self.close)
@@ -540,7 +554,7 @@ class BlaeckTCPy:
             raise TypeError("forward_custom_commands must be True, False, or a list of command names")
 
         label = name or f"{ip}:{port}"
-        transport = UpstreamTCP(label, ip, port)
+        transport = UpstreamTCP(label, ip, port, logger=self._logger)
         return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream, forward_custom_commands)
 
     def add_serial(
@@ -587,7 +601,7 @@ class BlaeckTCPy:
         from .hub._upstream import UpstreamSerial
 
         label = name or port
-        transport = UpstreamSerial(label, port, baudrate, dtr)
+        transport = UpstreamSerial(label, port, baudrate, dtr, logger=self._logger)
         return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream, forward_custom_commands)
 
     def _discover_upstream(
@@ -663,7 +677,7 @@ class BlaeckTCPy:
             try:
                 upstream.device_infos = decoder.parse_all_devices(frame)
             except Exception as e:
-                logger.debug(f"Upstream '{label}' device info parse error: {e}")
+                self._logger.debug(f"Upstream '{label}' device info parse error: {e}")
 
         # Use upstream device name if no name was provided
         if not name and upstream.device_infos:
@@ -671,7 +685,14 @@ class BlaeckTCPy:
 
         self._upstreams.append(upstream)
 
-        logger.info(f"Upstream '{upstream.device_name}': {len(symbols)} signals discovered")
+        interval_info = ""
+        if upstream.interval_ms >= 0:
+            interval_info = f" (ACTIVATE sent: {upstream.interval_ms} ms — client control locked)"
+        elif upstream.interval_ms == IntervalMode.OFF:
+            interval_info = " (DEACTIVATE sent — client control locked)"
+        elif upstream.interval_ms == IntervalMode.CLIENT:
+            interval_info = " (interval: client controlled)"
+        self._logger.info(f"Upstream '{upstream.device_name}': {len(symbols)} signals discovered{interval_info}")
         return upstream
 
     # ========================================================================
@@ -702,7 +723,7 @@ class BlaeckTCPy:
                 self.data_clients.add(client_id)
                 self._client_meta[client_id] = {"name": "", "type": "unknown"}
                 self._client_addrs[client_id] = f"{addr[0]}:{addr[1]}"
-                logger.info(f"Client #{client_id} connected: {addr[0]}:{addr[1]}")
+                self._logger.info(f"Client #{client_id} connected: {addr[0]}:{addr[1]}")
                 if self._connect_callback is not None:
                     self._connect_callback(client_id)
             except (BlockingIOError, OSError):
@@ -744,9 +765,9 @@ class BlaeckTCPy:
         rtype = meta.get("type", "unknown")
         cid = client_id if client_id >= 0 else '?'
         if name:
-            logger.info(f"Client #{cid} disconnected ({rtype}: {name})")
+            self._logger.info(f"Client #{cid} disconnected ({rtype}: {name})")
         else:
-            logger.info(f"Client #{cid} disconnected")
+            self._logger.info(f"Client #{cid} disconnected")
         if client_id >= 0 and self._disconnect_callback is not None:
             self._disconnect_callback(client_id)
         if not self._clients and self._fixed_interval_ms == IntervalMode.CLIENT:
@@ -772,10 +793,10 @@ class BlaeckTCPy:
                         conn, ""
                     ) + chunk.decode("utf-8", errors="ignore")
 
-                    logger.debug(f"_tcp_read raw chunk: {chunk!r}")
+                    self._logger.debug(f"_tcp_read raw chunk: {chunk!r}")
 
                     if len(self._recv_buffers[conn]) > _MAX_RECV_BUFFER:
-                        logger.warning("Receive buffer overflow — dropping client")
+                        self._logger.warning("Receive buffer overflow — dropping client")
                         self._disconnect_client(conn)
                         continue
 
@@ -805,7 +826,7 @@ class BlaeckTCPy:
                 except BlockingIOError:
                     pass
                 except OSError as e:
-                    logger.debug(f"Read error: {e}")
+                    self._logger.debug(f"Read error: {e}")
                     self._disconnect_client(conn)
 
         return messages
@@ -821,7 +842,7 @@ class BlaeckTCPy:
                 conn.sendall(data)
                 sent = True
             except OSError as e:
-                logger.debug(f"Send error: {e}")
+                self._logger.debug(f"Send error: {e}")
                 self._disconnect_client(conn)
 
         return sent
@@ -839,7 +860,7 @@ class BlaeckTCPy:
                 conn.sendall(data)
                 sent = True
             except OSError as e:
-                logger.debug(f"Send error: {e}")
+                self._logger.debug(f"Send error: {e}")
                 self._disconnect_client(conn)
 
         return sent
@@ -1007,7 +1028,7 @@ class BlaeckTCPy:
         if name:
             self._client_meta[client_id] = {"name": name, "type": rtype}
             addr = self._client_addrs.get(client_id, "")
-            logger.info(
+            self._logger.info(
                 f"Client #{client_id} identified ({rtype}: {name})"
             )
 
@@ -1059,6 +1080,15 @@ class BlaeckTCPy:
                                 and upstream.transport.connected
                             ):
                                 upstream.transport.send_command(full_cmd)
+                                if command == "BLAECK.ACTIVATE":
+                                    interval = self._decode_four_byte(params)
+                                    self._logger.info(
+                                        f"Client ACTIVATE forwarded to upstream '{upstream.device_name}' ({interval} ms)"
+                                    )
+                                else:
+                                    self._logger.info(
+                                        f"Client DEACTIVATE forwarded to upstream '{upstream.device_name}' (OFF)"
+                                    )
 
                     # Local signals: respond to client when in client-controlled mode
                     if (
@@ -1066,11 +1096,9 @@ class BlaeckTCPy:
                         and self._fixed_interval_ms == IntervalMode.CLIENT
                     ):
                         if command == "BLAECK.ACTIVATE":
-                            self._timed_activated = True
-                            self._timer.activate(self._decode_four_byte(params))
+                            self._set_timed_data(True, self._decode_four_byte(params))
                         elif command == "BLAECK.DEACTIVATE":
-                            self._timed_activated = False
-                            self._timer.deactivate()
+                            self._set_timed_data(False)
 
                     # WRITE_DATA: one-shot send of local signals
                     if self._local_signal_count > 0 and command == "BLAECK.WRITE_DATA":
@@ -1270,7 +1298,7 @@ class BlaeckTCPy:
                 try:
                     conn.sendall(data)
                 except OSError as e:
-                    logger.debug(f"Send error: {e}")
+                    self._logger.debug(f"Send error: {e}")
                     self._disconnect_client(conn)
         else:
             # Simple server-style
@@ -1303,7 +1331,7 @@ class BlaeckTCPy:
                 try:
                     conn.sendall(data)
                 except OSError as e:
-                    logger.debug(f"Send error: {e}")
+                    self._logger.debug(f"Send error: {e}")
                     self._disconnect_client(conn)
 
         self._server_restarted = False
@@ -1427,14 +1455,19 @@ class BlaeckTCPy:
         self._timed_activated = activated
         if activated:
             self._timer.activate(interval_ms)
-            logger.info(f"Timed data activated (interval: {interval_ms} ms)")
+            self._logger.info(f"Client ACTIVATE received — local signal interval ({interval_ms} ms)")
         else:
             self._timer.deactivate()
-            logger.info("Timed data deactivated")
+            self._logger.info("Client DEACTIVATE received — local signal interval (OFF)")
 
     @property
-    def interval_ms(self) -> int:
-        """Timed data interval mode.
+    def local_interval_ms(self) -> int:
+        """Local signal timed data interval mode.
+
+        Controls the output rate of local signals only.  In hub mode,
+        upstream signals are relayed independently at their own rate
+        (configured via the ``interval_ms`` parameter of
+        :meth:`add_tcp` / :meth:`add_serial`).
 
         * **value >= 0** — Lock at the given rate (ms).  Client
           ``ACTIVATE`` / ``DEACTIVATE`` commands are ignored.
@@ -1447,23 +1480,23 @@ class BlaeckTCPy:
         """
         return self._fixed_interval_ms
 
-    @interval_ms.setter
-    def interval_ms(self, value: int) -> None:
+    @local_interval_ms.setter
+    def local_interval_ms(self, value: int) -> None:
         if value >= 0:
             self._fixed_interval_ms = value
             self._timed_activated = True
             self._timer.activate(value)
-            logger.info(
-                f"Fixed interval set ({value} ms) — client control locked"
+            self._logger.info(
+                f"Local signal interval set ({value} ms) — client control locked"
             )
         elif value == IntervalMode.OFF:
             self._fixed_interval_ms = IntervalMode.OFF
             self._timed_activated = False
             self._timer.deactivate()
-            logger.info("Timed data locked off — client control locked")
+            self._logger.info("Local signal interval set (OFF) — client control locked")
         elif value == IntervalMode.CLIENT:
             self._fixed_interval_ms = IntervalMode.CLIENT
-            logger.info("Client control restored")
+            self._logger.info("Local signal interval set (CLIENT) — client controlled")
 
     @property
     def start_time(self) -> float:
@@ -1607,12 +1640,12 @@ class BlaeckTCPy:
                                 f"BLAECK.GET_DEVICES{identity}"
                             )
                             upstream.schema_stale = False
-                            logger.info(
+                            self._logger.info(
                                 f"Schema refreshed for '{upstream.device_name}': "
                                 f"{len(new_symbols)} signals"
                             )
                     except Exception as e:
-                        logger.warning(
+                        self._logger.warning(
                             f"Schema re-discovery failed for "
                             f"'{upstream.device_name}': {e}"
                         )
@@ -1625,10 +1658,31 @@ class BlaeckTCPy:
                         if infos:
                             upstream.device_infos = infos
                             self._rebuild_slave_id_map(upstream)
+                            # Detect upstream restart from device info
+                            for info in infos:
+                                if info.server_restarted == "1":
+                                    if upstream._initial_restart_seen:
+                                        self._restart_flag_pending = True
+                                        self._logger.debug(
+                                            f"Upstream '{upstream.device_name}' restart detected via device info"
+                                        )
+                                    else:
+                                        upstream._initial_restart_seen = True
                     except Exception as e:
-                        logger.debug(
+                        self._logger.debug(
                             f"Device info parse for '{upstream.device_name}': {e}"
                         )
+                    continue
+
+                # Forward upstream restart notification (0xC0) to downstream
+                if msg_key == 0xC0:
+                    if upstream._initial_restart_seen:
+                        self._restart_flag_pending = True
+                        self._logger.info(
+                            f"Upstream '{upstream.device_name}' restarted (0xC0)"
+                        )
+                    else:
+                        upstream._initial_restart_seen = True
                     continue
 
                 if msg_key in decoder.MSGKEY_DATA_ALL:
@@ -1645,7 +1699,7 @@ class BlaeckTCPy:
                             and decoded.schema_hash != upstream.expected_schema_hash
                         ):
                             upstream.schema_stale = True
-                            logger.warning(
+                            self._logger.warning(
                                 f"Schema change detected on '{upstream.device_name}' "
                                 f"(hash {decoded.schema_hash:#06x} != "
                                 f"{upstream.expected_schema_hash:#06x}), "
@@ -1660,7 +1714,7 @@ class BlaeckTCPy:
                             and len(decoded.signals) != len(upstream.symbol_table)
                         ):
                             upstream.schema_stale = True
-                            logger.warning(
+                            self._logger.warning(
                                 f"Signal count mismatch on '{upstream.device_name}' "
                                 f"({len(decoded.signals)} != "
                                 f"{len(upstream.symbol_table)}), "
@@ -1669,9 +1723,21 @@ class BlaeckTCPy:
                             upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
                             continue
 
-                        # Relay upstream restart flag downstream
+                        # Relay upstream restart flag downstream.
+                        # Suppress the first restart flag from each upstream —
+                        # it's expected after initial connection and the hub's
+                        # own restart flag already covers the fresh start.
                         if decoded.restart_flag:
-                            self._restart_flag_pending = True
+                            if not upstream._initial_restart_seen:
+                                upstream._initial_restart_seen = True
+                                self._logger.debug(
+                                    f"Upstream '{upstream.device_name}' initial restart flag suppressed"
+                                )
+                            else:
+                                self._restart_flag_pending = True
+                                self._logger.debug(
+                                    f"Upstream '{upstream.device_name}' restart flag relayed"
+                                )
 
                         if not upstream.relay_downstream:
                             # Non-relayed: update internal signals only
@@ -1682,7 +1748,7 @@ class BlaeckTCPy:
                             try:
                                 self._fire_data_received(upstream)
                             except Exception as e:
-                                logger.warning(
+                                self._logger.warning(
                                     f"on_data_received callback error for "
                                     f"'{upstream.device_name}': {e}"
                                 )
@@ -1698,7 +1764,7 @@ class BlaeckTCPy:
                         try:
                             self._fire_data_received(upstream)
                         except Exception as e:
-                            logger.warning(
+                            self._logger.warning(
                                 f"on_data_received callback error for "
                                 f"'{upstream.device_name}': {e}"
                             )
@@ -1747,7 +1813,7 @@ class BlaeckTCPy:
                         )
                         self._tcp_send_data(relay_data)
                     except Exception as e:
-                        logger.warning(
+                        self._logger.warning(
                             f"Upstream '{upstream.device_name}' frame dropped: {e}"
                         )
 
@@ -2045,7 +2111,7 @@ class BlaeckTCPy:
         if hasattr(self, "_server_socket"):
             self._server_socket.close()
 
-        logger.info("Server closed")
+        self._logger.info("Server closed")
 
     def __enter__(self):
         """Enable 'with' statement usage."""

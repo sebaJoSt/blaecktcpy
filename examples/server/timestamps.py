@@ -40,10 +40,10 @@ bltcp.timestamp_mode = TimestampMode.UNIX
 
 # ── Interval & start ─────────────────────────────────────────────────
 
-bltcp.interval_ms = 500
+bltcp.local_interval_ms = 500
 bltcp.start()
 print(f"Timestamp mode : {bltcp.timestamp_mode.name}")
-print(f"Interval       : {bltcp.interval_ms} ms")
+print(f"Interval       : {bltcp.local_interval_ms} ms")
 print("##LOGGBOK:READY##")
 
 while True:

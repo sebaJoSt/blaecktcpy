@@ -60,14 +60,14 @@ while True:
 ### Server-controlled interval
 
 By default the client controls the timed data rate via `ACTIVATE`/`DEACTIVATE`.
-Use the `interval_ms` property to lock the device to a fixed rate:
+Use the `local_interval_ms` property to lock the device to a fixed rate:
 
 ```python
 from blaecktcpy import IntervalMode
 
-bltcp.interval_ms = 500                  # send every 500 ms, ignore client ACTIVATE/DEACTIVATE
-bltcp.interval_ms = IntervalMode.CLIENT  # return to client control (default)
-bltcp.interval_ms = IntervalMode.OFF     # disable timed data entirely
+bltcp.local_interval_ms = 500                  # send every 500 ms, ignore client ACTIVATE/DEACTIVATE
+bltcp.local_interval_ms = IntervalMode.CLIENT  # return to client control (default)
+bltcp.local_interval_ms = IntervalMode.OFF     # disable timed data entirely
 ```
 
 ## Built-in commands
@@ -290,12 +290,12 @@ hub.add_tcp("192.168.1.20", 24, name="Sensor", interval_ms=IntervalMode.OFF)
 
 ### Local signal interval
 
-Use the `interval_ms` property to stream local signals at a fixed rate:
+Use the `local_interval_ms` property to stream local signals at a fixed rate:
 
 ```python
-hub.interval_ms = 500                  # local signals every 500 ms
-hub.interval_ms = IntervalMode.CLIENT  # follow client ACTIVATE/DEACTIVATE (default)
-hub.interval_ms = IntervalMode.OFF     # disable timed local data
+hub.local_interval_ms = 500                  # local signals every 500 ms
+hub.local_interval_ms = IntervalMode.CLIENT  # follow client ACTIVATE/DEACTIVATE (default)
+hub.local_interval_ms = IntervalMode.OFF     # disable timed local data
 ```
 
 ### Relaying upstream signals

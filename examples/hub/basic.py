@@ -23,6 +23,7 @@ Setup:  python examples/hub/basic.py
 Then:   Connect Loggbok to 127.0.0.1:23
 """
 
+import logging
 import math
 import time
 import threading
@@ -32,12 +33,12 @@ from blaecktcpy import BlaeckTCPy
 EXAMPLE_VERSION = "1.0"
 
 # --- Upstream servers ---
-sine = BlaeckTCPy("127.0.0.1", 10024, "Sine Generator", "Python Script", EXAMPLE_VERSION)
+sine = BlaeckTCPy("127.0.0.1", 10024, "Sine Generator", "Python Script", EXAMPLE_VERSION, log_level=logging.WARNING)
 for i in range(1, 4):
     sine.add_signal(f"Sine_{i}", "float")
 sine.start()
 
-cosine = BlaeckTCPy("127.0.0.1", 10025, "Cosine Generator", "Python Script", EXAMPLE_VERSION)
+cosine = BlaeckTCPy("127.0.0.1", 10025, "Cosine Generator", "Python Script", EXAMPLE_VERSION, log_level=logging.WARNING)
 for i in range(1, 3):
     cosine.add_signal(f"Cosine_{i}", "float")
 cosine.start()
@@ -60,7 +61,7 @@ hub = BlaeckTCPy("127.0.0.1", 23, "Basic Hub", "Python Script", EXAMPLE_VERSION)
 
 # Local signal
 sawtooth = hub.add_signal("Sawtooth_1", "float")
-hub.interval_ms = 500
+hub.local_interval_ms = 500
 
 # Connect to upstream servers
 hub.add_tcp("127.0.0.1", 10024, "Sine", interval_ms=300)
