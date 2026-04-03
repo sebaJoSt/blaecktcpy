@@ -1722,22 +1722,6 @@ class BlaeckTCPy:
                             + relay_msg_id.to_bytes(4, "little")
                             + b":"
                         )
-                        # Remap status_payload slave IDs for downstream
-                        relay_payload = decoded.status_payload
-                        if decoded.status_byte == 1 and upstream.slave_id_map:
-                            raw = decoded.status_payload
-                            slave_key = (0x02, raw[1])
-                            master_key = (0x01, 0x00)
-                            hub_slave = upstream.slave_id_map.get(
-                                slave_key, raw[1]
-                            )
-                            hub_master = upstream.slave_id_map.get(
-                                master_key, 0
-                            )
-                            relay_payload = bytes(
-                                [raw[0], hub_slave, raw[2], hub_master]
-                            )
-
                         relay_data = (
                             b"<BLAECK:"
                             + self._build_data_msg(
@@ -1748,7 +1732,7 @@ class BlaeckTCPy:
                                 timestamp=ts,
                                 timestamp_mode=ts_mode,
                                 status=decoded.status_byte,
-                                status_payload=relay_payload,
+                                status_payload=decoded.status_payload,
                             )
                             + b"/BLAECK>\r\n"
                         )
@@ -1908,9 +1892,7 @@ class BlaeckTCPy:
             timestamp_mode: Timestamp mode byte. If None, uses the
                 instance's :attr:`timestamp_mode`.
             status: Status byte (STATUS_OK or STATUS_UPSTREAM_LOST)
-            status_payload: 4-byte status payload. For status=1 (I2C skip)
-                the hub remaps bytes: [skipCount, hubSlaveID, reason,
-                hubMasterSlaveID].
+            status_payload: 4-byte status payload forwarded from upstream.
         """
         if end == -1:
             end = len(self.signals) - 1
