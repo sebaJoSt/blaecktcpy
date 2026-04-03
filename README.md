@@ -226,7 +226,7 @@ When a client sends `<BLAECK.GET_DEVICES>`, it may include two optional paramete
 | Parameter | Description |
 |-----------|-------------|
 | `RequesterDeviceName` | Device name of the requesting client (e.g. `Basic Hub`) |
-| `RequesterType` | Role of the requesting client: `hub`, `app`, or `unknown` |
+| `RequesterType` | Role of the requesting client (free-form string, e.g. `hub`, `app`, `logger`). Defaults to `unknown` if omitted. |
 
 The server binds the identity to the client connection and uses it in log messages:
 
