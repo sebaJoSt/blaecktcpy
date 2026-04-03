@@ -739,15 +739,12 @@ class BlaeckTCPy:
         if self._commanding_client is conn:
             self._commanding_client = None
         name = meta.get("name", "")
+        rtype = meta.get("type", "unknown")
+        cid = client_id if client_id >= 0 else '?'
         if name:
-            logger.info(
-                f"Client #{client_id if client_id >= 0 else '?'} disconnected: "
-                f"{name}"
-            )
+            logger.info(f"Client #{cid} disconnected ({rtype}: {name})")
         else:
-            logger.info(
-                f"Client #{client_id if client_id >= 0 else '?'} disconnected"
-            )
+            logger.info(f"Client #{cid} disconnected")
         if client_id >= 0 and self._disconnect_callback is not None:
             self._disconnect_callback(client_id)
         if not self._clients and self._fixed_interval_ms == IntervalMode.CLIENT:
@@ -1009,7 +1006,7 @@ class BlaeckTCPy:
             self._client_meta[client_id] = {"name": name, "type": rtype}
             addr = self._client_addrs.get(client_id, "")
             logger.info(
-                f"Client #{client_id} identified: {addr} ({rtype}: {name})"
+                f"Client #{client_id} identified ({rtype}: {name})"
             )
 
     # ========================================================================
