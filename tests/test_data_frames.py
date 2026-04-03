@@ -1155,3 +1155,145 @@ class TestHubWriteUpdate:
         finally:
             client.close()
             device.close()
+
+
+class TestStatusPayloadRemapping:
+    """Hub remaps I2C slave IDs in StatusPayload byte 1 and byte 3."""
+
+    @staticmethod
+    def _build_d2_frame(
+        signal_values: list[float],
+        status: int = 0,
+        status_payload: bytes = b"\x00\x00\x00\x00",
+    ) -> bytes:
+        """Build a valid D2 upstream frame."""
+        msg_key = b"\xd2"
+        msg_id = (1).to_bytes(4, "little")
+        meta = b"\x00:\x00\x00:\x00:"  # restart=0, schema=0, ts_mode=0
+
+        payload = b""
+        for idx, val in enumerate(signal_values):
+            payload += idx.to_bytes(2, "little") + struct.pack("<f", val)
+
+        frame_no_crc = (
+            msg_key + b":" + msg_id + b":" + meta
+            + payload + bytes([status]) + status_payload
+        )
+        crc = binascii.crc32(frame_no_crc).to_bytes(4, "little")
+        return frame_no_crc + crc
+
+    def test_hub_remaps_status_payload_slave_ids(self):
+        """StatusByte=1 payload bytes 1 and 3 are remapped to hub slave IDs."""
+        import socket
+
+        device = _make_server_on_free_port()
+        _start_retry(device)
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(2.0)
+            client.connect(("127.0.0.1", device._port))
+            device._accept_new_clients()
+
+            # Upstream has master (msc=1, sid=0) + slave (msc=2, sid=8)
+            transport = FakeTransport("Master")
+            upstream = _UpstreamDevice(
+                device_name="Master", transport=transport, relay_downstream=True
+            )
+            upstream.symbol_table = [
+                decoder.DecodedSymbol("master_sig", 8, "float", 4, msc=1, slave_id=0),
+                decoder.DecodedSymbol("slave_sig", 8, "float", 4, msc=2, slave_id=8),
+            ]
+            upstream.slave_id_map = {(1, 0): 3, (2, 8): 5}
+            upstream.interval_ms = 0
+            upstream.connected = True
+
+            for name in ["master_sig", "slave_sig"]:
+                device.signals.append(Signal(name, "float", 0.0))
+            upstream._signals.append(device.signals[0])
+            upstream._signals.append(device.signals[1])
+            upstream.index_map = {0: 0, 1: 1}
+            upstream._upstream_signals = SignalList(upstream._signals)
+            device._upstreams.append(upstream)
+
+            # Send D2 with status=1, payload=[1, 8, 0x01, 0]
+            # raw slave ID 8 → hub slave ID 5, master → hub slave ID 3
+            frame = self._build_d2_frame(
+                signal_values=[1.0, 2.0],
+                status=1,
+                status_payload=bytes([1, 8, 0x01, 0]),
+            )
+            transport._pending = b"<BLAECK:" + frame + b"/BLAECK>\r\n"
+            transport.read_available = lambda: transport._pending
+
+            device._poll_upstreams()
+            transport._pending = b""
+
+            downstream = client.recv(4096)
+            client.close()
+
+            start = downstream.find(b"<BLAECK:") + 8
+            end = downstream.find(b"/BLAECK>")
+            content = downstream[start:end]
+
+            # Status payload is at content[-8:-4] (before CRC)
+            relay_payload = content[-8:-4]
+            assert relay_payload[0] == 1, "skipCount unchanged"
+            assert relay_payload[1] == 5, f"slave ID should be remapped to 5, got {relay_payload[1]}"
+            assert relay_payload[2] == 0x01, "reason unchanged"
+            assert relay_payload[3] == 3, f"master ID should be 3, got {relay_payload[3]}"
+        finally:
+            device.close()
+
+    def test_status_ok_payload_not_remapped(self):
+        """StatusByte=0 payload is forwarded unchanged (no remapping)."""
+        import socket
+
+        device = _make_server_on_free_port()
+        _start_retry(device)
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(2.0)
+            client.connect(("127.0.0.1", device._port))
+            device._accept_new_clients()
+
+            transport = FakeTransport("Master")
+            upstream = _UpstreamDevice(
+                device_name="Master", transport=transport, relay_downstream=True
+            )
+            upstream.symbol_table = [
+                decoder.DecodedSymbol("sig", 8, "float", 4, msc=1, slave_id=0),
+            ]
+            upstream.slave_id_map = {(1, 0): 3}
+            upstream.interval_ms = 0
+            upstream.connected = True
+
+            device.signals.append(Signal("sig", "float", 0.0))
+            upstream._signals.append(device.signals[0])
+            upstream.index_map = {0: 0}
+            upstream._upstream_signals = SignalList(upstream._signals)
+            device._upstreams.append(upstream)
+
+            frame = self._build_d2_frame(
+                signal_values=[1.0],
+                status=0,
+                status_payload=b"\x00\x00\x00\x00",
+            )
+            transport._pending = b"<BLAECK:" + frame + b"/BLAECK>\r\n"
+            transport.read_available = lambda: transport._pending
+
+            device._poll_upstreams()
+            transport._pending = b""
+
+            downstream = client.recv(4096)
+            client.close()
+
+            start = downstream.find(b"<BLAECK:") + 8
+            end = downstream.find(b"/BLAECK>")
+            content = downstream[start:end]
+
+            relay_payload = content[-8:-4]
+            assert relay_payload == b"\x00\x00\x00\x00", (
+                f"StatusByte=0 payload should be unchanged, got {relay_payload!r}"
+            )
+        finally:
+            device.close()
