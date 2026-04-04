@@ -1694,10 +1694,11 @@ class BlaeckTCPy:
                                     )
                             else:
                                 restart_detected = False
-                            self._finalize_reconnect(upstream, restart_detected)
-                            self._logger.info(
-                                f"Upstream '{upstream.device_name}' reconnected"
-                            )
+                            if upstream.transport.connected:
+                                self._finalize_reconnect(upstream, restart_detected)
+                            else:
+                                upstream.connected = False
+                                upstream._reconnecting = False
                         else:
                             self._logger.debug(
                                 f"Upstream '{upstream.device_name}' reconnect attempt failed"
@@ -1765,6 +1766,7 @@ class BlaeckTCPy:
                                 if info.server_restarted == "1":
                                     if upstream._initial_restart_seen:
                                         self._send_upstream_restarted_frame(upstream)
+                                        self._resend_activate(upstream)
                                         self._logger.info(
                                             f"Upstream '{upstream.device_name}' restart detected via device info"
                                         )
@@ -1786,6 +1788,7 @@ class BlaeckTCPy:
                 if msg_key == 0xC0:
                     if upstream._initial_restart_seen:
                         self._send_upstream_restarted_frame(upstream)
+                        self._resend_activate(upstream)
                         self._logger.info(
                             f"Upstream '{upstream.device_name}' restarted (0xC0)"
                         )
@@ -1849,6 +1852,7 @@ class BlaeckTCPy:
                                 )
                             else:
                                 self._send_upstream_restarted_frame(upstream)
+                                self._resend_activate(upstream)
                                 self._logger.info(
                                     f"Upstream '{upstream.device_name}' restart flag relayed via 0xC0"
                                 )
@@ -2099,12 +2103,8 @@ class BlaeckTCPy:
         self._tcp_send_data(data)
         upstream._restart_c0_sent = True
 
-    def _finalize_reconnect(self, upstream: _UpstreamDevice, restart_detected: bool = False) -> None:
-        """Complete reconnect: notify downstream, re-send ACTIVATE, then report restart."""
-        upstream._reconnecting = False
-        # 512: notify downstream that upstream is back
-        self._send_upstream_reconnected_frame(upstream)
-        # Re-send ACTIVATE for hub-managed upstreams
+    def _resend_activate(self, upstream: _UpstreamDevice) -> None:
+        """Re-send ACTIVATE/DEACTIVATE after upstream restart or reconnect."""
         if upstream.interval_ms >= 0:
             b = upstream.interval_ms.to_bytes(4, "little")
             params = ",".join(str(x) for x in b)
@@ -2114,17 +2114,23 @@ class BlaeckTCPy:
             )
         elif upstream.interval_ms == IntervalMode.OFF:
             upstream.transport.send_command("BLAECK.DEACTIVATE")
-        # Replay last client ACTIVATE/DEACTIVATE for client-managed upstreams
         elif upstream.interval_ms == IntervalMode.CLIENT and self._last_client_activate_cmd:
             upstream.transport.send_command(self._last_client_activate_cmd)
             self._logger.info(
                 f"Upstream '{upstream.device_name}' client interval restored"
             )
+
+    def _finalize_reconnect(self, upstream: _UpstreamDevice, restart_detected: bool = False) -> None:
+        """Complete reconnect: notify downstream, re-send ACTIVATE, then report restart."""
+        upstream._reconnecting = False
+        # 512: notify downstream that upstream is back
+        self._send_upstream_reconnected_frame(upstream)
+        self._resend_activate(upstream)
         # 510: report restart after reconnect is confirmed
         if restart_detected:
             self._send_upstream_restarted_frame(upstream)
         self._logger.info(
-            f"Upstream '{upstream.device_name}' reconnect complete"
+            f"Upstream '{upstream.device_name}' reconnected"
         )
 
     def _rebuild_upstream_indices(self) -> None:
