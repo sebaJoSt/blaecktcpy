@@ -1336,6 +1336,12 @@ class BlaeckTCPy:
 
         self._server_restarted = False
 
+        # Clear upstream server_restarted after sending to prevent stale values
+        for upstream in self._upstreams:
+            for info in upstream.device_infos:
+                if info.server_restarted == "1":
+                    info.server_restarted = "0"
+
     def write_all_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None) -> None:
         """Send all local signal data to data-enabled clients.
 
@@ -1390,15 +1396,19 @@ class BlaeckTCPy:
         """Check if the timed interval has elapsed."""
         return self._timer.elapsed()
 
-    def timed_write_all_data(self, msg_id: int = 185273099, *, unix_timestamp: float | int | None = None) -> bool:
+    def timed_write_all_data(self, msg_id: int | None = None, *, unix_timestamp: float | int | None = None) -> bool:
         """Send all local data if timer interval has elapsed.
 
         Args:
-            msg_id: Message ID for the protocol frame.
+            msg_id: Message ID for the protocol frame.  *None* (default)
+                selects ``_MSG_ID_HUB`` when the local interval is
+                locked, ``_MSG_ID_ACTIVATE`` otherwise.
             unix_timestamp: Override timestamp for UNIX mode.
                 float = seconds since epoch (converted internally),
                 int = microseconds since epoch (used directly).
         """
+        if msg_id is None:
+            msg_id = _MSG_ID_HUB if self._fixed_interval_ms >= 0 else _MSG_ID_ACTIVATE
         if not self.connected:
             return False
         if not self._timed_activated:
@@ -1419,15 +1429,19 @@ class BlaeckTCPy:
         )
         return self._tcp_send_data(data)
 
-    def timed_write_updated_data(self, msg_id: int = 185273099, *, unix_timestamp: float | int | None = None) -> bool:
+    def timed_write_updated_data(self, msg_id: int | None = None, *, unix_timestamp: float | int | None = None) -> bool:
         """Send only updated local signals if timer interval has elapsed.
 
         Args:
-            msg_id: Message ID for the protocol frame.
+            msg_id: Message ID for the protocol frame.  *None* (default)
+                selects ``_MSG_ID_HUB`` when the local interval is
+                locked, ``_MSG_ID_ACTIVATE`` otherwise.
             unix_timestamp: Override timestamp for UNIX mode.
                 float = seconds since epoch (converted internally),
                 int = microseconds since epoch (used directly).
         """
+        if msg_id is None:
+            msg_id = _MSG_ID_HUB if self._fixed_interval_ms >= 0 else _MSG_ID_ACTIVATE
         if not self.connected:
             return False
         if not self._timed_activated:
@@ -1569,7 +1583,7 @@ class BlaeckTCPy:
     # ========================================================================
     # Main Loop
     # ========================================================================
-    def tick(self, msg_id: int = 185273099) -> bool:
+    def tick(self, msg_id: int | None = None) -> bool:
         """Main loop tick — read commands, poll upstreams, send all data on timer.
 
         Call this repeatedly in your main loop.
@@ -1579,7 +1593,7 @@ class BlaeckTCPy:
         self._poll_upstreams()
         return self.timed_write_all_data(msg_id)
 
-    def tick_updated(self, msg_id: int = 185273099) -> bool:
+    def tick_updated(self, msg_id: int | None = None) -> bool:
         """Main loop tick — read commands, poll upstreams, send only updated data.
 
         Like tick() but only transmits local signals marked as updated.
