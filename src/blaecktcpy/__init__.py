@@ -34,6 +34,6 @@ if not logger.handlers:
 
 # -- Eager re-exports -------------------------------------------------------
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode  # noqa: E402
-from ._server import BlaeckTCPy, LIB_VERSION, LIB_NAME, STATUS_OK, STATUS_UPSTREAM_LOST  # noqa: E402
+from ._server import BlaeckTCPy, LIB_VERSION, LIB_NAME, STATUS_OK, STATUS_UPSTREAM_LOST, STATUS_UPSTREAM_RECONNECTED  # noqa: E402
 
-__all__ = ["Signal", "SignalList", "IntervalMode", "TimestampMode", "BlaeckTCPy", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST"]
+__all__ = ["Signal", "SignalList", "IntervalMode", "TimestampMode", "BlaeckTCPy", "LIB_VERSION", "LIB_NAME", "STATUS_OK", "STATUS_UPSTREAM_LOST", "STATUS_UPSTREAM_RECONNECTED"]

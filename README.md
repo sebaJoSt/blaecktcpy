@@ -205,10 +205,11 @@ Messages use the following binary format:
 | `SchemaHash` | uint16 | CRC16-CCITT of (name bytes + datatype code byte) for each signal in order (2 bytes, little-endian). Used to detect signal layout changes at runtime. |
 | `TimestampMode` | byte | `0` = NONE (default), `1` = MICROS (µs since start; upstream/Arduino devices only), `2` = UNIX (µs since epoch) |
 | `Timestamp` | uint64 | 8-byte microsecond timestamp (only present if TimestampMode > 0) |
-| `StatusByte` | byte | `0x00` = normal, `0x01` = relayed upstream I2C CRC error, `0x02` = upstream connection lost |
+| `StatusByte` | byte | `0x00` = normal, `0x01` = relayed upstream I2C CRC error, `0x02` = upstream connection lost, `0x03` = upstream reconnected |
 | `StatusPayload` (StatusByte=0) | bytes | 4 bytes, reserved (`0x00000000` in blaecktcpy-generated frames) |
 | `StatusPayload` (StatusByte=1) | bytes | 4-byte upstream-provided status payload relayed by hub (for example I2C error metadata from BlaeckSerial) |
-| `StatusPayload` (StatusByte=2) | bytes | 4 bytes, reserved (`0x00000000` in blaecktcpy-generated frames) |
+| `StatusPayload` (StatusByte=2) | bytes | `[AutoReconnect, 0, 0, 0]` — byte 0: `0x01` if hub auto-reconnect is enabled, else `0x00` |
+| `StatusPayload` (StatusByte=3) | bytes | 4 bytes, reserved (`0x00000000` in blaecktcpy-generated frames) |
 | `CRC32` | uint32 | CRC32 of all content bytes before CRC, including `StatusByte` and `StatusPayload` |
 
 ### Schema hash

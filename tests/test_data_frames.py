@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from blaecktcpy import Signal, SignalList, STATUS_OK, STATUS_UPSTREAM_LOST, BlaeckTCPy
+from blaecktcpy import Signal, SignalList, STATUS_OK, STATUS_UPSTREAM_LOST, STATUS_UPSTREAM_RECONNECTED, BlaeckTCPy
 from blaecktcpy._server import _UpstreamDevice
 from blaecktcpy.hub import _decoder as decoder
 from conftest import _make_server_on_free_port, _start_retry, FakeTransport
@@ -51,6 +51,7 @@ class TestStatusByte:
     def test_status_byte_values(self):
         assert STATUS_OK == 0x00
         assert STATUS_UPSTREAM_LOST == 0x02
+        assert STATUS_UPSTREAM_RECONNECTED == 0x03
 
 
 class TestRestartFlagRelay:
@@ -460,33 +461,35 @@ class TestRelayFrameScoping:
             time.sleep(0.05)
             downstream = client.recv(8192)
 
-            # Should get two separate frames
+            # Should get three frames: 0xC0 restart notification + two data frames
             frames = downstream.split(b"/BLAECK>\r\n")
             frames = [f for f in frames if f]  # remove empty
-            assert len(frames) == 2, f"Expected 2 frames, got {len(frames)}"
+            assert len(frames) == 3, f"Expected 3 frames, got {len(frames)}"
 
-            # Frame 1 (upstream A): should have signal IDs 0,1 only
-            frame1_raw = frames[0] + b"/BLAECK>\r\n"
-            ids1 = self._parse_downstream_signal_ids(frame1_raw)
-            assert ids1 == [0, 1], f"Frame 1 should contain A's signals [0,1], got {ids1}"
+            # Frame 1: 0xC0 restart notification for upstream A
+            assert b"\xC0:" in frames[0], "Frame 1 should be a 0xC0 restart frame"
 
-            # Frame 2 (upstream B): should have signal IDs 2,3 only
+            # Frame 2 (upstream A): should have signal IDs 0,1 only
             frame2_raw = frames[1] + b"/BLAECK>\r\n"
-            ids2 = self._parse_downstream_signal_ids(frame2_raw)
-            assert ids2 == [2, 3], f"Frame 2 should contain B's signals [2,3], got {ids2}"
+            ids1 = self._parse_downstream_signal_ids(frame2_raw)
+            assert ids1 == [0, 1], f"Frame 2 should contain A's signals [0,1], got {ids1}"
 
-            # Check restart flag: frame 1 should have it, frame 2 should not
+            # Frame 3 (upstream B): should have signal IDs 2,3 only
+            frame3_raw = frames[2] + b"/BLAECK>\r\n"
+            ids2 = self._parse_downstream_signal_ids(frame3_raw)
+            assert ids2 == [2, 3], f"Frame 3 should contain B's signals [2,3], got {ids2}"
+
+            # Data frames should NOT carry restart_flag — it's handled via 0xC0
             # D2 layout: msg_key(1) : msg_id(4) : restart(1) : ts_mode(1) : ...
-            # restart_flag byte is at colons[1]+1
-            content1_start = frame1_raw.find(b"<BLAECK:") + len(b"<BLAECK:")
-            content1 = frame1_raw[content1_start:frame1_raw.find(b"/BLAECK>")]
-            colons1 = [i for i, b in enumerate(content1) if b == ord(":")]
-            assert content1[colons1[1] + 1] == 1, "Frame 1 should have restart_flag=1"
-
             content2_start = frame2_raw.find(b"<BLAECK:") + len(b"<BLAECK:")
             content2 = frame2_raw[content2_start:frame2_raw.find(b"/BLAECK>")]
             colons2 = [i for i, b in enumerate(content2) if b == ord(":")]
-            assert content2[colons2[1] + 1] == 0, "Frame 2 should have restart_flag=0"
+            assert content2[colons2[1] + 1] == 0, "Data frame A should have restart_flag=0"
+
+            content3_start = frame3_raw.find(b"<BLAECK:") + len(b"<BLAECK:")
+            content3 = frame3_raw[content3_start:frame3_raw.find(b"/BLAECK>")]
+            colons3 = [i for i, b in enumerate(content3) if b == ord(":")]
+            assert content3[colons3[1] + 1] == 0, "Data frame B should have restart_flag=0"
         finally:
             client.close()
             device.close()
@@ -609,6 +612,44 @@ class TestRelayFrameScoping:
             assert downstream2 == b"", (
                 f"Expected no data on second poll, got {len(downstream2)} bytes"
             )
+        finally:
+            client.close()
+            device.close()
+
+    def test_upstream_reconnected_frame_scoped_to_upstream(self):
+        """STATUS_UPSTREAM_RECONNECTED frame only contains the reconnected upstream's signals."""
+        device, client, up_a, up_b, tr_a, tr_b = (
+            self._make_device_with_two_upstreams()
+        )
+        try:
+            # Signals are NOT marked updated (simulates post-disconnect state)
+            # _send_upstream_reconnected_frame should mark them itself
+
+            # Also mark B's signals as updated (from normal data)
+            device.signals[2].value = 99.0
+            device.signals[2].updated = True
+            device.signals[3].value = 99.0
+            device.signals[3].updated = True
+
+            # Send upstream-reconnected for A only
+            device._send_upstream_reconnected_frame(up_a)
+
+            time.sleep(0.05)
+            downstream = client.recv(8192)
+
+            # Should be one frame with only A's signals
+            ids = self._parse_downstream_signal_ids(downstream)
+            assert ids == [0, 1], f"Reconnected frame should contain only A's signals [0,1], got {ids}"
+
+            # Status byte should be STATUS_UPSTREAM_RECONNECTED (0x03)
+            start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
+            end = downstream.find(b"/BLAECK>")
+            content = downstream[start:end]
+            assert content[-9] == 0x03, f"Status should be 0x03, got 0x{content[-9]:02x}"
+
+            # B's signals should still be updated (not consumed)
+            assert device.signals[2].updated is True
+            assert device.signals[3].updated is True
         finally:
             client.close()
             device.close()

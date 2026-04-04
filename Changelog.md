@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **TCP auto-reconnect**: Hub upstreams can now automatically reconnect after
+  connection loss. Pass `auto_reconnect=True` to `add_tcp()`. On disconnect the
+  hub zeros the upstream's signals, sends a `STATUS_UPSTREAM_LOST` (0x02) data
+  frame (with auto-reconnect flag in StatusPayload), and retries every 5 seconds.
+  On successful reconnect a `STATUS_UPSTREAM_RECONNECTED` (0x03) data frame is
+  sent. If the upstream device restarted, a 0xC0 restart notification follows.
+- **0xC0 upstream restart frame**: When a hub-connected upstream restarts
+  (detected via `server_restarted` in device info or the data frame restart flag),
+  the hub builds and sends a 0xC0 frame downstream with the upstream's device
+  name, hardware/firmware versions, and library info.
+- **`STATUS_UPSTREAM_RECONNECTED` (0x03)**: New data frame status byte indicating
+  an upstream device has reconnected after being lost.
 - **D2 schema hash**: Every D2 data frame now includes a 2-byte CRC16-CCITT
   hash of the signal schema (names + datatype codes). Hubs compare this hash
   per-upstream on each frame; on mismatch the upstream is paused, a fresh

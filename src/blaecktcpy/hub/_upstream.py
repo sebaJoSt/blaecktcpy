@@ -101,6 +101,7 @@ class _UpstreamBase:
 
     def _cleanup(self):
         self._connected = False
+        self._buffer = b""
 
 
 class UpstreamTCP(_UpstreamBase):
