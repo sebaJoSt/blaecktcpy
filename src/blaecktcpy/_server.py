@@ -26,8 +26,8 @@ _MAX_RECV_BUFFER = 65536  # 64 KB per-client receive buffer limit
 
 # Status byte values for data frames
 STATUS_OK = 0x00
-STATUS_UPSTREAM_LOST = 0x02
-STATUS_UPSTREAM_RECONNECTED = 0x03
+STATUS_UPSTREAM_LOST = 0x80
+STATUS_UPSTREAM_RECONNECTED = 0x81
 
 # MasterSlaveConfig byte values
 _MSC_MASTER = b"\x01"
@@ -2159,7 +2159,7 @@ class BlaeckTCPy:
             timestamp: Timestamp in microseconds (uint64), or None
             timestamp_mode: Timestamp mode byte. If None, uses the
                 instance's :attr:`timestamp_mode`.
-            status: Status byte (STATUS_OK or STATUS_UPSTREAM_LOST)
+            status: Status byte (STATUS_OK, STATUS_UPSTREAM_LOST, etc.)
             status_payload: 4-byte status payload forwarded from upstream.
         """
         if end == -1:

@@ -76,13 +76,13 @@ Here's a full list of the commands handled by this library:
 
 | Command | Description |
 |---|---|
-| `<BLAECK.GET_DEVICES,B1,B2,B3,B4[,Name,Type]>` | Writes the device information including the device name, hardware version, firmware version and library version. Optional `Name` and `Type` params identify the requesting client (see [Client identity](#client-identity)). |
-| `<BLAECK.WRITE_SYMBOLS,B1,B2,B3,B4>` | Writes symbol list including datatype information |
-| `<BLAECK.WRITE_DATA,B1,B2,B3,B4>` | Writes the binary data |
-| `<BLAECK.ACTIVATE,B1,B2,B3,B4>` | Activates writing the binary data in user-set interval \[ms\] |
+| `<BLAECK.GET_DEVICES,b1,b2,b3,b4[,Name,Type]>` | Writes the device information including the device name, hardware version, firmware version and library version. Optional `Name` and `Type` params identify the requesting client (see [Client identity](#client-identity)). |
+| `<BLAECK.WRITE_SYMBOLS,b1,b2,b3,b4>` | Writes symbol list including datatype information |
+| `<BLAECK.WRITE_DATA,b1,b2,b3,b4>` | Writes the binary data |
+| `<BLAECK.ACTIVATE,b1,b2,b3,b4>` | Activates writing the binary data in user-set interval \[ms\] |
 | `<BLAECK.DEACTIVATE>` | Deactivates writing in intervals |
 
-`B1,B2,B3,B4` are four bytes encoding a little-endian integer. For `ACTIVATE` this is the interval in milliseconds. For the other commands it is the message ID echoed back in the response.
+`b1,b2,b3,b4` are four bytes encoding a little-endian integer. For `ACTIVATE` this is the interval in milliseconds. For the other commands it is the message ID echoed back in the response.
 
 ## Custom commands
 
@@ -176,8 +176,8 @@ Messages use the following binary format:
 |------|--------|----------|-------------|
 | Symbol List | `B0` | **`<MSC><SlaveID><SymbolName><DTYPE>`** | **Up to n symbols.** Response to `<BLAECK.WRITE_SYMBOLS>` |
 | Data | `D2` | `<RestartFlag>:<SchemaHash>:<TimestampMode><Timestamp>:`**`<SymbolID><DATA>`**`<StatusByte><StatusPayload><CRC32>` | **Up to n data items.** Response to `<BLAECK.WRITE_DATA>` |
-| Data | `B1` | **`<SymbolID><DATA>`**`<StatusByte><StatusPayload>` | Deprecated; decoded from upstream only |
 | Devices | `B6` | `<MSC><SlaveID><DeviceName><DeviceHWVersion><DeviceFWVersion><LibraryVersion><LibraryName><Client#><ClientDataEnabled><ServerRestarted><DeviceType><Parent>` | **Up to n devices.** Response to `<BLAECK.GET_DEVICES>` |
+| Restart | `C0` | `<MSC><SlaveID><DeviceName><DeviceHWVersion><DeviceFWVersion><LibraryVersion><LibraryName>` | Upstream device restart notification (hub mode only) |
 
 ### Elements
 
@@ -205,12 +205,17 @@ Messages use the following binary format:
 | `SchemaHash` | uint16 | CRC16-CCITT of (name bytes + datatype code byte) for each signal in order (2 bytes, little-endian). Used to detect signal layout changes at runtime. |
 | `TimestampMode` | byte | `0` = NONE (default), `1` = MICROS (µs since start; upstream/Arduino devices only), `2` = UNIX (µs since epoch) |
 | `Timestamp` | uint64 | 8-byte microsecond timestamp (only present if TimestampMode > 0) |
-| `StatusByte` | byte | `0x00` = normal, `0x01` = relayed upstream I2C CRC error, `0x02` = upstream connection lost, `0x03` = upstream reconnected |
-| `StatusPayload` (StatusByte=0) | bytes | 4 bytes, reserved (`0x00000000` in blaecktcpy-generated frames) |
-| `StatusPayload` (StatusByte=1) | bytes | 4-byte upstream-provided status payload relayed by hub (for example I2C error metadata from BlaeckSerial) |
-| `StatusPayload` (StatusByte=2) | bytes | `[AutoReconnect, 0, 0, 0]` — byte 0: `0x01` if hub auto-reconnect is enabled, else `0x00` |
-| `StatusPayload` (StatusByte=3) | bytes | 4 bytes, reserved (`0x00000000` in blaecktcpy-generated frames) |
+| `StatusByte` | byte | `0x00`–`0x7F` = device-level (e.g. `0x00` normal, `0x01` I2C CRC error); `0x80`–`0xFF` = hub-level (e.g. `0x80` upstream lost, `0x81` upstream reconnected) |
+| `StatusPayload` (StatusByte `0x00`–`0x7F`) | bytes | 4-byte upstream-provided status payload relayed by hub |
+| `StatusPayload` (StatusByte=0x80) | bytes | `[AutoReconnect, 0, 0, 0]` — byte 0: `0x01` if hub auto-reconnect is enabled, else `0x00` |
+| `StatusPayload` (StatusByte=0x81) | bytes | 4 bytes, unused (`0x00000000`) |
 | `CRC32` | uint32 | CRC32 of all content bytes before CRC, including `StatusByte` and `StatusPayload` |
+
+> **StatusByte range convention:** `0x00`–`0x7F` is reserved for device-level
+> status codes defined by device libraries and servers (BlaeckTCP, BlaeckSerial,
+> blaecktcpy in server mode). `0x80`–`0xFF` is reserved for hub-level status
+> codes defined by blaecktcpy in hub mode. This split allows both sides to add
+> new codes without collisions.
 
 ### Schema hash
 
@@ -221,7 +226,7 @@ Every D2 data frame includes a `SchemaHash` — a CRC16-CCITT hash computed from
 When a client sends `<BLAECK.GET_DEVICES>`, it may include two optional parameters after the 4-byte message ID:
 
 ```
-<BLAECK.GET_DEVICES,B1,B2,B3,B4,RequesterDeviceName,RequesterType>
+<BLAECK.GET_DEVICES,b1,b2,b3,b4,RequesterDeviceName,RequesterType>
 ```
 
 | Parameter | Description |
@@ -353,37 +358,25 @@ TCP upstreams can automatically reconnect after connection loss:
 hub.add_tcp("192.168.1.10", 24, name="Arduino", interval_ms=300, auto_reconnect=True)
 ```
 
-When an upstream disconnects, the hub:
+When an upstream disconnects (detected either before or during frame reading), the hub:
 
-1. Zeros the upstream's signals
-2. Sends a `STATUS_UPSTREAM_LOST` (`0x02`) data frame to downstream clients
-3. Retries the TCP connection every 5 seconds (unlimited attempts)
+1. Sends a `STATUS_UPSTREAM_LOST` (`0x80`) D2 data frame to downstream clients (signal values are zeroed in this frame)
+2. Retries the TCP connection every 5 seconds (unlimited attempts)
+
+The `StatusPayload` of the `0x80` frame includes an auto-reconnect flag
+(byte 0 = `0x01`) so downstream clients can indicate that reconnection
+is being attempted before a successful reconnect.
 
 On successful reconnect, the hub re-discovers device info and:
 
-1. Sends a `STATUS_UPSTREAM_RECONNECTED` (`0x03`) data frame
+1. Sends a `STATUS_UPSTREAM_RECONNECTED` (`0x81`) D2 data frame
 2. Re-sends `BLAECK.ACTIVATE` to hub-managed upstreams
-3. If the upstream device restarted, sends a `0xC0` restart notification frame containing the device name and version info
+3. If the upstream device restarted, sends a `C0` restart notification frame containing the device name and version info. Downstream clients can use this to re-send `BLAECK.ACTIVATE` for client-controlled upstreams.
 
-The `StatusPayload` of the `0x02` frame includes an auto-reconnect flag
-(byte 0 = `0x01`) so downstream clients can indicate whether reconnection
-is being attempted.
-
-#### 0xC0 restart notification frame
-
-When an upstream device restart is detected (via the `server_restarted` field in device info or the data frame restart flag), the hub generates a `0xC0` frame:
-
-| Field | Size | Description |
-|-------|------|-------------|
-| `MsgKey` | 1 byte | `0xC0` |
-| `MsgID` | 4 bytes | `0x01000000` |
-| `MasterSlaveConfig` | 1 byte | `0x02` (slave) |
-| `SlaveID` | 1 byte | `0x01` |
-| `DeviceName` | null-terminated | Upstream device name |
-| `HWVersion` | null-terminated | Hardware version |
-| `FWVersion` | null-terminated | Firmware version |
-| `LibVersion` | null-terminated | Library version |
-| `LibName` | null-terminated | Library name |
+> **Note:** The hub always sends D2 frames downstream, even when the upstream
+> device uses the older B1/D1 format. StatusByte values `0x80`+ are only
+> generated by hubs — upstream devices in the `0x00`–`0x7F` range are relayed
+> as-is.
 
 ## Examples
 

@@ -50,8 +50,8 @@ class TestStatusByte:
 
     def test_status_byte_values(self):
         assert STATUS_OK == 0x00
-        assert STATUS_UPSTREAM_LOST == 0x02
-        assert STATUS_UPSTREAM_RECONNECTED == 0x03
+        assert STATUS_UPSTREAM_LOST == 0x80
+        assert STATUS_UPSTREAM_RECONNECTED == 0x81
 
 
 class TestRestartFlagRelay:
@@ -178,11 +178,11 @@ class TestStatusByteRelay:
         assert decoded.status_byte == 0x01
 
     def test_decoder_reads_status_byte_upstream_lost(self):
-        """D1 parser captures status_byte = 2 (upstream lost)."""
-        frame = self._build_d1_frame(status=0x02, signal_values=[1.0])
+        """D1 parser captures status_byte = 0x80 (upstream lost)."""
+        frame = self._build_d1_frame(status=0x80, signal_values=[1.0])
         symbol_table = [decoder.DecodedSymbol("sig", 8, "float", 4)]
         decoded = decoder.parse_data(frame, symbol_table)
-        assert decoded.status_byte == 0x02
+        assert decoded.status_byte == 0x80
 
     def test_status_byte_relay_end_to_end(self):
         """Status byte flows: upstream D1 → device _poll_upstreams → downstream frame."""
@@ -564,11 +564,11 @@ class TestRelayFrameScoping:
             ids = self._parse_downstream_signal_ids(downstream)
             assert ids == [0, 1], f"Lost frame should contain only A's signals [0,1], got {ids}"
 
-            # Status byte should be STATUS_UPSTREAM_LOST (0x02)
+            # Status byte should be STATUS_UPSTREAM_LOST (0x80)
             start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
             end = downstream.find(b"/BLAECK>")
             content = downstream[start:end]
-            assert content[-9] == 0x02, f"Status should be 0x02, got 0x{content[-9]:02x}"
+            assert content[-9] == 0x80, f"Status should be 0x80, got 0x{content[-9]:02x}"
 
             # B's signals should still be updated (not consumed)
             assert device.signals[2].updated is True
@@ -594,7 +594,7 @@ class TestRelayFrameScoping:
 
             assert b"/BLAECK>" in downstream1, "Expected a lost frame on first poll"
             content = downstream1[downstream1.find(b"<BLAECK:") + 8:downstream1.find(b"/BLAECK>")]
-            assert content[-9] == 0x02, "First poll should send STATUS_UPSTREAM_LOST"
+            assert content[-9] == 0x80, "First poll should send STATUS_UPSTREAM_LOST"
 
             # connected should now be False
             assert up_a.connected is False
@@ -641,11 +641,11 @@ class TestRelayFrameScoping:
             ids = self._parse_downstream_signal_ids(downstream)
             assert ids == [0, 1], f"Reconnected frame should contain only A's signals [0,1], got {ids}"
 
-            # Status byte should be STATUS_UPSTREAM_RECONNECTED (0x03)
+            # Status byte should be STATUS_UPSTREAM_RECONNECTED (0x81)
             start = downstream.find(b"<BLAECK:") + len(b"<BLAECK:")
             end = downstream.find(b"/BLAECK>")
             content = downstream[start:end]
-            assert content[-9] == 0x03, f"Status should be 0x03, got 0x{content[-9]:02x}"
+            assert content[-9] == 0x81, f"Status should be 0x81, got 0x{content[-9]:02x}"
 
             # B's signals should still be updated (not consumed)
             assert device.signals[2].updated is True
