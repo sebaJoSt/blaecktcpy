@@ -345,6 +345,46 @@ def handle_motor(speed):
     print(f"Motor = {speed}")
 ```
 
+### Auto-reconnect
+
+TCP upstreams can automatically reconnect after connection loss:
+
+```python
+hub.add_tcp("192.168.1.10", 24, name="Arduino", interval_ms=300, auto_reconnect=True)
+```
+
+When an upstream disconnects, the hub:
+
+1. Zeros the upstream's signals
+2. Sends a `STATUS_UPSTREAM_LOST` (`0x02`) data frame to downstream clients
+3. Retries the TCP connection every 5 seconds (unlimited attempts)
+
+On successful reconnect, the hub re-discovers device info and:
+
+1. Sends a `STATUS_UPSTREAM_RECONNECTED` (`0x03`) data frame
+2. Re-sends `BLAECK.ACTIVATE` to hub-managed upstreams
+3. If the upstream device restarted, sends a `0xC0` restart notification frame containing the device name and version info
+
+The `StatusPayload` of the `0x02` frame includes an auto-reconnect flag
+(byte 0 = `0x01`) so downstream clients can indicate whether reconnection
+is being attempted.
+
+#### 0xC0 restart notification frame
+
+When an upstream device restart is detected (via the `server_restarted` field in device info or the data frame restart flag), the hub generates a `0xC0` frame:
+
+| Field | Size | Description |
+|-------|------|-------------|
+| `MsgKey` | 1 byte | `0xC0` |
+| `MsgID` | 4 bytes | `0x01000000` |
+| `MasterSlaveConfig` | 1 byte | `0x02` (slave) |
+| `SlaveID` | 1 byte | `0x01` |
+| `DeviceName` | null-terminated | Upstream device name |
+| `HWVersion` | null-terminated | Hardware version |
+| `FWVersion` | null-terminated | Firmware version |
+| `LibVersion` | null-terminated | Library version |
+| `LibName` | null-terminated | Library name |
+
 ## Examples
 
 See the [examples](examples/) folder:
