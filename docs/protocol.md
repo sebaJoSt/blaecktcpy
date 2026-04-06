@@ -74,3 +74,26 @@ Messages use the following binary format:
 ## Schema hash
 
 Every D2 data frame includes a `SchemaHash` — a CRC16-CCITT hash computed from the signal names and datatype codes. Clients such as Loggbok use this to detect when the signal layout changes during a session, allowing them to stop logging and notify the user.
+
+## Client identity
+
+When a client sends `<BLAECK.GET_DEVICES>`, it may include two optional parameters after the 4-byte message ID:
+
+```
+<BLAECK.GET_DEVICES,b1,b2,b3,b4,RequesterDeviceName,RequesterType>
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `RequesterDeviceName` | Device name of the requesting client (e.g. `Basic Hub`) |
+| `RequesterType` | Role of the requesting client (free-form string, e.g. `hub`, `app`, `logger`). Defaults to `unknown` if omitted. |
+
+The server binds the identity to the client connection and uses it in log messages:
+
+```
+Client #0 connected: 192.168.1.50:51478
+Client #0 identified (hub: Basic Hub)
+Client #0 disconnected (hub: Basic Hub)
+```
+
+Both parameters are optional — older clients that omit them still work. In hub mode, blaecktcpy automatically sends its device name and `hub` type when connecting to upstreams.

@@ -1,6 +1,6 @@
 # blaecktcpy
 
-A Python TCP server for real-time streaming of named, typed signals in binary format. Use it to turn any Python script into a signal source.
+A Python TCP server for real-time streaming of named, typed signals in binary format. Use it to turn any Python script into a signal source that [Loggbok](https://loggbok.org) or any compatible TCP client can connect to, visualize, and log.
 
 ## Getting Started
 
@@ -27,7 +27,7 @@ bltcp = BlaeckTCPy(
 ### Add signals
 
 ```python
-bltcp.add_signal('Sine_1', 'float', 0.0)
+bltcp.add_signal('Sine_1', 'float', 0.0)       # name, datatype, initial value
 bltcp.add_signal(Signal('Temperature', 'double', 0.0))
 ```
 
@@ -40,13 +40,15 @@ bltcp.signals["Temperature"].value = 22.5
 
 ### Start the device
 
-Call `start()` after setup (adding signals, configuring interval, adding upstreams) and before using `tick()`, `read()`, or `write()`:
+Call `start()` after setup (adding signals, configuring interval) and before using `tick()`, `read()`, or `write()`:
 
 ```python
 bltcp.start()
 ```
 
 ### Update your variables and don't forget to `tick()`!
+
+`tick()` checks for incoming client commands and sends timed data frames when due:
 
 ```python
 import math, time
@@ -59,8 +61,8 @@ while True:
 
 ### Server-controlled interval
 
-By default the client controls the timed data rate via `ACTIVATE`/`DEACTIVATE`.
-Use the `local_interval_ms` property to lock the device to a fixed rate:
+By default, connected clients (e.g. Loggbok) control the data rate by sending `ACTIVATE`/`DEACTIVATE` commands.
+Use the `local_interval_ms` property to lock the device to a fixed rate instead:
 
 ```python
 from blaecktcpy import IntervalMode
@@ -72,17 +74,15 @@ bltcp.local_interval_ms = IntervalMode.OFF     # disable timed data entirely
 
 ## Built-in commands
 
-Here's a full list of the commands handled by this library:
+These commands are handled automatically by the library. Connected clients (e.g. Loggbok) send them — you typically don't need to construct them yourself:
 
 | Command | Description |
 |---|---|
-| `<BLAECK.GET_DEVICES,b1,b2,b3,b4[,Name,Type]>` | Writes the device information including the device name, hardware version, firmware version and library version. Optional `Name` and `Type` params identify the requesting client (see [Client identity](#client-identity)). |
-| `<BLAECK.WRITE_SYMBOLS,b1,b2,b3,b4>` | Writes symbol list including datatype information |
-| `<BLAECK.WRITE_DATA,b1,b2,b3,b4>` | Writes the binary data |
-| `<BLAECK.ACTIVATE,b1,b2,b3,b4>` | Activates writing the binary data in user-set interval \[ms\] |
-| `<BLAECK.DEACTIVATE>` | Deactivates writing in intervals |
-
-`b1,b2,b3,b4` are four bytes encoding a little-endian integer. For `ACTIVATE` this is the interval in milliseconds. For the other commands it is the message ID echoed back in the response.
+| `<BLAECK.GET_DEVICES>` | Returns device name, hardware/firmware version, library version |
+| `<BLAECK.WRITE_SYMBOLS>` | Returns the signal list with datatype information |
+| `<BLAECK.WRITE_DATA>` | Returns the current signal values as binary data |
+| `<BLAECK.ACTIVATE,b1,b2,b3,b4>` | Starts streaming data at the given interval (4 bytes, little-endian milliseconds) |
+| `<BLAECK.DEACTIVATE>` | Stops streaming data |
 
 ## Custom commands
 
@@ -117,12 +117,11 @@ from blaecktcpy import TimestampMode
 bltcp.timestamp_mode = TimestampMode.UNIX
 ```
 
-Every write method auto-fills the timestamp based on the mode. Use `unix_timestamp` to override per-write:
+Every write method auto-fills the timestamp based on the mode. You can override it per-write:
 
 ```python
-# UNIX mode — float seconds (converted internally) or int µs
-bltcp.write_all_data(unix_timestamp=time.time())
-bltcp.write_all_data(unix_timestamp=csv_epoch_seconds)
+bltcp.write_all_data(unix_timestamp=time.time())       # float seconds (converted internally)
+bltcp.write_all_data(unix_timestamp=1712361600000000)   # or int microseconds directly
 ```
 
 The `start_time` property exposes the `time.time()` value captured at `start()`:
@@ -133,7 +132,7 @@ elapsed = time.time() - bltcp.start_time
 
 ## Client callbacks
 
-Every connected client is automatically added to `data_clients` and receives data frames. Use `on_client_connected` / `on_client_disconnected` to react to connections or exclude specific clients from data:
+Every TCP client that connects is automatically added to `data_clients` and receives data frames. Use callbacks to react to connections or control which clients receive data:
 
 ```python
 @bltcp.on_client_connected()
@@ -151,29 +150,6 @@ def on_disconnect(client_id):
 `bool`, `byte`, `short`, `unsigned short`, `int`, `unsigned int`, `long`, `unsigned long`, `float`, `double`
 
 For DTYPE codes, byte sizes, and the binary wire format, see the [Protocol specification](docs/protocol.md).
-
-## Client identity
-
-When a client sends `<BLAECK.GET_DEVICES>`, it may include two optional parameters after the 4-byte message ID:
-
-```
-<BLAECK.GET_DEVICES,b1,b2,b3,b4,RequesterDeviceName,RequesterType>
-```
-
-| Parameter | Description |
-|-----------|-------------|
-| `RequesterDeviceName` | Device name of the requesting client (e.g. `Basic Hub`) |
-| `RequesterType` | Role of the requesting client (free-form string, e.g. `hub`, `app`, `logger`). Defaults to `unknown` if omitted. |
-
-The server binds the identity to the client connection and uses it in log messages:
-
-```
-Client #0 connected: 192.168.1.50:51478
-Client #0 identified (hub: Basic Hub)
-Client #0 disconnected (hub: Basic Hub)
-```
-
-Both parameters are optional — older clients that omit them still work. In hub mode, blaecktcpy automatically sends its device name and `hub` type when connecting to upstreams.
 
 ## Hub mode
 
