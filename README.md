@@ -151,6 +151,8 @@ def on_disconnect(client_id):
 
 For DTYPE codes, byte sizes, and the binary wire format, see the [Protocol specification](docs/protocol.md).
 
+Full protocol specification with version history: [sebajost.github.io/blaeck-protocol](https://sebajost.github.io/blaeck-protocol/blaecktcpy/overview)
+
 ## Hub mode
 
 The same `BlaeckTCPy` class serves as a hub when you add upstream connections with `add_tcp()` or `add_serial()`. The hub aggregates signals from multiple upstream devices and serves them as a single merged device, alongside any local signals.
