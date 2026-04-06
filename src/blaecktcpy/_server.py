@@ -9,7 +9,6 @@ import socket
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Union
 
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from .hub import _decoder as decoder
@@ -384,9 +383,9 @@ class BlaeckTCPy:
     # ========================================================================
     def add_signal(
         self,
-        signal_or_name: Union[Signal, str],
+        signal_or_name: Signal | str,
         datatype: str = "",
-        value: Union[int, float] = 0,
+        value: int | float = 0,
     ) -> Signal:
         """Add a local signal.
 
@@ -446,7 +445,7 @@ class BlaeckTCPy:
         else:
             self.signals = SignalList()
 
-    def _resolve_signal(self, key: Union[str, int]) -> int:
+    def _resolve_signal(self, key: str | int) -> int:
         """Resolve a signal name or index to a valid local signal index."""
         lc = self._local_signal_count if self._started else len(self.signals)
         if isinstance(key, int):
@@ -460,8 +459,8 @@ class BlaeckTCPy:
 
     def write(
         self,
-        key: Union[str, int],
-        value: Union[int, float],
+        key: str | int,
+        value: int | float,
         *,
         msg_id: int = 1,
         unix_timestamp: float | int | None = None,
@@ -485,7 +484,7 @@ class BlaeckTCPy:
         data = b"<BLAECK:" + self._build_data_msg(header, idx, idx, timestamp=ts) + b"/BLAECK>\r\n"
         self._tcp_send_data(data)
 
-    def update(self, key: Union[str, int], value: Union[int, float]) -> None:
+    def update(self, key: str | int, value: int | float) -> None:
         """Update a local signal's value and mark it as updated (no send).
 
         Args:
@@ -496,7 +495,7 @@ class BlaeckTCPy:
         self.signals[idx].value = value
         self.signals[idx].updated = True
 
-    def mark_signal_updated(self, key: Union[str, int]) -> None:
+    def mark_signal_updated(self, key: str | int) -> None:
         """Mark a local signal as updated without changing its value."""
         idx = self._resolve_signal(key)
         self.signals[idx].updated = True

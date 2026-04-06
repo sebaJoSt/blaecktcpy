@@ -2,7 +2,6 @@
 
 import struct
 from enum import IntEnum
-from typing import Union
 from dataclasses import dataclass, field
 
 
@@ -39,7 +38,7 @@ class Signal:
     signal_name: str
     datatype: str
     updated: bool = False
-    _value: Union[int, float, bool] = field(init=False, repr=False)
+    _value: int | float | bool = field(init=False, repr=False)
 
     # Class-level mappings
     DATATYPE_TO_CODE = {
@@ -75,7 +74,7 @@ class Signal:
         self,
         signal_name: str,
         datatype: str,
-        value: Union[int, float] = 0,
+        value: int | float = 0,
         updated: bool = False,
     ):
         self.signal_name = signal_name
@@ -99,7 +98,7 @@ class Signal:
             return -(1 << (bits - 1)), (1 << (bits - 1)) - 1
         return 0, (1 << bits) - 1
 
-    def _normalize_value(self, value: Union[int, float]) -> Union[int, float, bool]:
+    def _normalize_value(self, value: int | float) -> int | float | bool:
         if self.datatype in self.FLOAT_TYPES:
             try:
                 return float(value)
@@ -135,11 +134,11 @@ class Signal:
         return normalized
 
     @property
-    def value(self) -> Union[int, float, bool]:
+    def value(self) -> int | float | bool:
         return self._value
 
     @value.setter
-    def value(self, value: Union[int, float]) -> None:
+    def value(self, value: int | float) -> None:
         self._value = self._normalize_value(value)
 
     def to_bytes(self) -> bytes:
