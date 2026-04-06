@@ -59,17 +59,21 @@ Messages use the following binary format:
 | `SchemaHash` | uint16 | CRC16-CCITT of (name bytes + datatype code byte) for each signal in order (2 bytes, little-endian). Used to detect signal layout changes at runtime. |
 | `TimestampMode` | byte | `0` = NONE (default), `1` = MICROS (µs since start; upstream/Arduino devices only), `2` = UNIX (µs since epoch) |
 | `Timestamp` | uint64 | 8-byte microsecond timestamp (only present if TimestampMode > 0) |
-| `StatusByte` | byte | `0x00`–`0x7F` = device-level (e.g. `0x00` normal, `0x01` I2C CRC error); `0x80`–`0xFF` = hub-level (e.g. `0x80` upstream lost, `0x81` upstream reconnected) |
-| `StatusPayload` (StatusByte `0x00`–`0x7F`) | bytes | 4-byte upstream-provided status payload relayed by hub |
-| `StatusPayload` (StatusByte=0x80) | bytes | `[AutoReconnect, 0, 0, 0]` — byte 0: `0x01` if hub auto-reconnect is enabled, else `0x00` |
-| `StatusPayload` (StatusByte=0x81) | bytes | 4 bytes, unused (`0x00000000`) |
+| `StatusByte` | byte | Status code (see [Status codes](#status-codes) below) |
+| `StatusPayload` | bytes | 4 bytes, interpretation depends on `StatusByte` (see [Status codes](#status-codes) below) |
 | `CRC32` | uint32 | CRC32 of all content bytes before CRC, including `StatusByte` and `StatusPayload` |
 
-> **StatusByte range convention:** `0x00`–`0x7F` is reserved for device-level
-> status codes defined by device libraries and servers (BlaeckTCP, BlaeckSerial,
-> blaecktcpy in server mode). `0x80`–`0xFF` is reserved for hub-level status
-> codes defined by blaecktcpy in hub mode. This split allows both sides to add
-> new codes without collisions.
+## Status codes
+
+`0x00`–`0x7F` is reserved for device-level status codes (defined by BlaeckTCP, BlaeckSerial, blaecktcpy in server mode). `0x80`–`0xFF` is reserved for hub-level status codes (defined by blaecktcpy in hub mode). This split allows both sides to add new codes without collisions.
+
+| StatusByte | Name | StatusPayload |
+|------------|------|---------------|
+| `0x00` | Normal | 4 bytes reserved (`0x00 0x00 0x00 0x00`) |
+| `0x01` | I2C CRC error | 4 bytes, device-defined |
+| `0x00`–`0x7F` | *(device-level)* | 4 bytes, upstream-provided payload relayed by hub |
+| `0x80` | Upstream lost | Byte 0: `0x01` if auto-reconnect enabled, else `0x00`. Bytes 1–3: reserved (`0x00`) |
+| `0x81` | Upstream reconnected | 4 bytes unused (`0x00 0x00 0x00 0x00`) |
 
 ## Schema hash
 
