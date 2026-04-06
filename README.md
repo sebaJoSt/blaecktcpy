@@ -74,15 +74,7 @@ bltcp.local_interval_ms = IntervalMode.OFF     # disable timed data entirely
 
 ## Built-in commands
 
-These commands are handled automatically by the library. Connected clients (e.g. Loggbok) send them — you typically don't need to construct them yourself:
-
-| Command | Description |
-|---|---|
-| `<BLAECK.GET_DEVICES>` | Returns device name, hardware/firmware version, library version |
-| `<BLAECK.WRITE_SYMBOLS>` | Returns the signal list with datatype information |
-| `<BLAECK.WRITE_DATA>` | Returns the current signal values as binary data |
-| `<BLAECK.ACTIVATE,b1,b2,b3,b4>` | Starts streaming data at the given interval (4 bytes, little-endian milliseconds) |
-| `<BLAECK.DEACTIVATE>` | Stops streaming data |
+See the [protocol documentation](https://sebajost.github.io/blaeck-protocol/protocol/commands) for the full list of commands and their parameters.
 
 ## Custom commands
 
@@ -149,7 +141,7 @@ def on_disconnect(client_id):
 
 `bool`, `byte`, `short`, `unsigned short`, `int`, `unsigned int`, `long`, `unsigned long`, `float`, `double`
 
-For DTYPE codes, byte sizes, and the binary wire format, see the [Protocol specification](docs/protocol.md).
+For DTYPE codes and byte sizes, see the [Protocol specification](https://sebajost.github.io/blaeck-protocol/protocol/datatypes).
 
 Full protocol specification with version history: [sebajost.github.io/blaeck-protocol](https://sebajost.github.io/blaeck-protocol/blaecktcpy/overview)
 
