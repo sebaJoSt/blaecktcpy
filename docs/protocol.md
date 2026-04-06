@@ -20,9 +20,16 @@
 Messages use the following binary format:
 
 ```
-|Header|--       Message        --||-- EOT  --|
 <BLAECK:<MSGKEY>:<MSGID>:<ELEMENTS>/BLAECK>\r\n
 ```
+
+| Part | Bytes | Content |
+|------|-------|---------|
+| Header | 8 | `<BLAECK:` (fixed) |
+| MSGKEY | 1 | Message type code (see table below) |
+| MSGID | 4 | Message ID, little-endian |
+| ELEMENTS | varying | Payload (colon-separated, type-dependent) |
+| Trailer | 10 | `/BLAECK>\r\n` (fixed) |
 
 ## Message Keys
 
