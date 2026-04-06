@@ -65,15 +65,14 @@ Messages use the following binary format:
 
 ## Status codes
 
-`0x00`–`0x7F` is reserved for device-level status codes (defined by BlaeckTCP, BlaeckSerial, blaecktcpy in server mode). `0x80`–`0xFF` is reserved for hub-level status codes (defined by blaecktcpy in hub mode). This split allows both sides to add new codes without collisions.
+`0x00`–`0x7F` is reserved for device-level status codes (defined by BlaeckTCP, BlaeckSerial, blaecktcpy in server mode). `0x80`–`0xFF` is reserved for hub-level status codes (defined by blaecktcpy in hub mode). This split allows both sides to add new codes without collisions. In hub mode, device-level codes are relayed to clients as-is.
 
 | StatusByte | Name | StatusPayload |
 |------------|------|---------------|
 | `0x00` | Normal | 4 bytes reserved (`0x00 0x00 0x00 0x00`) |
 | `0x01` | I2C CRC error | 4 bytes, device-defined |
-| `0x00`–`0x7F` | *(device-level)* | 4 bytes, upstream-provided payload relayed by hub |
 | `0x80` | Upstream lost | Byte 0: `0x01` if auto-reconnect enabled, else `0x00`. Bytes 1–3: reserved (`0x00`) |
-| `0x81` | Upstream reconnected | 4 bytes unused (`0x00 0x00 0x00 0x00`) |
+| `0x81` | Upstream reconnected | 4 bytes reserved (`0x00 0x00 0x00 0x00`) |
 
 ## Schema hash
 
