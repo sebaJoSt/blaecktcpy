@@ -1,6 +1,6 @@
 # blaecktcpy
 
-A Python TCP server for real-time streaming of named, typed signals in binary format. Use it to turn any Python script into a signal source that Loggbok or any compatible TCP client can connect to, visualize, and log.
+A Python TCP server for real-time streaming of named, typed signals using the [Blaeck protocol](https://sebajost.github.io/blaeck-protocol/). Use it to turn any Python script into a signal source that Loggbok or any compatible TCP client can connect to, visualize, and log.
 
 ## Getting Started
 
