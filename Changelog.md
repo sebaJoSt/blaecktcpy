@@ -38,7 +38,7 @@ All notable changes to this project will be documented in this file.
   property (`TimestampMode.UNIX` for µs since epoch). Write methods accept
   `unix_timestamp` (float seconds or int µs) overrides.
   Wire format is uint64 (8 bytes).
-- **`interval_ms` property**: Replaces `set_interval()` method.
+- **`local_interval_ms` property**: Replaces `set_interval()` method.
 - **`start_time` property**: Exposes the `time.time()` value captured at `start()`.
 - **`TimestampMode` enum**: `NONE`, `MICROS` (protocol-level only, not user-facing), `UNIX`.
 
