@@ -142,6 +142,7 @@ class BlaeckTCPy:
         device_hw_version: str,
         device_fw_version: str,
         log_level: int | None = logging.INFO,
+        http_port: int | None = 8080,
     ):
         """
         Initialize BlaeckTCPy.
@@ -155,6 +156,12 @@ class BlaeckTCPy:
             log_level: Logging level for this instance (e.g.
                 ``logging.DEBUG``, ``logging.WARNING``).  Defaults to
                 ``logging.INFO``.  Pass ``None`` to silence all output.
+            http_port: Port for the HTTP status page.  A lightweight web
+                server starts alongside the TCP server showing device
+                info, signals, and connected clients.  If the port is
+                occupied, a free port is chosen automatically.
+                Defaults to ``8080``.  Pass ``None`` to disable the
+                status page.
         """
         self._ip = ip
         self._port = port
@@ -205,6 +212,10 @@ class BlaeckTCPy:
         # Local signal boundary (frozen at start())
         self._local_signal_count = 0
         self._started = False
+
+        # HTTP status page
+        self._http_port = http_port
+        self._httpd = None
 
     # ========================================================================
     # Setup — Socket and Listening
@@ -323,6 +334,31 @@ class BlaeckTCPy:
                 f"blaecktcpy v{LIB_VERSION} — Listening on "
                 f"{self._ip}:{self._port}"
             )
+
+        # Start HTTP status page
+        if self._http_port is not None:
+            from ._http import start_http_server
+            http_ip = "127.0.0.1" if self._ip in ("0.0.0.0", "") else self._ip
+            try:
+                self._httpd = start_http_server(self, self._http_port)
+            except OSError:
+                orig_port = self._http_port
+                alt_port = self._find_free_port(http_ip, self._http_port)
+                try:
+                    self._httpd = start_http_server(self, alt_port)
+                    self._http_port = alt_port
+                    self._logger.warning(
+                        f"HTTP port {orig_port} was in use, "
+                        f"using port {alt_port} instead"
+                    )
+                except OSError as e:
+                    self._logger.warning(
+                        f"HTTP status page could not start: {e}"
+                    )
+            if self._httpd is not None:
+                self._logger.info(
+                    f"Status page: http://{http_ip}:{self._http_port}"
+                )
 
         atexit.register(self.close)
 
@@ -2286,6 +2322,11 @@ class BlaeckTCPy:
         atexit.unregister(self.close)
         if hasattr(self, "_original_sigint"):
             signal.signal(signal.SIGINT, self._original_sigint)
+
+        # Stop HTTP status page
+        if self._httpd is not None:
+            self._httpd.shutdown()
+            self._httpd = None
 
         # Deactivate and close upstreams
         for upstream in self._upstreams:

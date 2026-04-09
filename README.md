@@ -137,6 +137,20 @@ def on_disconnect(client_id):
     print(f"Client #{client_id} left")
 ```
 
+## HTTP status page
+
+A built-in status page shows device info, signals, connected clients, and upstream status in a browser. It is enabled by default on port 8080:
+
+```python
+bltcp = BlaeckTCPy('127.0.0.1', 23, 'My Device', '1.0', '1.0')
+```
+
+After `start()`, open `http://127.0.0.1:8080` to see a live status page. If port 8080 is occupied, a free port is chosen automatically. The page auto-refreshes every second, supports light/dark theme, and shows collapsible upstream details in hub mode. Styled with [Pico CSS](https://picocss.com/) (loaded from CDN — no extra dependencies).
+
+To disable the status page, pass `http_port=None`.
+
+The status page also exposes a JSON API at `/api` for programmatic access.
+
 ## Supported datatypes
 
 `bool`, `byte`, `short`, `unsigned short`, `int`, `unsigned int`, `long`, `unsigned long`, `float`, `double`
