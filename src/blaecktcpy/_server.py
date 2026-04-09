@@ -1298,14 +1298,14 @@ class BlaeckTCPy:
                     + b"\0"
                     + (b"1" if client_id in self.data_clients else b"0")
                     + b"\0"
-                    + (b"1" if self._server_restarted else b"0")
-                    + b"\0"
-                    + b"hub\0"
-                    + b"0\0"  # parent (master references itself)
                     + self._client_meta.get(client_id, {}).get("name", "").encode()
                     + b"\0"
                     + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
                     + b"\0"
+                    + (b"1" if self._server_restarted else b"0")
+                    + b"\0"
+                    + b"hub\0"
+                    + b"0\0"  # parent (master references itself)
                 )
 
                 # Upstream devices as slaves — only relayed upstreams
@@ -1345,15 +1345,15 @@ class BlaeckTCPy:
                             + b"\0"
                             + (b"1" if client_id in self.data_clients else b"0")
                             + b"\0"
+                            + self._client_meta.get(client_id, {}).get("name", "").encode()
+                            + b"\0"
+                            + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
+                            + b"\0"
                             + (info.server_restarted.encode() if info.server_restarted else b"0")
                             + b"\0"
                             + device_type.encode()
                             + b"\0"
                             + str(parent_sid).encode()
-                            + b"\0"
-                            + self._client_meta.get(client_id, {}).get("name", "").encode()
-                            + b"\0"
-                            + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
                             + b"\0"
                         )
 
@@ -1384,14 +1384,14 @@ class BlaeckTCPy:
                     + b"\0"
                     + (b"1" if client_id in self.data_clients else b"0")
                     + b"\0"
-                    + (b"1" if self._server_restarted else b"0")
-                    + b"\0"
-                    + b"server\0"
-                    + b"0\0"  # parent (SlaveID 0 = self)
                     + self._client_meta.get(client_id, {}).get("name", "").encode()
                     + b"\0"
                     + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
                     + b"\0"
+                    + (b"1" if self._server_restarted else b"0")
+                    + b"\0"
+                    + b"server\0"
+                    + b"0\0"  # parent (SlaveID 0 = self)
                 )
 
                 data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"

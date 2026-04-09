@@ -145,11 +145,11 @@ class TestB6DeviceType:
             + b"blaecktcpy\0"
             + b"1\0"
             + b"1\0"
+            + b"Loggbok\0"
+            + b"app\0"
             + b"0\0"
             + b"server\0"
             + b"0\0"
-            + b"Loggbok\0"
-            + b"app\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
@@ -174,11 +174,11 @@ class TestB6DeviceType:
             + b"blaecktcpy\0"
             + b"1\0"
             + b"1\0"
+            + b"\0"
+            + b"unknown\0"
             + b"0\0"
             + b"hub\0"
             + b"0\0"
-            + b"\0"
-            + b"unknown\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
@@ -240,15 +240,15 @@ class TestMultiSlavePassThrough:
             b"\x01\x00"  # MSC=master, SlaveID=0
             + b"ArduinoMain\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"blaecktcpy\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
-            + b"Loggbok\0" + b"app\0"
+            + b"blaecktcpy\0" + b"1\0" + b"1\0" + b"Loggbok\0" + b"app\0"
+            + b"0\0" + b"server\0" + b"0\0"
         )
         slave = (
             b"\x02\x08"  # MSC=slave, SlaveID=8
             + b"SensorBoard\0"
             + b"1.1\0" + b"2.1\0" + b"3.1\0"
-            + b"blaeckserial\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
-            + b"Loggbok\0" + b"app\0"
+            + b"blaeckserial\0" + b"1\0" + b"1\0" + b"Loggbok\0" + b"app\0"
+            + b"0\0" + b"server\0" + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + master + slave
         devices = decoder.parse_all_devices(content)
@@ -290,14 +290,14 @@ class TestMultiSlavePassThrough:
         master = (
             b"\x01\x00" + b"First\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"hub\0" + b"0\0"
-            + b"\0" + b"unknown\0"
+            + b"lib\0" + b"1\0" + b"1\0" + b"\0" + b"unknown\0"
+            + b"0\0" + b"hub\0" + b"0\0"
         )
         slave = (
             b"\x02\x01" + b"Second\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
-            + b"\0" + b"unknown\0"
+            + b"lib\0" + b"1\0" + b"1\0" + b"\0" + b"unknown\0"
+            + b"0\0" + b"server\0" + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + master + slave
         info = decoder.parse_devices(content)
