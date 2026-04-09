@@ -262,8 +262,25 @@ class BlaeckTCPy:
 
         self._start_listening()
 
-        # Connect and discover all upstreams in parallel
+        # Connect and discover all upstreams sequentially
         self._discover_all_upstreams()
+
+        if self._local_signal_count > 0:
+            n = self._local_signal_count
+            interval_info = ""
+            if self._fixed_interval_ms >= 0:
+                interval_info = (
+                    f" (interval: {self._fixed_interval_ms} ms"
+                    f" — client control locked)"
+                )
+            elif self._fixed_interval_ms == IntervalMode.OFF:
+                interval_info = " (DEACTIVATE — client control locked)"
+            elif self._fixed_interval_ms == IntervalMode.CLIENT:
+                interval_info = " (interval: client controlled)"
+            self._logger.info(
+                f"Local: {n} signal{'s' if n != 1 else ''}"
+                f"{interval_info}"
+            )
 
         # Register upstream signals and build index maps
         if self._upstreams:
@@ -1604,17 +1621,22 @@ class BlaeckTCPy:
             self._fixed_interval_ms = value
             self._timed_activated = True
             self._timer.activate(value)
-            self._logger.info(
-                f"Local signal interval set ({value} ms) — client control locked"
-            )
+            if self._started:
+                self._logger.info(
+                    f"Local signal interval changed ({value} ms)"
+                )
         elif value == IntervalMode.OFF:
             self._fixed_interval_ms = IntervalMode.OFF
             self._timed_activated = False
             self._timer.deactivate()
-            self._logger.info("Local signal interval set (OFF) — client control locked")
+            if self._started:
+                self._logger.info("Local signal interval changed (OFF)")
         elif value == IntervalMode.CLIENT:
             self._fixed_interval_ms = IntervalMode.CLIENT
-            self._logger.info("Local signal interval set (CLIENT) — client controlled")
+            if self._started:
+                self._logger.info(
+                    "Local signal interval changed (client controlled)"
+                )
 
     @property
     def start_time(self) -> float:
