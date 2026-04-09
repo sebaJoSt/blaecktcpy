@@ -103,6 +103,8 @@ class DecodedDeviceInfo:
     server_restarted: str = ""
     device_type: str = ""
     parent: str = "0"
+    client_name: str = ""
+    client_type: str = ""
     msc: int = 0
     slave_id: int = 0
 
@@ -526,6 +528,8 @@ def parse_all_devices(content: bytes) -> list[DecodedDeviceInfo]:
                 info.server_restarted = read_string()
                 info.device_type = read_string()
                 info.parent = read_string()
+                info.client_name = read_string()
+                info.client_type = read_string()
 
         devices.append(info)
 

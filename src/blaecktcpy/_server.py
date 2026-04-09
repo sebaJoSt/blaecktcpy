@@ -1302,6 +1302,10 @@ class BlaeckTCPy:
                     + b"\0"
                     + b"hub\0"
                     + b"0\0"  # parent (master references itself)
+                    + self._client_meta.get(client_id, {}).get("name", "").encode()
+                    + b"\0"
+                    + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
+                    + b"\0"
                 )
 
                 # Upstream devices as slaves — only relayed upstreams
@@ -1347,6 +1351,10 @@ class BlaeckTCPy:
                             + b"\0"
                             + str(parent_sid).encode()
                             + b"\0"
+                            + self._client_meta.get(client_id, {}).get("name", "").encode()
+                            + b"\0"
+                            + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
+                            + b"\0"
                         )
 
                 data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
@@ -1380,6 +1388,10 @@ class BlaeckTCPy:
                     + b"\0"
                     + b"server\0"
                     + b"0\0"  # parent (SlaveID 0 = self)
+                    + self._client_meta.get(client_id, {}).get("name", "").encode()
+                    + b"\0"
+                    + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
+                    + b"\0"
                 )
 
                 data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"

@@ -215,3 +215,84 @@ class TestHubSendsIdentity:
         sent = transport.sent[0]
         assert b"My Hub" in sent
         assert b"hub" in sent
+
+
+class TestB6ResponseContainsClientIdentity:
+    """Verify the B6 device info frame echoes back client identity."""
+
+    def _make_server_with_client(self):
+        device = _make_server_on_free_port()
+        device.add_signal("x", "float")
+        _start_retry(device)
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", device._port))
+        device._accept_new_clients()
+        return device, client
+
+    def test_b6_contains_client_identity(self):
+        """B6 response includes ClientName and ClientType from GET_DEVICES."""
+        from blaecktcpy.hub import _decoder as decoder
+
+        device, client = self._make_server_with_client()
+
+        try:
+            client.sendall(b"<BLAECK.GET_DEVICES,0,0,0,0,Loggbok,desktop>")
+            time.sleep(0.05)
+            device.read()
+
+            # Read the B6 response
+            data = b""
+            while True:
+                try:
+                    chunk = client.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                except socket.timeout:
+                    break
+
+            # Parse B6 frame content (between <BLAECK: and /BLAECK>)
+            start = data.index(b"<BLAECK:") + len(b"<BLAECK:")
+            end = data.index(b"/BLAECK>")
+            content = data[start:end]
+
+            info = decoder.parse_devices(content)
+            assert info.client_name == "Loggbok"
+            assert info.client_type == "desktop"
+        finally:
+            client.close()
+            device.close()
+
+    def test_b6_defaults_without_identity(self):
+        """B6 response uses defaults when no identity was sent."""
+        from blaecktcpy.hub import _decoder as decoder
+
+        device, client = self._make_server_with_client()
+
+        try:
+            client.sendall(b"<BLAECK.GET_DEVICES,0,0,0,0>")
+            time.sleep(0.05)
+            device.read()
+
+            data = b""
+            while True:
+                try:
+                    chunk = client.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+                except socket.timeout:
+                    break
+
+            start = data.index(b"<BLAECK:") + len(b"<BLAECK:")
+            end = data.index(b"/BLAECK>")
+            content = data[start:end]
+
+            info = decoder.parse_devices(content)
+            assert info.client_name == ""
+            assert info.client_type == "unknown"
+        finally:
+            client.close()
+            device.close()

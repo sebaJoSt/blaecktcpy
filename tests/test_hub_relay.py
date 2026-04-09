@@ -148,6 +148,8 @@ class TestB6DeviceType:
             + b"0\0"
             + b"server\0"
             + b"0\0"
+            + b"Loggbok\0"
+            + b"app\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
@@ -155,6 +157,8 @@ class TestB6DeviceType:
         assert info.device_name == "TestDevice"
         assert info.server_restarted == "0"
         assert info.parent == "0"
+        assert info.client_name == "Loggbok"
+        assert info.client_type == "app"
 
     def test_parse_b6_hub_device_type(self):
         """B6 frame with device_type='hub'."""
@@ -173,10 +177,14 @@ class TestB6DeviceType:
             + b"0\0"
             + b"hub\0"
             + b"0\0"
+            + b"\0"
+            + b"unknown\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
         assert info.device_type == "hub"
+        assert info.client_name == ""
+        assert info.client_type == "unknown"
 
     def test_parse_b5_has_no_device_type(self):
         """B5 (legacy) frame has empty device_type."""
@@ -198,6 +206,8 @@ class TestB6DeviceType:
         info = decoder.parse_devices(content)
         assert info.device_type == ""
         assert info.server_restarted == "0"
+        assert info.client_name == ""
+        assert info.client_type == ""
 
 
 class TestMultiSlavePassThrough:
@@ -231,20 +241,26 @@ class TestMultiSlavePassThrough:
             + b"ArduinoMain\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
             + b"blaecktcpy\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
+            + b"Loggbok\0" + b"app\0"
         )
         slave = (
             b"\x02\x08"  # MSC=slave, SlaveID=8
             + b"SensorBoard\0"
             + b"1.1\0" + b"2.1\0" + b"3.1\0"
             + b"blaeckserial\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
+            + b"Loggbok\0" + b"app\0"
         )
         content = msg_key + b":" + msg_id + b":" + master + slave
         devices = decoder.parse_all_devices(content)
         assert len(devices) == 2
         assert devices[0].device_name == "ArduinoMain"
         assert devices[0].msc == 1 and devices[0].slave_id == 0
+        assert devices[0].client_name == "Loggbok"
+        assert devices[0].client_type == "app"
         assert devices[1].device_name == "SensorBoard"
         assert devices[1].msc == 2 and devices[1].slave_id == 8
+        assert devices[1].client_name == "Loggbok"
+        assert devices[1].client_type == "app"
 
     def test_parse_all_devices_b3_multi_entry(self):
         """B3 (BlaeckSerial) frame with master + slave."""
@@ -275,11 +291,13 @@ class TestMultiSlavePassThrough:
             b"\x01\x00" + b"First\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
             + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"hub\0" + b"0\0"
+            + b"\0" + b"unknown\0"
         )
         slave = (
             b"\x02\x01" + b"Second\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
             + b"lib\0" + b"1\0" + b"1\0" + b"0\0" + b"server\0" + b"0\0"
+            + b"\0" + b"unknown\0"
         )
         content = msg_key + b":" + msg_id + b":" + master + slave
         info = decoder.parse_devices(content)
