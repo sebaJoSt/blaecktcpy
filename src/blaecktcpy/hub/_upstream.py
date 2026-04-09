@@ -50,10 +50,8 @@ class _UpstreamBase:
         Default implementation falls back to blocking :meth:`connect`.
         Subclasses (e.g. UpstreamTCP) override for true async.
         """
-        if self.connect(timeout):
-            self._connect_pending = False
-        else:
-            self._connect_pending = False
+        self.connect(timeout)
+        self._connect_pending = False
 
     def check_connect(self) -> bool | None:
         """Check if a pending connect has completed.

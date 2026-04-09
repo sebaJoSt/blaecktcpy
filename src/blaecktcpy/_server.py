@@ -708,6 +708,29 @@ class BlaeckTCPy:
                 continue
             self._discover_upstream(upstream)
 
+    def _poll_for_frame(
+        self,
+        upstream: _UpstreamDevice,
+        msg_key_match: int | set[int],
+        retry_command: str,
+        max_polls: int,
+    ) -> bytes | None:
+        """Send a command and poll for a matching response frame.
+
+        Sends ``retry_command`` immediately, then every 1s (10 polls).
+        Returns the first matching frame, or None on timeout.
+        """
+        upstream.transport.send_command(retry_command)
+        match = msg_key_match if isinstance(msg_key_match, (set, frozenset)) else {msg_key_match}
+        for i in range(max_polls):
+            time.sleep(0.1)
+            for f in upstream.transport.read_frames():
+                if len(f) > 0 and f[0] in match:
+                    return f
+            if i > 0 and i % 10 == 0:
+                upstream.transport.send_command(retry_command)
+        return None
+
     def _discover_upstream(self, upstream: _UpstreamDevice) -> None:
         """Connect, fetch symbols and device info from one upstream."""
         timeout = upstream._discovery_timeout
@@ -719,22 +742,14 @@ class BlaeckTCPy:
                 f"{upstream.transport.last_error}"
             )
         upstream.connected = True
+        max_polls = int(timeout / 0.1)
 
         # Phase 1: request symbol list
         upstream.transport.send_command("BLAECK.DEACTIVATE")
-        upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
-        max_polls = int(timeout / 0.1)
-        frame = None
-        for i in range(max_polls):
-            time.sleep(0.1)
-            for f in upstream.transport.read_frames():
-                if len(f) > 0 and f[0] == decoder.MSGKEY_SYMBOL_LIST:
-                    frame = f
-                    break
-            if frame is not None:
-                break
-            if i > 0 and i % 10 == 0:
-                upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+        frame = self._poll_for_frame(
+            upstream, decoder.MSGKEY_SYMBOL_LIST,
+            "BLAECK.WRITE_SYMBOLS", max_polls,
+        )
 
         if frame is None:
             upstream.transport.close()
@@ -752,21 +767,11 @@ class BlaeckTCPy:
         )
 
         # Phase 2: request device info
-        identity = f",0,0,0,0,{self._device_name.decode()},hub"
-        upstream.transport.send_command(f"BLAECK.GET_DEVICES{identity}")
-        frame = None
-        for i in range(max_polls):
-            time.sleep(0.1)
-            for f in upstream.transport.read_frames():
-                if len(f) > 0 and f[0] in decoder.MSGKEY_DEVICES_ALL:
-                    frame = f
-                    break
-            if frame is not None:
-                break
-            if i > 0 and i % 10 == 0:
-                upstream.transport.send_command(
-                    f"BLAECK.GET_DEVICES{identity}"
-                )
+        get_devices_cmd = f"BLAECK.GET_DEVICES{self._hub_identity}"
+        frame = self._poll_for_frame(
+            upstream, decoder.MSGKEY_DEVICES_ALL,
+            get_devices_cmd, max_polls,
+        )
 
         if frame is not None:
             try:
@@ -1760,16 +1765,7 @@ class BlaeckTCPy:
 
             if not upstream.transport.connected:
                 if upstream.connected:
-                    upstream.connected = False
-                    upstream._reconnecting = False
-                    upstream._awaiting_symbols = False
-                    upstream._awaiting_devices = False
-                    upstream._restart_detected = False
-                    upstream._discovery_retry_at = 0.0
-                    self._zero_upstream_signals(upstream)
-                    self._send_upstream_lost_frame(upstream)
-                    if self._upstream_disconnect_callback is not None:
-                        self._upstream_disconnect_callback(upstream.device_name)
+                    self._handle_upstream_disconnect(upstream)
 
                 # Attempt auto-reconnect on cooldown
                 if upstream.auto_reconnect:
@@ -1783,16 +1779,7 @@ class BlaeckTCPy:
 
             # Detect disconnect that happened during read
             if upstream.connected and not upstream.transport.connected:
-                upstream.connected = False
-                upstream._reconnecting = False
-                upstream._awaiting_symbols = False
-                upstream._awaiting_devices = False
-                upstream._restart_detected = False
-                upstream._discovery_retry_at = 0.0
-                self._zero_upstream_signals(upstream)
-                self._send_upstream_lost_frame(upstream)
-                if self._upstream_disconnect_callback is not None:
-                    self._upstream_disconnect_callback(upstream.device_name)
+                self._handle_upstream_disconnect(upstream)
                 continue
 
             # Retry the current discovery command if upstream hasn't responded
@@ -2150,6 +2137,24 @@ class BlaeckTCPy:
                 f"Upstream '{upstream.device_name}' client interval restored"
             )
 
+    def _handle_upstream_disconnect(self, upstream: _UpstreamDevice) -> None:
+        """Reset upstream state on disconnect and notify downstream."""
+        upstream.connected = False
+        upstream._reconnecting = False
+        upstream._awaiting_symbols = False
+        upstream._awaiting_devices = False
+        upstream._restart_detected = False
+        upstream._discovery_retry_at = 0.0
+        self._zero_upstream_signals(upstream)
+        self._send_upstream_lost_frame(upstream)
+        if self._upstream_disconnect_callback is not None:
+            self._upstream_disconnect_callback(upstream.device_name)
+
+    @property
+    def _hub_identity(self) -> str:
+        """Identity suffix for GET_DEVICES commands."""
+        return f",0,0,0,0,{self._device_name.decode()},hub"
+
     def _start_discovery(self, upstream: _UpstreamDevice) -> None:
         """Begin discovery Phase 1: send DEACTIVATE + WRITE_SYMBOLS."""
         upstream.transport.send_command("BLAECK.DEACTIVATE")
@@ -2166,9 +2171,8 @@ class BlaeckTCPy:
                 self._rebuild_upstream_schema(upstream, new_symbols)
                 self._rebuild_slave_id_map(upstream)
                 if upstream.schema_stale:
-                    identity = f",0,0,0,0,{self._device_name.decode()},hub"
                     upstream.transport.send_command(
-                        f"BLAECK.GET_DEVICES{identity}"
+                        f"BLAECK.GET_DEVICES{self._hub_identity}"
                     )
                 upstream.schema_stale = False
                 self._logger.info(
@@ -2183,9 +2187,8 @@ class BlaeckTCPy:
         if upstream._awaiting_symbols and new_symbols:
             upstream._awaiting_symbols = False
             # Phase 1 → Phase 2: request device info
-            identity = f",0,0,0,0,{self._device_name.decode()},hub"
             upstream.transport.send_command(
-                f"BLAECK.GET_DEVICES{identity}"
+                f"BLAECK.GET_DEVICES{self._hub_identity}"
             )
             upstream._awaiting_devices = True
             upstream._discovery_retry_at = time.time() + 1.0
@@ -2235,11 +2238,8 @@ class BlaeckTCPy:
             if upstream._awaiting_symbols:
                 upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
             elif upstream._awaiting_devices:
-                identity = (
-                    f",0,0,0,0,{self._device_name.decode()},hub"
-                )
                 upstream.transport.send_command(
-                    f"BLAECK.GET_DEVICES{identity}"
+                    f"BLAECK.GET_DEVICES{self._hub_identity}"
                 )
             self._logger.debug(
                 f"Upstream '{upstream.device_name}' discovery retry"
