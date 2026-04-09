@@ -11,6 +11,11 @@ import select
 import socket
 import time
 
+try:
+    import serial as _pyserial
+except ImportError:
+    _pyserial = None
+
 _START_MARKER = b"<BLAECK:"
 _END_MARKER = b"/BLAECK>"
 _MAX_BUFFER = 1_048_576  # 1 MB buffer limit
@@ -40,7 +45,9 @@ class _UpstreamBase:
         raise NotImplementedError
 
     def close(self) -> None:
-        raise NotImplementedError
+        if self._connected:
+            self._logger.info(f"Upstream '{self.name}' closing")
+        self._cleanup()
 
     # -- Non-blocking connect (override in subclass for true async) --
 
@@ -156,7 +163,7 @@ class UpstreamTCP(_UpstreamBase):
             return True
         except OSError as e:
             self.last_error = str(e)
-            self._logger.error(f"Upstream '{self.name}' connection failed: {e}")
+            self._logger.debug(f"Upstream '{self.name}' connection failed: {e}")
             self._cleanup()
             return False
 
@@ -277,15 +284,9 @@ class UpstreamTCP(_UpstreamBase):
         if self._socket:
             try:
                 self._socket.close()
-            except OSError:
-                pass
+            except OSError as e:
+                self._logger.debug(f"Upstream '{self.name}' socket close error: {e}")
             self._socket = None
-
-    def close(self):
-        if self._connected:
-            self._logger.info(f"Upstream '{self.name}' closing")
-        self._cleanup()
-        self._buffer = b""
 
 
 class UpstreamSerial(_UpstreamBase):
@@ -296,14 +297,11 @@ class UpstreamSerial(_UpstreamBase):
 
     def __init__(self, name: str, port: str, baudrate: int = 115200, dtr: bool = True, logger: logging.Logger | None = None):
         super().__init__(name, logger)
-        try:
-            import serial as _serial  # noqa: F401
-        except ImportError:
+        if _pyserial is None:
             raise ImportError(
                 "pyserial is required for serial upstreams. "
                 "Install with: pip install blaecktcpy[serial]"
             )
-        self._serial_module = _serial
         self.port = port
         self.baudrate = baudrate
         self.dtr = dtr
@@ -311,7 +309,7 @@ class UpstreamSerial(_UpstreamBase):
 
     def connect(self, timeout: float = 5.0) -> bool:
         try:
-            ser = self._serial_module.Serial()
+            ser = _pyserial.Serial()
             ser.port = self.port
             ser.baudrate = self.baudrate
             ser.timeout = 0
@@ -334,7 +332,7 @@ class UpstreamSerial(_UpstreamBase):
             return True
         except Exception as e:
             self.last_error = str(e)
-            self._logger.error(f"Upstream '{self.name}' serial connection failed: {e}")
+            self._logger.debug(f"Upstream '{self.name}' serial connection failed: {e}")
             self._cleanup()
             return False
 
@@ -375,12 +373,6 @@ class UpstreamSerial(_UpstreamBase):
         if self._serial:
             try:
                 self._serial.close()
-            except Exception:
-                pass
+            except Exception as e:
+                self._logger.debug(f"Upstream '{self.name}' serial close error: {e}")
             self._serial = None
-
-    def close(self):
-        if self._connected:
-            self._logger.info(f"Upstream '{self.name}' closing")
-        self._cleanup()
-        self._buffer = b""
