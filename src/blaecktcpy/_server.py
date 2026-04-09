@@ -774,12 +774,12 @@ class BlaeckTCPy:
                         msg_key == decoder.MSGKEY_SYMBOL_LIST
                         and upstream._awaiting_symbols
                     ):
-                        self._process_b0_frame(upstream, frame)
+                        self._handle_symbol_list(upstream, frame)
                     elif (
                         msg_key in decoder.MSGKEY_DEVICES_ALL
                         and upstream._awaiting_devices
                     ):
-                        self._process_b6_frame(upstream, frame)
+                        self._handle_device_info(upstream, frame)
 
                 # Retry current discovery command
                 self._retry_discovery(upstream)
@@ -1825,12 +1825,12 @@ class BlaeckTCPy:
 
                 # Handle B0 symbol list during re-discovery or reconnect
                 if msg_key == decoder.MSGKEY_SYMBOL_LIST and (upstream.schema_stale or upstream._awaiting_symbols):
-                    self._process_b0_frame(upstream, frame)
+                    self._handle_symbol_list(upstream, frame)
                     continue
 
                 # Handle device info frames (update device_infos + slave_id_map)
                 if msg_key in decoder.MSGKEY_DEVICES_ALL:
-                    self._process_b6_frame(upstream, frame)
+                    self._handle_device_info(upstream, frame)
                     continue
 
                 # Forward upstream restart notification (0xC0) to downstream
@@ -2176,8 +2176,8 @@ class BlaeckTCPy:
         upstream._awaiting_symbols = True
         upstream._discovery_retry_at = time.time() + 1.0
 
-    def _process_b0_frame(self, upstream: _UpstreamDevice, frame: bytes) -> None:
-        """Process a B0 symbol list during discovery or schema refresh."""
+    def _handle_symbol_list(self, upstream: _UpstreamDevice, frame: bytes) -> None:
+        """Handle a symbol list frame during discovery or schema refresh."""
         new_symbols = None
         try:
             new_symbols = decoder.parse_symbol_list(frame)
@@ -2215,8 +2215,8 @@ class BlaeckTCPy:
             upstream._awaiting_devices = True
             upstream._discovery_retry_at = time.time() + 1.0
 
-    def _process_b6_frame(self, upstream: _UpstreamDevice, frame: bytes) -> None:
-        """Process a B6 device info frame during discovery or runtime."""
+    def _handle_device_info(self, upstream: _UpstreamDevice, frame: bytes) -> None:
+        """Handle a device info frame during discovery or runtime."""
         infos = None
         try:
             infos = decoder.parse_all_devices(frame)
