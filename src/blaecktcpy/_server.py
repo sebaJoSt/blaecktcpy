@@ -103,6 +103,7 @@ class _UpstreamDevice:
     _restart_c0_sent: bool = False
     auto_reconnect: bool = False
     _reconnect_cooldown: float = 0.0
+    _reconnect_delay: float = 1.0
     _reconnecting: bool = False
     _awaiting_symbols: bool = False
     _awaiting_devices: bool = False
@@ -1750,15 +1751,20 @@ class BlaeckTCPy:
                     upstream.connected = True
                     upstream._reconnecting = True
                     upstream._restart_detected = False
+                    upstream._reconnect_delay = 1.0
+                    upstream._reconnect_cooldown = 0.0
                     self._start_discovery(upstream)
                     self._logger.info(
                         f"Upstream '{upstream.device_name}' TCP connected, "
                         f"awaiting discovery"
                     )
                 elif result is False:
+                    upstream._reconnect_delay = min(
+                        upstream._reconnect_delay * 2, 30.0
+                    )
                     self._logger.debug(
                         f"Upstream '{upstream.device_name}' reconnect "
-                        f"attempt failed"
+                        f"attempt failed, next in {upstream._reconnect_delay:.0f}s"
                     )
                 # result is None → still pending
                 continue
@@ -1771,8 +1777,12 @@ class BlaeckTCPy:
                 if upstream.auto_reconnect:
                     now = time.time()
                     if now >= upstream._reconnect_cooldown:
-                        upstream._reconnect_cooldown = now + 5.0
                         upstream.transport.start_connect(timeout=5.0)
+                        if not upstream.transport.connect_pending and not upstream.transport.connected:
+                            upstream._reconnect_delay = min(
+                                upstream._reconnect_delay * 2, 30.0
+                            )
+                        upstream._reconnect_cooldown = now + upstream._reconnect_delay
                 continue
 
             frames = upstream.transport.read_frames()
@@ -2184,7 +2194,9 @@ class BlaeckTCPy:
                 f"Schema re-discovery failed for "
                 f"'{upstream.device_name}': {e}"
             )
-        if upstream._awaiting_symbols and new_symbols:
+        if not upstream._awaiting_symbols:
+            return
+        if new_symbols:
             upstream._awaiting_symbols = False
             # Phase 1 → Phase 2: request device info
             upstream.transport.send_command(
@@ -2220,7 +2232,9 @@ class BlaeckTCPy:
                 f"Device info processing for "
                 f"'{upstream.device_name}': {e}"
             )
-        if upstream._awaiting_devices and infos:
+        if not upstream._awaiting_devices:
+            return
+        if infos:
             upstream._awaiting_devices = False
             if upstream._reconnecting:
                 self._finalize_reconnect(
