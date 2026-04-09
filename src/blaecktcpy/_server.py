@@ -108,6 +108,8 @@ class _UpstreamDevice:
     _awaiting_devices: bool = False
     _restart_detected: bool = False
     _discovery_retry_at: float = 0.0
+    _discovery_timeout: float = 0.0
+    _discovery_deadline: float = 0.0
 
     @property
     def signals(self) -> SignalList:
@@ -260,6 +262,9 @@ class BlaeckTCPy:
                 raise OSError(f"Port {self._port} is already in use")
 
         self._start_listening()
+
+        # Connect and discover all upstreams in parallel
+        self._discover_all_upstreams()
 
         # Register upstream signals and build index maps
         if self._upstreams:
@@ -570,10 +575,10 @@ class BlaeckTCPy:
         forward_custom_commands: bool | list[str] = True,
         auto_reconnect: bool = False,
     ) -> _UpstreamDevice:
-        """Connect to an upstream TCP device and discover its signals.
+        """Register an upstream TCP device for later discovery.
 
-        Blocks until the symbol table is fetched or timeout expires.
-        Must be called before :meth:`start`.
+        Does not connect or block; connection and discovery happen
+        in :meth:`start`.  Must be called before :meth:`start`.
 
         Args:
             ip: IP address of the upstream device
@@ -603,7 +608,18 @@ class BlaeckTCPy:
 
         label = name or f"{ip}:{port}"
         transport = UpstreamTCP(label, ip, port, logger=self._logger)
-        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream, forward_custom_commands, auto_reconnect=auto_reconnect)
+        upstream = _UpstreamDevice(
+            device_name=name,
+            transport=transport,
+            interval_ms=interval_ms,
+            connected=False,
+            relay_downstream=relay_downstream,
+            forward_custom_commands=forward_custom_commands,
+            auto_reconnect=auto_reconnect,
+            _discovery_timeout=timeout,
+        )
+        self._upstreams.append(upstream)
+        return upstream
 
     def add_serial(
         self,
@@ -616,8 +632,10 @@ class BlaeckTCPy:
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
     ) -> _UpstreamDevice:
-        """Connect to an upstream serial device and discover its signals.
+        """Register an upstream serial device for later discovery.
 
+        Does not connect or block; connection and discovery happen
+        in :meth:`start`.
         Requires pyserial: ``pip install blaecktcpy[serial]``
         Must be called before :meth:`start`.
 
@@ -650,106 +668,159 @@ class BlaeckTCPy:
 
         label = name or port
         transport = UpstreamSerial(label, port, baudrate, dtr, logger=self._logger)
-        return self._discover_upstream(name, transport, timeout, interval_ms, relay_downstream, forward_custom_commands)
-
-    def _discover_upstream(
-        self,
-        name: str,
-        transport: _UpstreamBase,
-        timeout: float,
-        interval_ms: int = 0,
-        relay_downstream: bool = True,
-        forward_custom_commands: bool | list[str] = True,
-        auto_reconnect: bool = False,
-    ) -> _UpstreamDevice:
-        """Connect and fetch the symbol table from an upstream device."""
-        label = transport.name
-
-        if not transport.connect(timeout):
-            raise ConnectionError(
-                f"Failed to connect to upstream '{label}': {transport.last_error}"
-            )
-
-        # Stop any ongoing timed data transmission
-        transport.send_command("BLAECK.DEACTIVATE")
-
-        # Poll for symbol list with periodic retries
-        transport.send_command("BLAECK.WRITE_SYMBOLS")
-        frame = None
-        max_polls = int(timeout / 0.1)
-        for i in range(max_polls):
-            time.sleep(0.1)
-            frames = transport.read_frames()
-            for f in frames:
-                if len(f) > 0 and f[0] == decoder.MSGKEY_SYMBOL_LIST:
-                    frame = f
-                    break
-            if frame is not None:
-                break
-            if i > 0 and i % 10 == 0:
-                transport.send_command("BLAECK.WRITE_SYMBOLS")
-
-        if frame is None:
-            transport.close()
-            raise TimeoutError(f"Upstream '{label}' did not respond to WRITE_SYMBOLS")
-
-        symbols = decoder.parse_symbol_list(frame)
-        if not symbols:
-            transport.close()
-            raise ValueError(f"Upstream '{label}' reported no signals")
-
         upstream = _UpstreamDevice(
-            device_name=name, transport=transport,
-            interval_ms=interval_ms, relay_downstream=relay_downstream,
+            device_name=name,
+            transport=transport,
+            interval_ms=interval_ms,
+            connected=False,
+            relay_downstream=relay_downstream,
             forward_custom_commands=forward_custom_commands,
-            auto_reconnect=auto_reconnect,
+            _discovery_timeout=timeout,
         )
-        upstream.symbol_table = symbols
-
-        # Fetch device info with polling retries
-        device_msgkeys = decoder.MSGKEY_DEVICES_ALL
-        identity = f",0,0,0,0,{self._device_name.decode()},hub"
-        transport.send_command(f"BLAECK.GET_DEVICES{identity}")
-        frame = None
-        for i in range(max_polls):
-            time.sleep(0.1)
-            frames = transport.read_frames()
-            for f in frames:
-                if len(f) > 0 and f[0] in device_msgkeys:
-                    frame = f
-                    break
-            if frame is not None:
-                break
-            if i > 0 and i % 10 == 0:
-                transport.send_command(f"BLAECK.GET_DEVICES{identity}")
-
-        if frame is not None:
-            try:
-                upstream.device_infos = decoder.parse_all_devices(frame)
-            except Exception as e:
-                self._logger.debug(f"Upstream '{label}' device info parse error: {e}")
-
-        # Use upstream device name if no name was provided
-        if not name and upstream.device_infos:
-            upstream.device_name = upstream.device_infos[0].device_name
-
-        # Consume initial server_restarted so reconnect can detect real restarts
-        for info in (upstream.device_infos or []):
-            if info.server_restarted == "1":
-                upstream._initial_restart_seen = True
-                upstream._restart_c0_sent = True  # suppress first data frame restart_flag too
-                break
         self._upstreams.append(upstream)
-
-        interval_info = ""
-        if upstream.interval_ms >= 0:
-            interval_info = f" (ACTIVATE sent: {upstream.interval_ms} ms — client control locked)"
-        elif upstream.interval_ms == IntervalMode.OFF:
-            interval_info = " (DEACTIVATE sent — client control locked)"
-        elif upstream.interval_ms == IntervalMode.CLIENT:
-            interval_info = " (interval: client controlled)"
-        self._logger.info(f"Upstream '{upstream.device_name}': {len(symbols)} signals discovered{interval_info}")
         return upstream
+
+    def _discover_all_upstreams(self) -> None:
+        """Connect and discover all upstreams in parallel.
+
+        Blocks until every upstream has responded with its symbol table
+        and device info, or raises on timeout / connection failure.
+        Called from :meth:`start` before building caches.
+
+        Upstreams with ``_discovery_timeout <= 0`` are assumed to be
+        pre-configured (e.g. by tests) and are skipped.
+        """
+        pending = [u for u in self._upstreams if u._discovery_timeout > 0]
+        if not pending:
+            return
+
+        # Start all connections
+        for upstream in pending:
+            upstream._discovery_deadline = time.time() + upstream._discovery_timeout
+            upstream.transport.start_connect(upstream._discovery_timeout)
+
+        # Kick off discovery for already-connected transports (serial)
+        for upstream in pending:
+            if upstream.transport.connected:
+                upstream.connected = True
+                self._start_discovery(upstream)
+            elif not upstream.transport.connect_pending:
+                label = upstream.device_name or upstream.transport.name
+                raise ConnectionError(
+                    f"Failed to connect to upstream '{label}': "
+                    f"{upstream.transport.last_error}"
+                )
+
+        # Poll loop — all upstreams advance in parallel
+        while True:
+            any_pending = False
+            for upstream in pending:
+
+                # Already done?
+                if (
+                    not upstream._awaiting_symbols
+                    and not upstream._awaiting_devices
+                    and not upstream.transport.connect_pending
+                    and upstream.connected
+                ):
+                    continue
+
+                any_pending = True
+                label = upstream.device_name or upstream.transport.name
+
+                # Check timeout
+                if time.time() > upstream._discovery_deadline:
+                    upstream.transport.close()
+                    if upstream._awaiting_symbols:
+                        raise TimeoutError(
+                            f"Upstream '{label}' did not respond "
+                            f"to WRITE_SYMBOLS"
+                        )
+                    elif upstream._awaiting_devices:
+                        raise TimeoutError(
+                            f"Upstream '{label}' did not respond "
+                            f"to GET_DEVICES"
+                        )
+                    else:
+                        raise TimeoutError(
+                            f"Upstream '{label}' connect timed out"
+                        )
+
+                # Check pending connect
+                if upstream.transport.connect_pending:
+                    result = upstream.transport.check_connect()
+                    if result is True:
+                        upstream.connected = True
+                        self._start_discovery(upstream)
+                    elif result is False:
+                        label = upstream.device_name or upstream.transport.name
+                        raise ConnectionError(
+                            f"Failed to connect to upstream '{label}': "
+                            f"{upstream.transport.last_error}"
+                        )
+                    continue
+
+                # Read and process frames
+                frames = upstream.transport.read_frames()
+                for frame in frames:
+                    if len(frame) == 0:
+                        continue
+                    msg_key = frame[0]
+                    if (
+                        msg_key == decoder.MSGKEY_SYMBOL_LIST
+                        and upstream._awaiting_symbols
+                    ):
+                        self._process_b0_frame(upstream, frame)
+                    elif (
+                        msg_key in decoder.MSGKEY_DEVICES_ALL
+                        and upstream._awaiting_devices
+                    ):
+                        self._process_b6_frame(upstream, frame)
+
+                # Retry current discovery command
+                self._retry_discovery(upstream)
+
+            if not any_pending:
+                break
+            time.sleep(0.01)
+
+        # Post-discovery finalization
+        for upstream in pending:
+
+            label = upstream.device_name or upstream.transport.name
+            if not upstream.symbol_table:
+                upstream.transport.close()
+                raise ValueError(
+                    f"Upstream '{label}' reported no signals"
+                )
+
+            # Use upstream device name if no name was provided
+            if not upstream.device_name and upstream.device_infos:
+                upstream.device_name = upstream.device_infos[0].device_name
+
+            # Consume initial server_restarted so reconnect detects real restarts
+            for info in (upstream.device_infos or []):
+                if info.server_restarted == "1":
+                    upstream._initial_restart_seen = True
+                    upstream._restart_c0_sent = True
+                    break
+
+            interval_info = ""
+            if upstream.interval_ms >= 0:
+                interval_info = (
+                    f" (ACTIVATE sent: {upstream.interval_ms} ms "
+                    f"— client control locked)"
+                )
+            elif upstream.interval_ms == IntervalMode.OFF:
+                interval_info = " (DEACTIVATE sent — client control locked)"
+            elif upstream.interval_ms == IntervalMode.CLIENT:
+                interval_info = " (interval: client controlled)"
+            self._logger.info(
+                f"Upstream '{upstream.device_name}': "
+                f"{len(upstream.symbol_table)} signals discovered"
+                f"{interval_info}"
+            )
+            upstream._discovery_deadline = 0
 
     # ========================================================================
     # Connection Management
@@ -1689,15 +1760,7 @@ class BlaeckTCPy:
                     upstream.connected = True
                     upstream._reconnecting = True
                     upstream._restart_detected = False
-                    upstream.transport.send_command("BLAECK.DEACTIVATE")
-                    upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
-                    identity = f",0,0,0,0,{self._device_name.decode()},hub"
-                    upstream.transport.send_command(
-                        f"BLAECK.GET_DEVICES{identity}"
-                    )
-                    upstream._awaiting_symbols = True
-                    upstream._awaiting_devices = True
-                    upstream._discovery_retry_at = time.time() + 1.0
+                    self._start_discovery(upstream)
                     self._logger.info(
                         f"Upstream '{upstream.device_name}' TCP connected, "
                         f"awaiting discovery"
@@ -1747,27 +1810,9 @@ class BlaeckTCPy:
                     self._upstream_disconnect_callback(upstream.device_name)
                 continue
 
-            # Retry discovery commands if upstream hasn't responded yet
-            if upstream._reconnecting and (
-                upstream._awaiting_symbols or upstream._awaiting_devices
-            ):
-                now = time.time()
-                if now >= upstream._discovery_retry_at:
-                    upstream._discovery_retry_at = now + 1.0
-                    if upstream._awaiting_symbols:
-                        upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
-                    if upstream._awaiting_devices:
-                        identity = (
-                            f",0,0,0,0,{self._device_name.decode()},hub"
-                        )
-                        upstream.transport.send_command(
-                            f"BLAECK.GET_DEVICES{identity}"
-                        )
-                    self._logger.debug(
-                        f"Upstream '{upstream.device_name}' discovery "
-                        f"retry (symbols={upstream._awaiting_symbols}, "
-                        f"devices={upstream._awaiting_devices})"
-                    )
+            # Retry the current discovery command if upstream hasn't responded
+            if upstream._reconnecting:
+                self._retry_discovery(upstream)
 
             for frame in frames:
                 if len(frame) == 0:
@@ -1776,74 +1821,12 @@ class BlaeckTCPy:
 
                 # Handle B0 symbol list during re-discovery or reconnect
                 if msg_key == decoder.MSGKEY_SYMBOL_LIST and (upstream.schema_stale or upstream._awaiting_symbols):
-                    new_symbols = None
-                    try:
-                        new_symbols = decoder.parse_symbol_list(frame)
-                        if new_symbols:
-                            self._rebuild_upstream_schema(upstream, new_symbols)
-                            self._rebuild_slave_id_map(upstream)
-                            if upstream.schema_stale:
-                                # Request device info to update slave_id_map
-                                identity = f",0,0,0,0,{self._device_name.decode()},hub"
-                                upstream.transport.send_command(
-                                    f"BLAECK.GET_DEVICES{identity}"
-                                )
-                            upstream.schema_stale = False
-                            self._logger.info(
-                                f"Schema refreshed for '{upstream.device_name}': "
-                                f"{len(new_symbols)} signals"
-                            )
-                    except Exception as e:
-                        self._logger.warning(
-                            f"Schema re-discovery failed for "
-                            f"'{upstream.device_name}': {e}"
-                        )
-                    # Only clear flag on success; parse failure lets retry resend
-                    if upstream._awaiting_symbols and new_symbols:
-                        upstream._awaiting_symbols = False
-                        if upstream._reconnecting and not upstream._awaiting_devices:
-                            self._finalize_reconnect(
-                                upstream, upstream._restart_detected
-                            )
-                            upstream._restart_detected = False
+                    self._process_b0_frame(upstream, frame)
                     continue
 
                 # Handle device info frames (update device_infos + slave_id_map)
                 if msg_key in decoder.MSGKEY_DEVICES_ALL:
-                    infos = None
-                    try:
-                        infos = decoder.parse_all_devices(frame)
-                        if infos:
-                            upstream.device_infos = infos
-                            self._rebuild_slave_id_map(upstream)
-                            # Detect upstream restart from device info
-                            for info in infos:
-                                if info.server_restarted == "1":
-                                    if upstream._initial_restart_seen:
-                                        if upstream._awaiting_devices:
-                                            # Defer to _finalize_reconnect
-                                            upstream._restart_detected = True
-                                        else:
-                                            self._send_upstream_restarted_frame(upstream)
-                                            self._resend_activate(upstream)
-                                        self._logger.info(
-                                            f"Upstream '{upstream.device_name}' restart detected via device info"
-                                        )
-                                    else:
-                                        upstream._initial_restart_seen = True
-                    except Exception as e:
-                        self._logger.warning(
-                            f"Device info processing for "
-                            f"'{upstream.device_name}': {e}"
-                        )
-                    # Only clear flag on success; parse failure lets retry resend
-                    if upstream._awaiting_devices and infos:
-                        upstream._awaiting_devices = False
-                        if upstream._reconnecting and not upstream._awaiting_symbols:
-                            self._finalize_reconnect(
-                                upstream, upstream._restart_detected
-                            )
-                            upstream._restart_detected = False
+                    self._process_b6_frame(upstream, frame)
                     continue
 
                 # Forward upstream restart notification (0xC0) to downstream
@@ -2180,6 +2163,108 @@ class BlaeckTCPy:
             upstream.transport.send_command(self._last_client_activate_cmd)
             self._logger.info(
                 f"Upstream '{upstream.device_name}' client interval restored"
+            )
+
+    def _start_discovery(self, upstream: _UpstreamDevice) -> None:
+        """Begin discovery Phase 1: send DEACTIVATE + WRITE_SYMBOLS."""
+        upstream.transport.send_command("BLAECK.DEACTIVATE")
+        upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+        upstream._awaiting_symbols = True
+        upstream._discovery_retry_at = time.time() + 1.0
+
+    def _process_b0_frame(self, upstream: _UpstreamDevice, frame: bytes) -> None:
+        """Process a B0 symbol list during discovery or schema refresh."""
+        new_symbols = None
+        try:
+            new_symbols = decoder.parse_symbol_list(frame)
+            if new_symbols:
+                if self._started:
+                    self._rebuild_upstream_schema(upstream, new_symbols)
+                    self._rebuild_slave_id_map(upstream)
+                    if upstream.schema_stale:
+                        identity = f",0,0,0,0,{self._device_name.decode()},hub"
+                        upstream.transport.send_command(
+                            f"BLAECK.GET_DEVICES{identity}"
+                        )
+                    upstream.schema_stale = False
+                else:
+                    upstream.symbol_table = new_symbols
+                    upstream.expected_schema_hash = decoder.compute_schema_hash(
+                        [(s.name, s.datatype_code) for s in new_symbols]
+                    )
+                self._logger.info(
+                    f"Schema refreshed for '{upstream.device_name}': "
+                    f"{len(new_symbols)} signals"
+                )
+        except Exception as e:
+            self._logger.warning(
+                f"Schema re-discovery failed for "
+                f"'{upstream.device_name}': {e}"
+            )
+        if upstream._awaiting_symbols and new_symbols:
+            upstream._awaiting_symbols = False
+            # Phase 1 → Phase 2: request device info
+            identity = f",0,0,0,0,{self._device_name.decode()},hub"
+            upstream.transport.send_command(
+                f"BLAECK.GET_DEVICES{identity}"
+            )
+            upstream._awaiting_devices = True
+            upstream._discovery_retry_at = time.time() + 1.0
+
+    def _process_b6_frame(self, upstream: _UpstreamDevice, frame: bytes) -> None:
+        """Process a B6 device info frame during discovery or runtime."""
+        infos = None
+        try:
+            infos = decoder.parse_all_devices(frame)
+            if infos:
+                upstream.device_infos = infos
+                if self._started:
+                    self._rebuild_slave_id_map(upstream)
+                    for info in infos:
+                        if info.server_restarted == "1":
+                            if upstream._initial_restart_seen:
+                                if upstream._awaiting_devices:
+                                    upstream._restart_detected = True
+                                else:
+                                    self._send_upstream_restarted_frame(upstream)
+                                    self._resend_activate(upstream)
+                                self._logger.info(
+                                    f"Upstream '{upstream.device_name}' "
+                                    f"restart detected via device info"
+                                )
+                            else:
+                                upstream._initial_restart_seen = True
+        except Exception as e:
+            self._logger.warning(
+                f"Device info processing for "
+                f"'{upstream.device_name}': {e}"
+            )
+        if upstream._awaiting_devices and infos:
+            upstream._awaiting_devices = False
+            if upstream._reconnecting:
+                self._finalize_reconnect(
+                    upstream, upstream._restart_detected
+                )
+                upstream._restart_detected = False
+
+    def _retry_discovery(self, upstream: _UpstreamDevice) -> None:
+        """Retry the current discovery command if response hasn't arrived."""
+        if not (upstream._awaiting_symbols or upstream._awaiting_devices):
+            return
+        now = time.time()
+        if now >= upstream._discovery_retry_at:
+            upstream._discovery_retry_at = now + 1.0
+            if upstream._awaiting_symbols:
+                upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+            elif upstream._awaiting_devices:
+                identity = (
+                    f",0,0,0,0,{self._device_name.decode()},hub"
+                )
+                upstream.transport.send_command(
+                    f"BLAECK.GET_DEVICES{identity}"
+                )
+            self._logger.debug(
+                f"Upstream '{upstream.device_name}' discovery retry"
             )
 
     def _finalize_reconnect(self, upstream: _UpstreamDevice, restart_detected: bool = False) -> None:

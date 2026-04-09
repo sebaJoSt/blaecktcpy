@@ -148,7 +148,7 @@ class TestAsyncReconnectStateMachine:
             device.close()
 
     def test_connect_success_sends_discovery_commands(self):
-        """After async connect succeeds, DEACTIVATE + WRITE_SYMBOLS + GET_DEVICES are sent."""
+        """After async connect succeeds, DEACTIVATE + WRITE_SYMBOLS are sent (Phase 1)."""
         device, upstream, transport = _make_hub_with_reconnectable_upstream(
             [("temp", 8)]
         )
@@ -166,14 +166,13 @@ class TestAsyncReconnectStateMachine:
             assert upstream.connected is True
             assert upstream._reconnecting is True
             assert upstream._awaiting_symbols is True
-            assert upstream._awaiting_devices is True
+            assert upstream._awaiting_devices is False  # Phase 1: only symbols
 
-            # Verify commands sent
+            # Verify commands sent (only DEACTIVATE + WRITE_SYMBOLS, not GET_DEVICES yet)
             sent_cmds = [s.decode(errors="replace") for s in transport.sent]
             assert any("BLAECK.DEACTIVATE" in c for c in sent_cmds)
             assert any("BLAECK.WRITE_SYMBOLS" in c for c in sent_cmds)
-            assert any("BLAECK.GET_DEVICES" in c for c in sent_cmds)
-            assert any("hub" in c for c in sent_cmds)  # identity included
+            assert not any("BLAECK.GET_DEVICES" in c for c in sent_cmds)
         finally:
             device.close()
 
@@ -226,30 +225,33 @@ class TestAsyncReconnectStateMachine:
         finally:
             device.close()
 
-    def test_b6_before_b0_also_works(self):
-        """B6 arriving before B0 should also complete reconnect."""
+    def test_sequential_phases_b0_then_b6(self):
+        """B0 triggers GET_DEVICES (Phase 2), then B6 finalizes (Phase 3)."""
         device, upstream, transport = _make_hub_with_reconnectable_upstream(
             [("temp", 8)]
         )
         try:
             upstream._reconnecting = True
             upstream._awaiting_symbols = True
-            upstream._awaiting_devices = True
 
-            # B6 first
-            b6 = _build_b6_frame()
-            transport.inject_frame(b6)
-            device._poll_upstreams()
-
-            assert upstream._awaiting_devices is False
-            assert upstream._reconnecting is True  # still waiting for B0
-
-            # B0 second
+            # Phase 1 → Phase 2: B0 arrives
             b0 = _build_b0_frame([("temp", 8)])
             transport.inject_frame(b0)
             device._poll_upstreams()
 
             assert upstream._awaiting_symbols is False
+            assert upstream._awaiting_devices is True  # GET_DEVICES sent
+            assert upstream._reconnecting is True
+            # Verify GET_DEVICES was sent
+            sent_cmds = [s.decode(errors="replace") for s in transport.sent]
+            assert any("BLAECK.GET_DEVICES" in c for c in sent_cmds)
+
+            # Phase 2 → Phase 3: B6 arrives
+            b6 = _build_b6_frame()
+            transport.inject_frame(b6)
+            device._poll_upstreams()
+
+            assert upstream._awaiting_devices is False
             assert upstream._reconnecting is False  # finalized
         finally:
             device.close()
@@ -262,14 +264,13 @@ class TestAsyncReconnectStateMachine:
         try:
             upstream._reconnecting = True
             upstream._awaiting_symbols = True
-            upstream._awaiting_devices = True
 
-            # Inject B0
+            # Phase 1: B0 arrives → Phase 2
             b0 = _build_b0_frame([("temp", 8)])
             transport.inject_frame(b0)
             device._poll_upstreams()
 
-            # Inject B6 with server_restarted=1
+            # Phase 2: B6 with server_restarted=1
             b6 = _build_b6_frame(server_restarted="1")
             transport.inject_frame(b6)
             device._poll_upstreams()
@@ -281,7 +282,7 @@ class TestAsyncReconnectStateMachine:
             device.close()
 
     def test_full_disconnect_reconnect_cycle(self):
-        """Full cycle: connected → disconnect → async connect → discovery → reconnected."""
+        """Full cycle: connected → disconnect → async connect → Phase 1 → Phase 2 → reconnected."""
         device, upstream, transport = _make_hub_with_reconnectable_upstream(
             [("temp", 8)]
         )
@@ -294,20 +295,24 @@ class TestAsyncReconnectStateMachine:
             assert upstream.connected is False
             assert transport.connect_pending is True
 
-            # 2. Connect completes
+            # 2. Connect completes → Phase 1 (awaiting symbols)
             transport.complete_connect(success=True)
             device._poll_upstreams()
             assert upstream.connected is True
             assert upstream._awaiting_symbols is True
-            assert upstream._awaiting_devices is True
+            assert upstream._awaiting_devices is False
 
-            # 3. Inject B0 + B6 (may need two polls since read_available returns one at a time)
+            # 3. B0 arrives → Phase 2 (awaiting devices)
             b0 = _build_b0_frame([("temp", 8)])
             transport.inject_frame(b0)
+            device._poll_upstreams()
+            assert upstream._awaiting_symbols is False
+            assert upstream._awaiting_devices is True
+
+            # 4. B6 arrives → Phase 3 (finalized)
             b6 = _build_b6_frame()
             transport.inject_frame(b6)
             device._poll_upstreams()
-            device._poll_upstreams()  # second poll for second frame
 
             assert upstream._reconnecting is False
             assert upstream._awaiting_symbols is False
@@ -355,16 +360,18 @@ class TestAsyncReconnectTiming:
             # Tick 1: detect disconnect, start connect
             device._poll_upstreams()
 
-            # Tick 2: connect completes
+            # Tick 2: connect completes → Phase 1
             transport.complete_connect(success=True)
             device._poll_upstreams()
 
-            # Tick 3+4: inject frames, finalize (one frame per poll cycle)
+            # Tick 3: B0 arrives → Phase 2
             b0 = _build_b0_frame([("temp", 8)])
-            b6 = _build_b6_frame()
             transport.inject_frame(b0)
-            transport.inject_frame(b6)
             device._poll_upstreams()
+
+            # Tick 4: B6 arrives → Phase 3 (finalized)
+            b6 = _build_b6_frame()
+            transport.inject_frame(b6)
             device._poll_upstreams()
 
             elapsed = time.monotonic() - t0

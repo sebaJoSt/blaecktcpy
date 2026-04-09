@@ -34,8 +34,10 @@ class TestBoolCoercionStrictness:
             device.add_serial("COM99", forward_custom_commands=1)
 
     def test_add_tcp_accepts_true_false(self):
-        """Sanity: actual booleans don't raise (connection will fail but that's OK)."""
+        """Sanity: actual booleans don't raise (connection will fail in start())."""
         device = _make_server_on_free_port()
-        # These should reach the transport layer (and fail there), not TypeError
+        # add_tcp no longer connects — it just registers the upstream.
+        # The connection error surfaces in start().
+        device.add_tcp("127.0.0.1", 1, relay_downstream=True, forward_custom_commands=False, timeout=0.1)
         with pytest.raises(Exception, match="(?!relay_downstream|forward_custom_commands)"):
-            device.add_tcp("127.0.0.1", 1, relay_downstream=True, forward_custom_commands=False, timeout=0.1)
+            device.start()
