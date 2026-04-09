@@ -107,6 +107,7 @@ class _UpstreamDevice:
     _awaiting_symbols: bool = False
     _awaiting_devices: bool = False
     _restart_detected: bool = False
+    _discovery_retry_at: float = 0.0
 
     @property
     def signals(self) -> SignalList:
@@ -1696,6 +1697,7 @@ class BlaeckTCPy:
                     )
                     upstream._awaiting_symbols = True
                     upstream._awaiting_devices = True
+                    upstream._discovery_retry_at = time.time() + 1.0
                     self._logger.info(
                         f"Upstream '{upstream.device_name}' TCP connected, "
                         f"awaiting discovery"
@@ -1715,6 +1717,7 @@ class BlaeckTCPy:
                     upstream._awaiting_symbols = False
                     upstream._awaiting_devices = False
                     upstream._restart_detected = False
+                    upstream._discovery_retry_at = 0.0
                     self._zero_upstream_signals(upstream)
                     self._send_upstream_lost_frame(upstream)
                     if self._upstream_disconnect_callback is not None:
@@ -1737,11 +1740,34 @@ class BlaeckTCPy:
                 upstream._awaiting_symbols = False
                 upstream._awaiting_devices = False
                 upstream._restart_detected = False
+                upstream._discovery_retry_at = 0.0
                 self._zero_upstream_signals(upstream)
                 self._send_upstream_lost_frame(upstream)
                 if self._upstream_disconnect_callback is not None:
                     self._upstream_disconnect_callback(upstream.device_name)
                 continue
+
+            # Retry discovery commands if upstream hasn't responded yet
+            if upstream._reconnecting and (
+                upstream._awaiting_symbols or upstream._awaiting_devices
+            ):
+                now = time.time()
+                if now >= upstream._discovery_retry_at:
+                    upstream._discovery_retry_at = now + 1.0
+                    if upstream._awaiting_symbols:
+                        upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+                    if upstream._awaiting_devices:
+                        identity = (
+                            f",0,0,0,0,{self._device_name.decode()},hub"
+                        )
+                        upstream.transport.send_command(
+                            f"BLAECK.GET_DEVICES{identity}"
+                        )
+                    self._logger.debug(
+                        f"Upstream '{upstream.device_name}' discovery "
+                        f"retry (symbols={upstream._awaiting_symbols}, "
+                        f"devices={upstream._awaiting_devices})"
+                    )
 
             for frame in frames:
                 if len(frame) == 0:
