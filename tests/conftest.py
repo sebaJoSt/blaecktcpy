@@ -31,12 +31,43 @@ class FakeTransport(_UpstreamBase):
     def __init__(self, name="fake"):
         super().__init__(name)
         self._connected = True
+        self._pending_frames: list[bytes] = []
+        self._connect_result: bool | None = None
 
     def connect(self, timeout=5.0):
         self._connected = True
         return True
 
+    def start_connect(self, timeout=5.0):
+        self._connect_pending = True
+        self._connect_result = None
+
+    def check_connect(self):
+        if self._connected and not self._connect_pending:
+            return True
+        if not self._connect_pending:
+            return False
+        if self._connect_result is not None:
+            self._connect_pending = False
+            if self._connect_result:
+                self._connected = True
+                return True
+            self._connect_result = None
+            return False
+        return None  # still pending
+
+    def complete_connect(self, success=True):
+        """Test helper: resolve a pending async connect on next check."""
+        self._connect_result = success
+
+    def inject_frame(self, content: bytes):
+        """Test helper: queue a raw frame for read_frames() to return."""
+        self._pending_frames.append(content)
+
     def read_available(self):
+        if self._pending_frames:
+            frame = self._pending_frames.pop(0)
+            return b"<BLAECK:" + frame + b"/BLAECK>"
         return b""
 
     def send(self, data):
@@ -44,6 +75,8 @@ class FakeTransport(_UpstreamBase):
 
     def close(self):
         self._connected = False
+        self._connect_pending = False
+        self._connect_result = None
 
 
 class RecordingTransport(_UpstreamBase):
@@ -53,12 +86,43 @@ class RecordingTransport(_UpstreamBase):
         super().__init__(name)
         self._connected = True
         self.sent: list[bytes] = []
+        self._pending_frames: list[bytes] = []
+        self._connect_result: bool | None = None
 
     def connect(self, timeout=5.0):
         self._connected = True
         return True
 
+    def start_connect(self, timeout=5.0):
+        self._connect_pending = True
+        self._connect_result = None
+
+    def check_connect(self):
+        if self._connected and not self._connect_pending:
+            return True
+        if not self._connect_pending:
+            return False
+        if self._connect_result is not None:
+            self._connect_pending = False
+            if self._connect_result:
+                self._connected = True
+                return True
+            self._connect_result = None
+            return False
+        return None  # still pending
+
+    def complete_connect(self, success=True):
+        """Test helper: resolve a pending async connect on next check."""
+        self._connect_result = success
+
+    def inject_frame(self, content: bytes):
+        """Test helper: queue a raw frame for read_frames() to return."""
+        self._pending_frames.append(content)
+
     def read_available(self):
+        if self._pending_frames:
+            frame = self._pending_frames.pop(0)
+            return b"<BLAECK:" + frame + b"/BLAECK>"
         return b""
 
     def send(self, data):
@@ -67,3 +131,5 @@ class RecordingTransport(_UpstreamBase):
 
     def close(self):
         self._connected = False
+        self._connect_pending = False
+        self._connect_result = None

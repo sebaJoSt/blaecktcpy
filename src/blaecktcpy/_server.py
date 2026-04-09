@@ -106,6 +106,7 @@ class _UpstreamDevice:
     _reconnecting: bool = False
     _awaiting_symbols: bool = False
     _awaiting_devices: bool = False
+    _restart_detected: bool = False
 
     @property
     def signals(self) -> SignalList:
@@ -1680,12 +1681,40 @@ class BlaeckTCPy:
             return
 
         for upstream in self._upstreams:
+            # Check pending non-blocking connect
+            if upstream.transport.connect_pending:
+                result = upstream.transport.check_connect()
+                if result is True:
+                    upstream.connected = True
+                    upstream._reconnecting = True
+                    upstream._restart_detected = False
+                    upstream.transport.send_command("BLAECK.DEACTIVATE")
+                    upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+                    identity = f",0,0,0,0,{self._device_name.decode()},hub"
+                    upstream.transport.send_command(
+                        f"BLAECK.GET_DEVICES{identity}"
+                    )
+                    upstream._awaiting_symbols = True
+                    upstream._awaiting_devices = True
+                    self._logger.info(
+                        f"Upstream '{upstream.device_name}' TCP connected, "
+                        f"awaiting discovery"
+                    )
+                elif result is False:
+                    self._logger.debug(
+                        f"Upstream '{upstream.device_name}' reconnect "
+                        f"attempt failed"
+                    )
+                # result is None → still pending
+                continue
+
             if not upstream.transport.connected:
                 if upstream.connected:
                     upstream.connected = False
                     upstream._reconnecting = False
                     upstream._awaiting_symbols = False
                     upstream._awaiting_devices = False
+                    upstream._restart_detected = False
                     self._zero_upstream_signals(upstream)
                     self._send_upstream_lost_frame(upstream)
                     if self._upstream_disconnect_callback is not None:
@@ -1696,60 +1725,7 @@ class BlaeckTCPy:
                     now = time.time()
                     if now >= upstream._reconnect_cooldown:
                         upstream._reconnect_cooldown = now + 5.0
-                        if upstream.transport.connect(timeout=2.0):
-                            upstream.connected = True
-                            upstream._reconnecting = True
-                            # Same pattern as initial discovery: DEACTIVATE, then
-                            # send commands and poll for device info with retries
-                            upstream.transport.send_command("BLAECK.DEACTIVATE")
-                            upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
-                            identity = f",0,0,0,0,{self._device_name.decode()},hub"
-                            upstream.transport.send_command(
-                                f"BLAECK.GET_DEVICES{identity}"
-                            )
-                            device_frame = None
-                            for i in range(20):  # up to 2 s
-                                time.sleep(0.1)
-                                frames = upstream.transport.read_frames()
-                                for f in frames:
-                                    if len(f) > 0 and f[0] in decoder.MSGKEY_DEVICES_ALL:
-                                        device_frame = f
-                                        break
-                                if device_frame is not None:
-                                    break
-                                if i > 0 and i % 10 == 0:
-                                    upstream.transport.send_command(
-                                        f"BLAECK.GET_DEVICES{identity}"
-                                    )
-                            if device_frame is not None:
-                                restart_detected = False
-                                try:
-                                    infos = decoder.parse_all_devices(device_frame)
-                                    if infos:
-                                        upstream.device_infos = infos
-                                        self._rebuild_slave_id_map(upstream)
-                                        for info in infos:
-                                            if info.server_restarted == "1":
-                                                restart_detected = True
-                                                self._logger.info(
-                                                    f"Upstream '{upstream.device_name}' restart detected via device info"
-                                                )
-                                except Exception as e:
-                                    self._logger.warning(
-                                        f"Device info processing for "
-                                        f"'{upstream.device_name}': {e}"
-                                    )
-                            else:
-                                restart_detected = False
-                            if upstream.transport.connected:
-                                self._finalize_reconnect(upstream, restart_detected)
-                            else:
-                                upstream.connected = False
-                                upstream._reconnecting = False
-                        else:
-                            self._logger.debug(
-                                f"Upstream '{upstream.device_name}' reconnect attempt failed"
-                            )
+                        upstream.transport.start_connect(timeout=5.0)
                 continue
 
             frames = upstream.transport.read_frames()
@@ -1760,6 +1736,7 @@ class BlaeckTCPy:
                 upstream._reconnecting = False
                 upstream._awaiting_symbols = False
                 upstream._awaiting_devices = False
+                upstream._restart_detected = False
                 self._zero_upstream_signals(upstream)
                 self._send_upstream_lost_frame(upstream)
                 if self._upstream_disconnect_callback is not None:
@@ -1798,7 +1775,10 @@ class BlaeckTCPy:
                     if upstream._awaiting_symbols:
                         upstream._awaiting_symbols = False
                         if upstream._reconnecting and not upstream._awaiting_devices:
-                            self._finalize_reconnect(upstream)
+                            self._finalize_reconnect(
+                                upstream, upstream._restart_detected
+                            )
+                            upstream._restart_detected = False
                     continue
 
                 # Handle device info frames (update device_infos + slave_id_map)
@@ -1812,8 +1792,12 @@ class BlaeckTCPy:
                             for info in infos:
                                 if info.server_restarted == "1":
                                     if upstream._initial_restart_seen:
-                                        self._send_upstream_restarted_frame(upstream)
-                                        self._resend_activate(upstream)
+                                        if upstream._awaiting_devices:
+                                            # Defer to _finalize_reconnect
+                                            upstream._restart_detected = True
+                                        else:
+                                            self._send_upstream_restarted_frame(upstream)
+                                            self._resend_activate(upstream)
                                         self._logger.info(
                                             f"Upstream '{upstream.device_name}' restart detected via device info"
                                         )
@@ -1828,7 +1812,10 @@ class BlaeckTCPy:
                     if upstream._awaiting_devices:
                         upstream._awaiting_devices = False
                         if not upstream._awaiting_symbols:
-                            self._finalize_reconnect(upstream)
+                            self._finalize_reconnect(
+                                upstream, upstream._restart_detected
+                            )
+                            upstream._restart_detected = False
                     continue
 
                 # Forward upstream restart notification (0xC0) to downstream

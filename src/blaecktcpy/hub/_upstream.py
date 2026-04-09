@@ -5,7 +5,9 @@ upstream BlaeckTCP(y)/BlaeckSerial devices as a client, reading
 binary frames from their data stream.
 """
 
+import errno
 import logging
+import select
 import socket
 import time
 
@@ -22,6 +24,7 @@ class _UpstreamBase:
         self._logger = logger or logging.getLogger("blaecktcpy")
         self._buffer = b""
         self._connected = False
+        self._connect_pending = False
         self._last_seen = 0.0
         self.last_error: str = ""
 
@@ -38,6 +41,33 @@ class _UpstreamBase:
 
     def close(self) -> None:
         raise NotImplementedError
+
+    # -- Non-blocking connect (override in subclass for true async) --
+
+    def start_connect(self, timeout: float = 5.0) -> None:
+        """Initiate a non-blocking connect.
+
+        Default implementation falls back to blocking :meth:`connect`.
+        Subclasses (e.g. UpstreamTCP) override for true async.
+        """
+        if self.connect(timeout):
+            self._connect_pending = False
+        else:
+            self._connect_pending = False
+
+    def check_connect(self) -> bool | None:
+        """Check if a pending connect has completed.
+
+        Returns:
+            True if connected, False if failed, None if still pending.
+        """
+        if self._connected:
+            return True
+        return False
+
+    @property
+    def connect_pending(self) -> bool:
+        return self._connect_pending
 
     # -- Shared API --
 
@@ -101,6 +131,7 @@ class _UpstreamBase:
 
     def _cleanup(self):
         self._connected = False
+        self._connect_pending = False
         self._buffer = b""
 
 
@@ -112,6 +143,7 @@ class UpstreamTCP(_UpstreamBase):
         self.ip = ip
         self.port = port
         self._socket: socket.socket | None = None
+        self._connect_deadline: float = 0.0
 
     def connect(self, timeout: float = 5.0) -> bool:
         try:
@@ -127,6 +159,90 @@ class UpstreamTCP(_UpstreamBase):
         except OSError as e:
             self.last_error = str(e)
             self._logger.error(f"Upstream '{self.name}' connection failed: {e}")
+            self._cleanup()
+            return False
+
+    def start_connect(self, timeout: float = 5.0) -> None:
+        """Initiate a non-blocking TCP connect."""
+        try:
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._socket.setblocking(False)
+            err = self._socket.connect_ex((self.ip, self.port))
+            # 10035 = WSAEWOULDBLOCK on Windows
+            if err == 0:
+                self._connected = True
+                self._connect_pending = False
+                self._last_seen = time.time()
+                self._logger.info(
+                    f"Upstream '{self.name}' connected: {self.ip}:{self.port}"
+                )
+            elif err in (errno.EINPROGRESS, errno.EWOULDBLOCK, 10035, 10036):
+                self._connect_pending = True
+                self._connect_deadline = time.time() + timeout
+            else:
+                raise OSError(err, f"connect_ex returned {err}")
+        except OSError as e:
+            self.last_error = str(e)
+            self._logger.debug(
+                f"Upstream '{self.name}' async connect failed: {e}"
+            )
+            self._cleanup()
+
+    def check_connect(self) -> bool | None:
+        """Check if a pending non-blocking connect has completed."""
+        if self._connected:
+            return True
+        if not self._connect_pending or not self._socket:
+            return False
+        # Timeout check
+        if time.time() > self._connect_deadline:
+            self.last_error = "connect timeout"
+            self._logger.debug(
+                f"Upstream '{self.name}' async connect timed out"
+            )
+            self._cleanup()
+            return False
+        try:
+            _, writable, errored = select.select(
+                [], [self._socket], [self._socket], 0
+            )
+            if errored:
+                err = self._socket.getsockopt(
+                    socket.SOL_SOCKET, socket.SO_ERROR
+                )
+                self.last_error = f"SO_ERROR={err}"
+                self._logger.debug(
+                    f"Upstream '{self.name}' async connect error: {err}"
+                )
+                self._cleanup()
+                return False
+            if writable:
+                err = self._socket.getsockopt(
+                    socket.SOL_SOCKET, socket.SO_ERROR
+                )
+                if err == 0:
+                    self._connected = True
+                    self._connect_pending = False
+                    self._last_seen = time.time()
+                    self._logger.info(
+                        f"Upstream '{self.name}' connected: "
+                        f"{self.ip}:{self.port}"
+                    )
+                    return True
+                self.last_error = f"SO_ERROR={err}"
+                self._logger.debug(
+                    f"Upstream '{self.name}' async connect failed: "
+                    f"SO_ERROR={err}"
+                )
+                self._cleanup()
+                return False
+            return None  # still pending
+        except OSError as e:
+            self.last_error = str(e)
+            self._logger.debug(
+                f"Upstream '{self.name}' async connect check failed: {e}"
+            )
             self._cleanup()
             return False
 
