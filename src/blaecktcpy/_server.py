@@ -694,10 +694,14 @@ class BlaeckTCPy:
         if not pending:
             return
 
-        # Start all connections
+        # Start all connections (serial blocks, TCP is async)
+        for upstream in pending:
+            upstream.transport.start_connect(upstream._discovery_timeout)
+
+        # Set discovery deadlines AFTER connects so serial boot time
+        # doesn't eat into the discovery window.
         for upstream in pending:
             upstream._discovery_deadline = time.time() + upstream._discovery_timeout
-            upstream.transport.start_connect(upstream._discovery_timeout)
 
         # Kick off discovery for already-connected transports (serial)
         for upstream in pending:
