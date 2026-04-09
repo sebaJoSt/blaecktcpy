@@ -23,6 +23,12 @@ LIB_NAME = "blaecktcpy"
 
 _MAX_RECV_BUFFER = 65536  # 64 KB per-client receive buffer limit
 
+# ANSI color helpers (only when stdout is a terminal)
+_USE_COLOR = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+_BOLD = "\033[1m" if _USE_COLOR else ""
+_BLUE_ULINE = "\033[94;4m" if _USE_COLOR else ""
+_RESET = "\033[0m" if _USE_COLOR else ""
+
 # Status byte values for data frames
 STATUS_OK = 0x00
 STATUS_UPSTREAM_LOST = 0x80
@@ -349,14 +355,14 @@ class BlaeckTCPy:
         n_up = len(self._upstreams)
         if n_up:
             self._logger.info(
-                f"blaecktcpy v{LIB_VERSION} — Listening on "
-                f"{self._ip}:{self._port} "
+                f"{_RESET}{_BOLD}blaecktcpy v{LIB_VERSION}{_RESET} — Listening on "
+                f"{_BOLD}{self._ip}:{self._port}{_RESET} "
                 f"({total} signals, {n_up} upstream{'s' if n_up != 1 else ''})"
             )
         else:
             self._logger.info(
-                f"blaecktcpy v{LIB_VERSION} — Listening on "
-                f"{self._ip}:{self._port}"
+                f"{_RESET}{_BOLD}blaecktcpy v{LIB_VERSION}{_RESET} — Listening on "
+                f"{_BOLD}{self._ip}:{self._port}{_RESET}"
             )
 
         # Start HTTP status page
@@ -381,7 +387,8 @@ class BlaeckTCPy:
                     )
             if self._httpd is not None:
                 self._logger.info(
-                    f"Status page: http://{http_ip}:{self._http_port}"
+                    f"{_RESET}Status page: "
+                    f"{_BLUE_ULINE}http://{http_ip}:{self._http_port}{_RESET}"
                 )
 
         atexit.register(self.close)
@@ -1762,6 +1769,9 @@ class BlaeckTCPy:
                     upstream._reconnect_delay = min(
                         upstream._reconnect_delay * 2, 30.0
                     )
+                    upstream._reconnect_cooldown = (
+                        time.time() + upstream._reconnect_delay
+                    )
                     self._logger.debug(
                         f"Upstream '{upstream.device_name}' reconnect "
                         f"attempt failed, next in {upstream._reconnect_delay:.0f}s"
@@ -1791,10 +1801,6 @@ class BlaeckTCPy:
             if upstream.connected and not upstream.transport.connected:
                 self._handle_upstream_disconnect(upstream)
                 continue
-
-            # Retry the current discovery command if upstream hasn't responded
-            if upstream._reconnecting:
-                self._retry_discovery(upstream)
 
             for frame in frames:
                 if len(frame) == 0:
@@ -1961,6 +1967,10 @@ class BlaeckTCPy:
                         self._logger.warning(
                             f"Upstream '{upstream.device_name}' frame dropped: {e}"
                         )
+
+            # Retry discovery after processing frames (avoids redundant resends)
+            if upstream._reconnecting:
+                self._retry_discovery(upstream)
 
     def _fire_data_received(self, upstream: _UpstreamDevice) -> None:
         """Invoke all matching on_data_received callbacks."""
