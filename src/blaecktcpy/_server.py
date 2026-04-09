@@ -1776,6 +1776,7 @@ class BlaeckTCPy:
 
                 # Handle B0 symbol list during re-discovery or reconnect
                 if msg_key == decoder.MSGKEY_SYMBOL_LIST and (upstream.schema_stale or upstream._awaiting_symbols):
+                    new_symbols = None
                     try:
                         new_symbols = decoder.parse_symbol_list(frame)
                         if new_symbols:
@@ -1797,8 +1798,8 @@ class BlaeckTCPy:
                             f"Schema re-discovery failed for "
                             f"'{upstream.device_name}': {e}"
                         )
-                    # Always clear flag and finalize, even if parsing failed
-                    if upstream._awaiting_symbols:
+                    # Only clear flag on success; parse failure lets retry resend
+                    if upstream._awaiting_symbols and new_symbols:
                         upstream._awaiting_symbols = False
                         if upstream._reconnecting and not upstream._awaiting_devices:
                             self._finalize_reconnect(
@@ -1809,6 +1810,7 @@ class BlaeckTCPy:
 
                 # Handle device info frames (update device_infos + slave_id_map)
                 if msg_key in decoder.MSGKEY_DEVICES_ALL:
+                    infos = None
                     try:
                         infos = decoder.parse_all_devices(frame)
                         if infos:
@@ -1834,10 +1836,10 @@ class BlaeckTCPy:
                             f"Device info processing for "
                             f"'{upstream.device_name}': {e}"
                         )
-                    # Always clear flag and finalize, even if parsing failed
-                    if upstream._awaiting_devices:
+                    # Only clear flag on success; parse failure lets retry resend
+                    if upstream._awaiting_devices and infos:
                         upstream._awaiting_devices = False
-                        if not upstream._awaiting_symbols:
+                        if upstream._reconnecting and not upstream._awaiting_symbols:
                             self._finalize_reconnect(
                                 upstream, upstream._restart_detected
                             )
