@@ -1,7 +1,6 @@
 """BlaeckTCPy — Unified BlaeckTCP Protocol Implementation."""
 
 import atexit
-import binascii
 import logging
 import selectors
 import signal
@@ -12,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import _encoder
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from .hub import _decoder as decoder
 from .hub._upstream import UpstreamTCP, _UpstreamBase
@@ -32,14 +32,13 @@ _BOLD = "\033[1m" if _USE_COLOR else ""
 _BLUE_ULINE = "\033[94;4m" if _USE_COLOR else ""
 _RESET = "\033[0m" if _USE_COLOR else ""
 
-# Status byte values for data frames
-STATUS_OK = 0x00
-STATUS_UPSTREAM_LOST = 0x80
-STATUS_UPSTREAM_RECONNECTED = 0x81
+# Re-export encoding constants for backward compatibility
+STATUS_OK = _encoder.STATUS_OK
+STATUS_UPSTREAM_LOST = _encoder.STATUS_UPSTREAM_LOST
+STATUS_UPSTREAM_RECONNECTED = _encoder.STATUS_UPSTREAM_RECONNECTED
 
-# MasterSlaveConfig byte values
-_MSC_MASTER = b"\x01"
-_MSC_SLAVE = b"\x02"
+_MSC_MASTER = _encoder.MSC_MASTER
+_MSC_SLAVE = _encoder.MSC_SLAVE
 
 # Message IDs for data frames
 _MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B — client-controlled (BLAECK.ACTIVATE)
@@ -1453,25 +1452,15 @@ class BlaeckTCPy:
         restarted: bytes, device_type: bytes, parent: bytes,
     ) -> bytes:
         """Encode a single B6 device entry (MSC through Parent)."""
-        return (
-            msc + slave_id
-            + name + b"\0"
-            + hw + b"\0"
-            + fw + b"\0"
-            + lib_ver + b"\0"
-            + lib_name + b"\0"
-            + restarted + b"\0"
-            + device_type + b"\0"
-            + parent + b"\0"
+        return _encoder.encode_device_entry(
+            msc, slave_id, name, hw, fw,
+            lib_ver, lib_name, restarted, device_type, parent,
         )
 
     def _build_client_trailer(self, client_id: int) -> bytes:
         """Build B6 client trailer: ClientNo, DataEnabled, ClientName, ClientType."""
-        return (
-            str(client_id).encode() + b"\0"
-            + (b"1" if client_id in self.data_clients else b"0") + b"\0"
-            + self._client_meta.get(client_id, {}).get("name", "").encode() + b"\0"
-            + self._client_meta.get(client_id, {}).get("type", "unknown").encode() + b"\0"
+        return _encoder.build_client_trailer(
+            client_id, self.data_clients, self._client_meta,
         )
 
     def write_all_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None) -> None:
@@ -2348,73 +2337,27 @@ class BlaeckTCPy:
     ) -> bytes:
         """Build data message with CRC32 checksum (v5 format).
 
-        Args:
-            header: Pre-built header bytes (msg_key:msg_id:)
-            start: First signal index (inclusive)
-            end: Last signal index (inclusive), -1 = last signal
-            only_updated: If True, include only signals with updated=True
-            timestamp: Timestamp in microseconds (uint64), or None
-            timestamp_mode: Timestamp mode byte. If None, uses the
-                instance's :attr:`timestamp_mode`.
-            status: Status byte (STATUS_OK, STATUS_UPSTREAM_LOST, etc.)
-            status_payload: 4-byte status payload forwarded from upstream.
+        Delegates to :func:`_encoder.build_data_frame`.
         """
-        if end == -1:
-            end = len(self.signals) - 1
-        if len(status_payload) != 4:
-            raise ValueError(
-                f"status_payload must be 4 bytes, got {len(status_payload)}"
-            )
-
-        # Restart flag
-        restart_flag = b"\x01" if self._restart_flag_pending else b"\x00"
+        restart = self._restart_flag_pending
         self._restart_flag_pending = False
-
-        # Schema hash
-        schema_hash = self._schema_hash.to_bytes(2, "little")
-
-        # Timestamp
         mode = timestamp_mode if timestamp_mode is not None else self._timestamp_mode
-        if timestamp is not None and mode != TimestampMode.NONE:
-            mode_byte = int(mode).to_bytes(1, "little")
-            meta = (
-                restart_flag
-                + b":"
-                + schema_hash
-                + b":"
-                + mode_byte
-                + timestamp.to_bytes(8, "little")
-                + b":"
-            )
-        else:
-            meta = restart_flag + b":" + schema_hash + b":" + b"\x00" + b":"
-
-        payload = b""
-        for idx in range(start, end + 1):
-            sig = self.signals[idx]
-            if only_updated and not sig.updated:
-                continue
-            payload += idx.to_bytes(2, "little") + sig.to_bytes()
-            if only_updated:
-                sig.updated = False
-
-        frame_no_crc = header + meta + payload + status.to_bytes(1, "little") + status_payload
-        crc = binascii.crc32(frame_no_crc).to_bytes(4, "little")
-
-        return frame_no_crc + crc
+        return _encoder.build_data_frame(
+            header, self.signals, start, end,
+            schema_hash=self._schema_hash,
+            restart_flag=restart,
+            timestamp_mode=int(mode),
+            timestamp=timestamp,
+            only_updated=only_updated,
+            status=status,
+            status_payload=status_payload,
+        )
 
     def _get_symbols(self) -> bytes:
         """Build symbol list message (simple server mode)."""
-        result = b""
-        for sig in self.signals:
-            result += (
-                self._master_slave_config
-                + self._slave_id
-                + sig.signal_name.encode()
-                + b"\0"
-                + sig.get_dtype_byte()
-            )
-        return result
+        return _encoder.build_symbol_payload(
+            self.signals, self._master_slave_config, self._slave_id,
+        )
 
     # ========================================================================
     # Status & Properties
