@@ -20,6 +20,7 @@ MSGKEY_DEVICES_V1 = 0xB3  # BlaeckSerial v3+ / BlaeckTCP v1
 MSGKEY_DEVICES_V2 = 0xB4  # BlaeckTCP v2
 MSGKEY_DEVICES_V4 = 0xB5  # BlaeckTCP v3
 MSGKEY_DEVICES = 0xB6  # BlaeckTCP v4+
+MSGKEY_RESTART = 0xC0  # Device restart notification
 
 # Grouped sets for dispatch
 MSGKEY_DATA_ALL = {MSGKEY_DATA_D2, MSGKEY_DATA_D1, MSGKEY_DATA_LEGACY}

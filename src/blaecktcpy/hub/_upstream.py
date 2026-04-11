@@ -11,6 +11,12 @@ import select
 import socket
 import time
 
+# Windows socket error codes
+_WSAEWOULDBLOCK = 10035
+_WSAECONNREFUSED = 10036
+
+_UPSTREAM_RECV_BUFFER = 65536  # 64 KB per upstream read
+
 try:
     import serial as _pyserial
 except ImportError:
@@ -174,7 +180,6 @@ class UpstreamTCP(_UpstreamBase):
             self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             self._socket.setblocking(False)
             err = self._socket.connect_ex((self.ip, self.port))
-            # 10035 = WSAEWOULDBLOCK on Windows
             if err == 0:
                 self._connected = True
                 self._connect_pending = False
@@ -182,7 +187,7 @@ class UpstreamTCP(_UpstreamBase):
                 self._logger.info(
                     f"Upstream '{self.name}' connected: {self.ip}:{self.port}"
                 )
-            elif err in (errno.EINPROGRESS, errno.EWOULDBLOCK, 10035, 10036):
+            elif err in (errno.EINPROGRESS, errno.EWOULDBLOCK, _WSAEWOULDBLOCK, _WSAECONNREFUSED):
                 self._connect_pending = True
                 self._connect_deadline = time.time() + timeout
             else:
@@ -266,7 +271,7 @@ class UpstreamTCP(_UpstreamBase):
         if not self._connected or not self._socket:
             return b""
         try:
-            data = self._socket.recv(65536)
+            data = self._socket.recv(_UPSTREAM_RECV_BUFFER)
             if not data:
                 self._handle_disconnect()
                 return b""

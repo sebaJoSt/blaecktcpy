@@ -22,6 +22,7 @@ LIB_VERSION = _pkg_version("blaecktcpy")
 LIB_NAME = "blaecktcpy"
 
 _MAX_RECV_BUFFER = 65536  # 64 KB per-client receive buffer limit
+_CLIENT_RECV_CHUNK = 4096  # Per-read chunk size for client sockets
 
 # ANSI color helpers (only when stdout is a terminal)
 _USE_COLOR = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
@@ -920,7 +921,7 @@ class BlaeckTCPy:
             else:
                 conn = key.fileobj
                 try:
-                    chunk = conn.recv(4096)
+                    chunk = conn.recv(_CLIENT_RECV_CHUNK)
                     if not chunk:
                         self._disconnect_client(conn)
                         continue
@@ -1769,8 +1770,8 @@ class BlaeckTCPy:
                     self._handle_device_info(upstream, frame)
                     continue
 
-                # Forward upstream restart notification (0xC0) to downstream
-                if msg_key == 0xC0:
+                # Forward upstream restart notification to downstream
+                if msg_key == decoder.MSGKEY_RESTART:
                     if upstream._initial_restart_seen:
                         self._send_upstream_restarted_frame(upstream)
                         self._resend_activate(upstream)
@@ -2144,7 +2145,7 @@ class BlaeckTCPy:
         self._tcp_send_data(data)
 
     def _send_upstream_restarted_frame(self, upstream: _UpstreamDevice) -> None:
-        """Build and send a 0xC0 restart frame with the upstream's device name."""
+        """Build and send a restart frame with the upstream's device name."""
         if not self.connected:
             return
         # Frame format: MSGKEY(C0) : MSGID(4) : MSC + SlaveID + Name\0 + HW\0 + FW\0 + LibVersion\0 + LibName\0
@@ -2155,7 +2156,7 @@ class BlaeckTCPy:
         lib_ver = (info.lib_version.encode() if info else b"")
         lib_name = (info.lib_name.encode() if info else b"")
         payload = (
-            b"\xC0:\x01\x00\x00\x00:"
+            bytes([decoder.MSGKEY_RESTART]) + b":\x01\x00\x00\x00:"
             + _MSC_SLAVE
             + b"\x01"
             + name + b"\0"
