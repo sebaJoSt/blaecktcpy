@@ -784,7 +784,7 @@ class BlaeckTCPy:
         if frame is not None:
             try:
                 upstream.device_infos = decoder.parse_all_devices(frame)
-            except Exception as e:
+            except (ValueError, IndexError, UnicodeDecodeError) as e:
                 self._logger.debug(
                     f"Upstream '{label}' device info parse error: {e}"
                 )
@@ -1156,139 +1156,134 @@ class BlaeckTCPy:
     # Message Handlers
     # ========================================================================
     def read(self) -> None:
-        """Read and process all pending messages from downstream clients.
-
-        When upstreams exist, uses hub-style command handling (forwarding
-        to upstreams).  When no upstreams, uses simpler server-style
-        processing.
-        """
+        """Read and process all pending messages from downstream clients."""
         messages = self._tcp_read()
 
         for command, params, conn in messages:
             self._commanding_client = conn
-
-            if self._upstreams:
-                # Hub-style command handling
-                if command == "BLAECK.WRITE_SYMBOLS":
-                    self.write_symbols(self._decode_four_byte(params))
-
-                elif command == "BLAECK.GET_DEVICES":
-                    self._update_client_identity(params, conn)
-                    self.write_devices(self._decode_four_byte(params))
-
-                elif command in (
-                    "BLAECK.ACTIVATE",
-                    "BLAECK.DEACTIVATE",
-                    "BLAECK.WRITE_DATA",
-                ):
-                    if params:
-                        full_cmd = f"{command},{','.join(str(p) for p in params)}"
-                    else:
-                        full_cmd = command
-
-                    if command == "BLAECK.WRITE_DATA":
-                        # One-shot: forward to relayed upstreams only
-                        for upstream in self._upstreams:
-                            if upstream.relay_downstream and upstream.transport.connected:
-                                upstream.transport.send_command(full_cmd)
-                    else:
-                        # ACTIVATE/DEACTIVATE: only forward to client-managed relayed upstreams
-                        for upstream in self._upstreams:
-                            if (
-                                upstream.relay_downstream
-                                and upstream.interval_ms == IntervalMode.CLIENT
-                                and upstream.transport.connected
-                            ):
-                                upstream.transport.send_command(full_cmd)
-                                if command == "BLAECK.ACTIVATE":
-                                    interval = self._decode_four_byte(params)
-                                    self._logger.info(
-                                        f"Client ACTIVATE forwarded to upstream '{upstream.device_name}' ({interval} ms)"
-                                    )
-                                else:
-                                    self._logger.info(
-                                        f"Client DEACTIVATE forwarded to upstream '{upstream.device_name}' (OFF)"
-                                    )
-                        # Store for replay on upstream reconnect
-                        self._last_client_activate_cmd = full_cmd
-
-                    # Local signals: respond to client when in client-controlled mode
-                    if (
-                        self._local_signal_count > 0
-                        and self._fixed_interval_ms == IntervalMode.CLIENT
-                    ):
-                        if command == "BLAECK.ACTIVATE":
-                            self._set_timed_data(True, self._decode_four_byte(params))
-                        elif command == "BLAECK.DEACTIVATE":
-                            self._set_timed_data(False)
-
-                    # WRITE_DATA: one-shot send of local signals
-                    if self._local_signal_count > 0 and command == "BLAECK.WRITE_DATA":
-                        if self._before_write_callback is not None:
-                            self._before_write_callback()
-                        msg_id = self._decode_four_byte(params)
-                        ts = self._auto_timestamp()
-                        header = (
-                            self.MSG_DATA
-                            + b":"
-                            + msg_id.to_bytes(4, "little")
-                            + b":"
-                        )
-                        data = (
-                            b"<BLAECK:"
-                            + self._build_data_msg(
-                                header, start=0, end=self._local_signal_count - 1,
-                                timestamp=ts,
-                            )
-                            + b"/BLAECK>\r\n"
-                        )
-                        self._tcp_send_data(data)
-
-            else:
-                # Simple server-style command handling (no upstreams)
-                if command == "BLAECK.WRITE_SYMBOLS":
-                    self.write_symbols(self._decode_four_byte(params))
-
-                elif command == "BLAECK.WRITE_DATA":
-                    self.write_all_data(self._decode_four_byte(params))
-
-                elif command == "BLAECK.GET_DEVICES":
-                    self._update_client_identity(params, conn)
-                    self.write_devices(self._decode_four_byte(params))
-
-                elif command == "BLAECK.ACTIVATE":
-                    if self._fixed_interval_ms == IntervalMode.CLIENT:
-                        self._set_timed_data(True, self._decode_four_byte(params))
-
-                elif command == "BLAECK.DEACTIVATE":
-                    if self._fixed_interval_ms == IntervalMode.CLIENT:
-                        self._set_timed_data(False)
+            self._dispatch_protocol_command(command, params, conn)
 
             # Dispatch to specific command handler
             handler = self._command_handlers.get(command)
             if handler is not None:
                 handler(*params)
 
-            # Forward custom commands to opted-in upstreams
-            if (
-                command not in self._non_forwarded_commands
-                and not command.startswith("BLAECK.")
-            ):
-                if params:
-                    full_cmd = f"{command},{','.join(str(p) for p in params)}"
-                else:
-                    full_cmd = command
-                for upstream in self._upstreams:
-                    fcc = upstream.forward_custom_commands
-                    if not fcc or not upstream.transport.connected:
-                        continue
-                    if isinstance(fcc, list) and command not in fcc:
-                        continue
-                    upstream.transport.send_command(full_cmd)
+            self._forward_custom_command(command, params)
 
             # Fire catch-all callback
             if self._read_callback is not None:
                 self._read_callback(command, *params)
+
+    def _dispatch_protocol_command(
+        self, command: str, params: list, conn
+    ) -> None:
+        """Handle BLAECK.* protocol commands from downstream clients."""
+        if command == "BLAECK.WRITE_SYMBOLS":
+            self.write_symbols(self._decode_four_byte(params))
+        elif command == "BLAECK.GET_DEVICES":
+            self._update_client_identity(params, conn)
+            self.write_devices(self._decode_four_byte(params))
+        elif command in (
+            "BLAECK.ACTIVATE",
+            "BLAECK.DEACTIVATE",
+            "BLAECK.WRITE_DATA",
+        ):
+            if self._upstreams:
+                self._handle_hub_data_command(command, params)
+            else:
+                self._handle_simple_data_command(command, params)
+
+    def _handle_hub_data_command(self, command: str, params: list) -> None:
+        """Handle ACTIVATE/DEACTIVATE/WRITE_DATA in hub mode."""
+        if params:
+            full_cmd = f"{command},{','.join(str(p) for p in params)}"
+        else:
+            full_cmd = command
+
+        if command == "BLAECK.WRITE_DATA":
+            # One-shot: forward to relayed upstreams only
+            for upstream in self._upstreams:
+                if upstream.relay_downstream and upstream.transport.connected:
+                    upstream.transport.send_command(full_cmd)
+        else:
+            # ACTIVATE/DEACTIVATE: only forward to client-managed relayed upstreams
+            for upstream in self._upstreams:
+                if (
+                    upstream.relay_downstream
+                    and upstream.interval_ms == IntervalMode.CLIENT
+                    and upstream.transport.connected
+                ):
+                    upstream.transport.send_command(full_cmd)
+                    if command == "BLAECK.ACTIVATE":
+                        interval = self._decode_four_byte(params)
+                        self._logger.info(
+                            f"Client ACTIVATE forwarded to upstream '{upstream.device_name}' ({interval} ms)"
+                        )
+                    else:
+                        self._logger.info(
+                            f"Client DEACTIVATE forwarded to upstream '{upstream.device_name}' (OFF)"
+                        )
+            # Store for replay on upstream reconnect
+            self._last_client_activate_cmd = full_cmd
+
+        # Local signals: respond to client when in client-controlled mode
+        if (
+            self._local_signal_count > 0
+            and self._fixed_interval_ms == IntervalMode.CLIENT
+        ):
+            if command == "BLAECK.ACTIVATE":
+                self._set_timed_data(True, self._decode_four_byte(params))
+            elif command == "BLAECK.DEACTIVATE":
+                self._set_timed_data(False)
+
+        # WRITE_DATA: one-shot send of local signals
+        if self._local_signal_count > 0 and command == "BLAECK.WRITE_DATA":
+            if self._before_write_callback is not None:
+                self._before_write_callback()
+            msg_id = self._decode_four_byte(params)
+            ts = self._auto_timestamp()
+            header = (
+                self.MSG_DATA
+                + b":"
+                + msg_id.to_bytes(4, "little")
+                + b":"
+            )
+            data = (
+                b"<BLAECK:"
+                + self._build_data_msg(
+                    header, start=0, end=self._local_signal_count - 1,
+                    timestamp=ts,
+                )
+                + b"/BLAECK>\r\n"
+            )
+            self._tcp_send_data(data)
+
+    def _handle_simple_data_command(self, command: str, params: list) -> None:
+        """Handle ACTIVATE/DEACTIVATE/WRITE_DATA in simple server mode."""
+        if command == "BLAECK.WRITE_DATA":
+            self.write_all_data(self._decode_four_byte(params))
+        elif command == "BLAECK.ACTIVATE":
+            if self._fixed_interval_ms == IntervalMode.CLIENT:
+                self._set_timed_data(True, self._decode_four_byte(params))
+        elif command == "BLAECK.DEACTIVATE":
+            if self._fixed_interval_ms == IntervalMode.CLIENT:
+                self._set_timed_data(False)
+
+    def _forward_custom_command(self, command: str, params: list) -> None:
+        """Forward non-BLAECK commands to opted-in upstreams."""
+        if command in self._non_forwarded_commands or command.startswith("BLAECK."):
+            return
+        if params:
+            full_cmd = f"{command},{','.join(str(p) for p in params)}"
+        else:
+            full_cmd = command
+        for upstream in self._upstreams:
+            fcc = upstream.forward_custom_commands
+            if not fcc or not upstream.transport.connected:
+                continue
+            if isinstance(fcc, list) and command not in fcc:
+                continue
+            upstream.transport.send_command(full_cmd)
 
     # ========================================================================
     # Message Writers
@@ -1344,142 +1339,18 @@ class BlaeckTCPy:
 
         header = self.MSG_DEVICES + b":" + msg_id.to_bytes(4, "little") + b":"
 
-        if self._upstreams:
-            # Hub-style: master + slave devices
-            for client_id, conn in list(self._clients.items()):
-                # Count devices: 1 master + relayed upstream devices
-                device_count = 1
-                for upstream in self._upstreams:
-                    if not upstream.relay_downstream:
-                        continue
-                    for info in upstream.device_infos:
-                        if upstream.slave_id_map.get((info.msc, info.slave_id)) is not None:
-                            device_count += 1
+        for client_id, conn in list(self._clients.items()):
+            if self._upstreams:
+                payload = self._build_hub_devices_payload(client_id)
+            else:
+                payload = self._build_simple_device_payload(client_id)
 
-                # Client fields (once per frame, appended after devices)
-                client_trailer = (
-                    str(client_id).encode()
-                    + b"\0"
-                    + (b"1" if client_id in self.data_clients else b"0")
-                    + b"\0"
-                    + self._client_meta.get(client_id, {}).get("name", "").encode()
-                    + b"\0"
-                    + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
-                    + b"\0"
-                )
-
-                # DeviceCount + device entries
-                payload = bytes([device_count])
-
-                # Master device
-                payload += (
-                    _MSC_MASTER
-                    + b"\x00"  # SlaveID 0 for master
-                    + self._device_name
-                    + b"\0"
-                    + self._device_hw_version
-                    + b"\0"
-                    + self._device_fw_version
-                    + b"\0"
-                    + LIB_VERSION.encode()
-                    + b"\0"
-                    + LIB_NAME.encode()
-                    + b"\0"
-                    + (b"1" if self._server_restarted else b"0")
-                    + b"\0"
-                    + b"hub\0"
-                    + b"0\0"  # parent (master references itself)
-                )
-
-                # Upstream devices as slaves — only relayed upstreams
-                for upstream in self._upstreams:
-                    if not upstream.relay_downstream:
-                        continue
-                    old_sid_to_new: dict[int, int] = {}
-                    for (msc, sid), hub_sid in upstream.slave_id_map.items():
-                        old_sid_to_new[sid] = hub_sid
-                    first_entry = True
-                    for info in upstream.device_infos:
-                        key = (info.msc, info.slave_id)
-                        hub_sid = upstream.slave_id_map.get(key)
-                        if hub_sid is None:
-                            continue
-                        device_type = info.device_type or "server"
-                        if first_entry:
-                            parent_sid = 0
-                            first_entry = False
-                        else:
-                            orig_parent = int(info.parent) if info.parent else 0
-                            parent_sid = old_sid_to_new.get(orig_parent, 0)
-                        payload += (
-                            _MSC_SLAVE
-                            + bytes([hub_sid])
-                            + info.device_name.encode()
-                            + b"\0"
-                            + info.hw_version.encode()
-                            + b"\0"
-                            + info.fw_version.encode()
-                            + b"\0"
-                            + info.lib_version.encode()
-                            + b"\0"
-                            + info.lib_name.encode()
-                            + b"\0"
-                            + (info.server_restarted.encode() if info.server_restarted else b"0")
-                            + b"\0"
-                            + device_type.encode()
-                            + b"\0"
-                            + str(parent_sid).encode()
-                            + b"\0"
-                        )
-
-                data = b"<BLAECK:" + header + payload + client_trailer + b"/BLAECK>\r\n"
-
-                try:
-                    conn.sendall(data)
-                except OSError as e:
-                    self._logger.debug(f"Send error: {e}")
-                    self._disconnect_client(conn)
-        else:
-            # Simple server-style
-            for client_id, conn in list(self._clients.items()):
-                device_info = (
-                    # DeviceCount = 1
-                    b"\x01"
-                    # Single device entry
-                    + self._master_slave_config
-                    + self._slave_id
-                    + self._device_name
-                    + b"\0"
-                    + self._device_hw_version
-                    + b"\0"
-                    + self._device_fw_version
-                    + b"\0"
-                    + LIB_VERSION.encode()
-                    + b"\0"
-                    + LIB_NAME.encode()
-                    + b"\0"
-                    + (b"1" if self._server_restarted else b"0")
-                    + b"\0"
-                    + b"server\0"
-                    + b"0\0"  # parent (SlaveID 0 = self)
-                    # Client trailer
-                    + str(client_id).encode()
-                    + b"\0"
-                    + (b"1" if client_id in self.data_clients else b"0")
-                    + b"\0"
-                    + self._client_meta.get(client_id, {}).get("name", "").encode()
-                    + b"\0"
-                    + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
-                    + b"\0"
-                )
-
-                data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"
-
-                try:
-                    conn.sendall(data)
-                except OSError as e:
-                    self._logger.debug(f"Send error: {e}")
-                    self._disconnect_client(conn)
+            data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
+            try:
+                conn.sendall(data)
+            except OSError as e:
+                self._logger.debug(f"Send error: {e}")
+                self._disconnect_client(conn)
 
         self._server_restarted = False
 
@@ -1488,6 +1359,99 @@ class BlaeckTCPy:
             for info in upstream.device_infos:
                 if info.server_restarted == "1":
                     info.server_restarted = "0"
+
+    def _build_hub_devices_payload(self, client_id: int) -> bytes:
+        """Build B6 payload for hub mode: DeviceCount + devices + client trailer."""
+        # Count devices: 1 master + relayed upstream devices
+        device_count = 1
+        for upstream in self._upstreams:
+            if not upstream.relay_downstream:
+                continue
+            for info in upstream.device_infos:
+                if upstream.slave_id_map.get((info.msc, info.slave_id)) is not None:
+                    device_count += 1
+
+        payload = bytes([device_count])
+
+        # Master device
+        payload += self._encode_device_entry(
+            _MSC_MASTER, b"\x00",
+            self._device_name, self._device_hw_version, self._device_fw_version,
+            LIB_VERSION.encode(), LIB_NAME.encode(),
+            b"1" if self._server_restarted else b"0",
+            b"hub", b"0",
+        )
+
+        # Upstream devices as slaves
+        for upstream in self._upstreams:
+            if not upstream.relay_downstream:
+                continue
+            old_sid_to_new: dict[int, int] = {}
+            for (msc, sid), hub_sid in upstream.slave_id_map.items():
+                old_sid_to_new[sid] = hub_sid
+            first_entry = True
+            for info in upstream.device_infos:
+                key = (info.msc, info.slave_id)
+                hub_sid = upstream.slave_id_map.get(key)
+                if hub_sid is None:
+                    continue
+                device_type = info.device_type or "server"
+                if first_entry:
+                    parent_sid = 0
+                    first_entry = False
+                else:
+                    orig_parent = int(info.parent) if info.parent else 0
+                    parent_sid = old_sid_to_new.get(orig_parent, 0)
+                payload += self._encode_device_entry(
+                    _MSC_SLAVE, bytes([hub_sid]),
+                    info.device_name.encode(), info.hw_version.encode(),
+                    info.fw_version.encode(), info.lib_version.encode(),
+                    info.lib_name.encode(),
+                    info.server_restarted.encode() if info.server_restarted else b"0",
+                    device_type.encode(), str(parent_sid).encode(),
+                )
+
+        return payload + self._build_client_trailer(client_id)
+
+    def _build_simple_device_payload(self, client_id: int) -> bytes:
+        """Build B6 payload for simple server: DeviceCount=1 + device + client trailer."""
+        payload = b"\x01" + self._encode_device_entry(
+            self._master_slave_config, self._slave_id,
+            self._device_name, self._device_hw_version, self._device_fw_version,
+            LIB_VERSION.encode(), LIB_NAME.encode(),
+            b"1" if self._server_restarted else b"0",
+            b"server", b"0",
+        )
+        return payload + self._build_client_trailer(client_id)
+
+    @staticmethod
+    def _encode_device_entry(
+        msc: bytes, slave_id: bytes,
+        name: bytes, hw: bytes, fw: bytes,
+        lib_ver: bytes, lib_name: bytes,
+        restarted: bytes, device_type: bytes, parent: bytes,
+    ) -> bytes:
+        """Encode a single B6 device entry (MSC through Parent)."""
+        return (
+            msc + slave_id
+            + name + b"\0"
+            + hw + b"\0"
+            + fw + b"\0"
+            + lib_ver + b"\0"
+            + lib_name + b"\0"
+            + restarted + b"\0"
+            + device_type + b"\0"
+            + parent + b"\0"
+        )
+
+    def _build_client_trailer(self, client_id: int) -> bytes:
+        """Build B6 client trailer: ClientNo, DataEnabled, ClientName, ClientType."""
+        return (
+            str(client_id).encode() + b"\0"
+            + (b"1" if client_id in self.data_clients else b"0") + b"\0"
+            + self._client_meta.get(client_id, {}).get("name", "").encode() + b"\0"
+            + self._client_meta.get(client_id, {}).get("type", "unknown").encode() + b"\0"
+        )
 
     def write_all_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None) -> None:
         """Send all local signal data to data-enabled clients.
@@ -1764,48 +1728,7 @@ class BlaeckTCPy:
             return
 
         for upstream in self._upstreams:
-            # Check pending non-blocking connect
-            if upstream.transport.connect_pending:
-                result = upstream.transport.check_connect()
-                if result is True:
-                    upstream.connected = True
-                    upstream._reconnecting = True
-                    upstream._restart_detected = False
-                    upstream._reconnect_delay = 1.0
-                    upstream._reconnect_cooldown = 0.0
-                    self._start_discovery(upstream)
-                    self._logger.info(
-                        f"Upstream '{upstream.device_name}' TCP connected, "
-                        f"awaiting discovery"
-                    )
-                elif result is False:
-                    upstream._reconnect_delay = min(
-                        upstream._reconnect_delay * 2, 30.0
-                    )
-                    upstream._reconnect_cooldown = (
-                        time.time() + upstream._reconnect_delay
-                    )
-                    self._logger.debug(
-                        f"Upstream '{upstream.device_name}' reconnect "
-                        f"attempt failed, next in {upstream._reconnect_delay:.0f}s"
-                    )
-                # result is None → still pending
-                continue
-
-            if not upstream.transport.connected:
-                if upstream.connected:
-                    self._handle_upstream_disconnect(upstream)
-
-                # Attempt auto-reconnect on cooldown
-                if upstream.auto_reconnect:
-                    now = time.time()
-                    if now >= upstream._reconnect_cooldown:
-                        upstream.transport.start_connect(timeout=5.0)
-                        if not upstream.transport.connect_pending and not upstream.transport.connected:
-                            upstream._reconnect_delay = min(
-                                upstream._reconnect_delay * 2, 30.0
-                            )
-                        upstream._reconnect_cooldown = now + upstream._reconnect_delay
+            if self._poll_upstream_connection(upstream):
                 continue
 
             frames = upstream.transport.read_frames()
@@ -1843,147 +1766,223 @@ class BlaeckTCPy:
                     continue
 
                 if msg_key in decoder.MSGKEY_DATA_ALL:
-                    # Skip data frames while re-discovering schema
-                    if upstream.schema_stale:
-                        continue
-
-                    try:
-                        decoded = decoder.parse_data(frame, upstream.symbol_table)
-
-                        # Schema hash check (D2 frames)
-                        if (
-                            msg_key == decoder.MSGKEY_DATA_D2
-                            and decoded.schema_hash != upstream.expected_schema_hash
-                        ):
-                            upstream.schema_stale = True
-                            self._logger.warning(
-                                f"Schema change detected on '{upstream.device_name}' "
-                                f"(hash {decoded.schema_hash:#06x} != "
-                                f"{upstream.expected_schema_hash:#06x}), "
-                                f"requesting re-discovery"
-                            )
-                            upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
-                            continue
-
-                        # Signal count check (D1/B1 fallback)
-                        if (
-                            msg_key != decoder.MSGKEY_DATA_D2
-                            and len(decoded.signals) != len(upstream.symbol_table)
-                        ):
-                            upstream.schema_stale = True
-                            self._logger.warning(
-                                f"Signal count mismatch on '{upstream.device_name}' "
-                                f"({len(decoded.signals)} != "
-                                f"{len(upstream.symbol_table)}), "
-                                f"requesting re-discovery"
-                            )
-                            upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
-                            continue
-
-                        # Relay upstream restart flag downstream.
-                        # Suppress the first restart flag from each upstream —
-                        # it's expected after initial connection and the hub's
-                        # own restart flag already covers the fresh start.
-                        if decoded.restart_flag:
-                            if not upstream._initial_restart_seen:
-                                upstream._initial_restart_seen = True
-                                self._logger.debug(
-                                    f"Upstream '{upstream.device_name}' initial restart flag suppressed"
-                                )
-                            elif upstream._restart_c0_sent:
-                                # Already notified via 0xC0 — consume silently
-                                upstream._restart_c0_sent = False
-                                self._logger.debug(
-                                    f"Upstream '{upstream.device_name}' restart flag consumed (0xC0 already sent)"
-                                )
-                            else:
-                                self._send_upstream_restarted_frame(upstream)
-                                self._resend_activate(upstream)
-                                self._logger.info(
-                                    f"Upstream '{upstream.device_name}' restart flag relayed via 0xC0"
-                                )
-
-                        if not upstream.relay_downstream:
-                            # Non-relayed: update internal signals only
-                            for sig_id, value in decoded.signals.items():
-                                idx = upstream.index_map.get(sig_id)
-                                if idx is not None and idx < len(upstream._signals):
-                                    upstream._signals[idx].value = value
-                            try:
-                                self._fire_data_received(upstream)
-                            except Exception as e:
-                                self._logger.warning(
-                                    f"on_data_received callback error for "
-                                    f"'{upstream.device_name}': {e}"
-                                )
-                            continue
-
-                        for sig_id, value in decoded.signals.items():
-                            hub_idx = upstream.index_map.get(sig_id)
-                            if hub_idx is not None and hub_idx < len(self.signals):
-                                self.signals[hub_idx].value = value
-                                self.signals[hub_idx].updated = True
-
-                        # Fire callback before relay so transforms can run
-                        try:
-                            self._fire_data_received(upstream)
-                        except Exception as e:
-                            self._logger.warning(
-                                f"on_data_received callback error for "
-                                f"'{upstream.device_name}': {e}"
-                            )
-
-                        # Forward upstream timestamp only with a single relayed device
-                        relayed_count = sum(1 for u in self._upstreams if u.relay_downstream)
-                        single = relayed_count == 1 and self._local_signal_count == 0
-                        # Widen upstream uint32 timestamp to uint64
-                        ts = decoded.timestamp if single and decoded.timestamp is not None else None
-                        try:
-                            ts_mode = TimestampMode(decoded.timestamp_mode) if ts is not None else None
-                        except ValueError:
-                            ts = None
-                            ts_mode = None
-
-                        # Replace msg_id only when hub overrides BLAECK.ACTIVATE
-                        relay_msg_id = decoded.msg_id
-                        if upstream.interval_ms >= 0 and relay_msg_id == _MSG_ID_ACTIVATE:
-                            relay_msg_id = _MSG_ID_HUB
-
-                        # Determine this upstream's signal index range
-                        hub_indices = sorted(upstream.index_map.values())
-                        if not hub_indices:
-                            continue
-                        start_idx = hub_indices[0]
-                        end_idx = hub_indices[-1]
-                        header = (
-                            self.MSG_DATA
-                            + b":"
-                            + relay_msg_id.to_bytes(4, "little")
-                            + b":"
-                        )
-                        relay_data = (
-                            b"<BLAECK:"
-                            + self._build_data_msg(
-                                header,
-                                start=start_idx,
-                                end=end_idx,
-                                only_updated=True,
-                                timestamp=ts,
-                                timestamp_mode=ts_mode,
-                                status=decoded.status_byte,
-                                status_payload=decoded.status_payload,
-                            )
-                            + b"/BLAECK>\r\n"
-                        )
-                        self._tcp_send_data(relay_data)
-                    except Exception as e:
-                        self._logger.warning(
-                            f"Upstream '{upstream.device_name}' frame dropped: {e}"
-                        )
+                    self._process_upstream_data(upstream, frame, msg_key)
 
             # Retry discovery after processing frames (avoids redundant resends)
             if upstream._reconnecting:
                 self._retry_discovery(upstream)
+
+    def _poll_upstream_connection(self, upstream: _UpstreamDevice) -> bool:
+        """Handle connection state for one upstream.
+
+        Returns True if frame processing should be skipped for this upstream.
+        """
+        # Check pending non-blocking connect
+        if upstream.transport.connect_pending:
+            result = upstream.transport.check_connect()
+            if result is True:
+                upstream.connected = True
+                upstream._reconnecting = True
+                upstream._restart_detected = False
+                upstream._reconnect_delay = 1.0
+                upstream._reconnect_cooldown = 0.0
+                self._start_discovery(upstream)
+                self._logger.info(
+                    f"Upstream '{upstream.device_name}' TCP connected, "
+                    f"awaiting discovery"
+                )
+            elif result is False:
+                upstream._reconnect_delay = min(
+                    upstream._reconnect_delay * 2, 30.0
+                )
+                upstream._reconnect_cooldown = (
+                    time.time() + upstream._reconnect_delay
+                )
+                self._logger.debug(
+                    f"Upstream '{upstream.device_name}' reconnect "
+                    f"attempt failed, next in {upstream._reconnect_delay:.0f}s"
+                )
+            # result is None → still pending
+            return True
+
+        if not upstream.transport.connected:
+            if upstream.connected:
+                self._handle_upstream_disconnect(upstream)
+
+            # Attempt auto-reconnect on cooldown
+            if upstream.auto_reconnect:
+                now = time.time()
+                if now >= upstream._reconnect_cooldown:
+                    upstream.transport.start_connect(timeout=5.0)
+                    if not upstream.transport.connect_pending and not upstream.transport.connected:
+                        upstream._reconnect_delay = min(
+                            upstream._reconnect_delay * 2, 30.0
+                        )
+                    upstream._reconnect_cooldown = now + upstream._reconnect_delay
+            return True
+
+        return False
+
+    def _process_upstream_data(
+        self,
+        upstream: _UpstreamDevice,
+        frame: bytes,
+        msg_key: int,
+    ) -> None:
+        """Parse and process a single data frame from an upstream device."""
+        if upstream.schema_stale:
+            return
+
+        try:
+            decoded = decoder.parse_data(frame, upstream.symbol_table)
+
+            if not self._validate_upstream_schema(upstream, decoded, msg_key):
+                return
+
+            # Relay upstream restart flag downstream.
+            # Suppress the first restart flag from each upstream —
+            # it's expected after initial connection and the hub's
+            # own restart flag already covers the fresh start.
+            if decoded.restart_flag:
+                if not upstream._initial_restart_seen:
+                    upstream._initial_restart_seen = True
+                    self._logger.debug(
+                        f"Upstream '{upstream.device_name}' initial restart flag suppressed"
+                    )
+                elif upstream._restart_c0_sent:
+                    # Already notified via 0xC0 — consume silently
+                    upstream._restart_c0_sent = False
+                    self._logger.debug(
+                        f"Upstream '{upstream.device_name}' restart flag consumed (0xC0 already sent)"
+                    )
+                else:
+                    self._send_upstream_restarted_frame(upstream)
+                    self._resend_activate(upstream)
+                    self._logger.info(
+                        f"Upstream '{upstream.device_name}' restart flag relayed via 0xC0"
+                    )
+
+            if not upstream.relay_downstream:
+                # Non-relayed: update internal signals only
+                for sig_id, value in decoded.signals.items():
+                    idx = upstream.index_map.get(sig_id)
+                    if idx is not None and idx < len(upstream._signals):
+                        upstream._signals[idx].value = value
+                try:
+                    self._fire_data_received(upstream)
+                except Exception as e:
+                    self._logger.warning(
+                        f"on_data_received callback error for "
+                        f"'{upstream.device_name}': {e}"
+                    )
+                return
+
+            self._relay_upstream_data(upstream, decoded)
+
+        except (ValueError, IndexError, UnicodeDecodeError) as e:
+            self._logger.warning(
+                f"Upstream '{upstream.device_name}' frame dropped: {e}"
+            )
+
+    def _validate_upstream_schema(
+        self,
+        upstream: _UpstreamDevice,
+        decoded,
+        msg_key: int,
+    ) -> bool:
+        """Check schema hash or signal count. Returns False if schema is stale."""
+        # Schema hash check (D2 frames)
+        if (
+            msg_key == decoder.MSGKEY_DATA_D2
+            and decoded.schema_hash != upstream.expected_schema_hash
+        ):
+            upstream.schema_stale = True
+            self._logger.warning(
+                f"Schema change detected on '{upstream.device_name}' "
+                f"(hash {decoded.schema_hash:#06x} != "
+                f"{upstream.expected_schema_hash:#06x}), "
+                f"requesting re-discovery"
+            )
+            upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+            return False
+
+        # Signal count check (D1/B1 fallback)
+        if (
+            msg_key != decoder.MSGKEY_DATA_D2
+            and len(decoded.signals) != len(upstream.symbol_table)
+        ):
+            upstream.schema_stale = True
+            self._logger.warning(
+                f"Signal count mismatch on '{upstream.device_name}' "
+                f"({len(decoded.signals)} != "
+                f"{len(upstream.symbol_table)}), "
+                f"requesting re-discovery"
+            )
+            upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
+            return False
+
+        return True
+
+    def _relay_upstream_data(self, upstream: _UpstreamDevice, decoded) -> None:
+        """Update hub signals from decoded data and relay to downstream."""
+        for sig_id, value in decoded.signals.items():
+            hub_idx = upstream.index_map.get(sig_id)
+            if hub_idx is not None and hub_idx < len(self.signals):
+                self.signals[hub_idx].value = value
+                self.signals[hub_idx].updated = True
+
+        # Fire callback before relay so transforms can run
+        try:
+            self._fire_data_received(upstream)
+        except Exception as e:
+            self._logger.warning(
+                f"on_data_received callback error for "
+                f"'{upstream.device_name}': {e}"
+            )
+
+        # Forward upstream timestamp only with a single relayed device
+        relayed_count = sum(1 for u in self._upstreams if u.relay_downstream)
+        single = relayed_count == 1 and self._local_signal_count == 0
+        # Widen upstream uint32 timestamp to uint64
+        ts = decoded.timestamp if single and decoded.timestamp is not None else None
+        try:
+            ts_mode = TimestampMode(decoded.timestamp_mode) if ts is not None else None
+        except ValueError:
+            ts = None
+            ts_mode = None
+
+        # Replace msg_id only when hub overrides BLAECK.ACTIVATE
+        relay_msg_id = decoded.msg_id
+        if upstream.interval_ms >= 0 and relay_msg_id == _MSG_ID_ACTIVATE:
+            relay_msg_id = _MSG_ID_HUB
+
+        # Determine this upstream's signal index range
+        hub_indices = sorted(upstream.index_map.values())
+        if not hub_indices:
+            return
+        start_idx = hub_indices[0]
+        end_idx = hub_indices[-1]
+        header = (
+            self.MSG_DATA
+            + b":"
+            + relay_msg_id.to_bytes(4, "little")
+            + b":"
+        )
+        relay_data = (
+            b"<BLAECK:"
+            + self._build_data_msg(
+                header,
+                start=start_idx,
+                end=end_idx,
+                only_updated=True,
+                timestamp=ts,
+                timestamp_mode=ts_mode,
+                status=decoded.status_byte,
+                status_payload=decoded.status_payload,
+            )
+            + b"/BLAECK>\r\n"
+        )
+        self._tcp_send_data(relay_data)
 
     def _fire_data_received(self, upstream: _UpstreamDevice) -> None:
         """Invoke all matching on_data_received callbacks."""
@@ -2212,7 +2211,7 @@ class BlaeckTCPy:
                     f"Schema refreshed for '{upstream.device_name}': "
                     f"{len(new_symbols)} signals"
                 )
-        except Exception as e:
+        except (ValueError, IndexError, UnicodeDecodeError) as e:
             self._logger.warning(
                 f"Schema re-discovery failed for "
                 f"'{upstream.device_name}': {e}"
@@ -2250,7 +2249,7 @@ class BlaeckTCPy:
                             )
                         else:
                             upstream._initial_restart_seen = True
-        except Exception as e:
+        except (ValueError, IndexError, UnicodeDecodeError) as e:
             self._logger.warning(
                 f"Device info processing for "
                 f"'{upstream.device_name}': {e}"
