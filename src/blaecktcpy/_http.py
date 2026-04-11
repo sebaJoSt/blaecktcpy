@@ -30,7 +30,8 @@ _HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>$device_name — blaecktcpy</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"></noscript>
   <style>
     :root { --pico-font-size: 87.5%; }
     .status-dot { display:inline-block; width:.7em; height:.7em; border-radius:50%; }
