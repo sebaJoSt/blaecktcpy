@@ -7,6 +7,8 @@
 
 A Python TCP server for real-time streaming of named, typed signals using the [Blaeck protocol](https://sebajost.github.io/blaeck-protocol/). Use it to turn any Python script into a signal source that Loggbok or any compatible TCP client can connect to, visualize, and log.
 
+**Documentation:** [API Reference](docs/api.md) · [Hub mode](docs/hub.md) · [Protocol specification](https://sebajost.github.io/blaeck-protocol/blaecktcpy/overview)
+
 ## Getting Started
 
 Install the library from PyPI:
@@ -77,10 +79,6 @@ bltcp.local_interval_ms = IntervalMode.CLIENT  # return to client control (defau
 bltcp.local_interval_ms = IntervalMode.OFF     # disable timed data entirely
 ```
 
-## Built-in commands
-
-See the [protocol documentation](https://sebajost.github.io/blaeck-protocol/protocol/commands) for the full list of commands and their parameters.
-
 ## Custom commands
 
 Commands are sent as `<COMMAND>` or `<COMMAND,param1,param2,...>`. Register handlers with the `@bltcp.on_command()` decorator — parameters are passed as strings:
@@ -102,6 +100,8 @@ A catch-all handler (no command name) fires for every message, including built-i
 def log_all(command, *params):  # receives command name + all params
     print(f"{command} {params}")
 ```
+
+For built-in protocol commands, see the [protocol documentation](https://sebajost.github.io/blaeck-protocol/protocol/commands).
 
 ## Timestamps
 
@@ -144,11 +144,7 @@ def on_disconnect(client_id):
 
 ## HTTP status page
 
-A built-in status page shows device info, signals, connected clients, and upstream status in a browser. It is enabled by default on port 8080:
-
-```python
-bltcp = BlaeckTCPy('127.0.0.1', 23, 'My Device', '1.0', '1.0')
-```
+A built-in status page shows device info, signals, connected clients, and upstream status in a browser. It is enabled by default on port 8080.
 
 After `start()`, open `http://127.0.0.1:8080` to see a live status page. If port 8080 is occupied, a free port is chosen automatically. The page auto-refreshes every second, supports light/dark theme, and shows collapsible upstream details in hub mode. Styled with [Pico CSS](https://picocss.com/) (loaded from CDN — no extra dependencies).
 
@@ -160,9 +156,7 @@ The status page also exposes a JSON API at `/api` for programmatic access.
 
 `bool`, `byte`, `short`, `unsigned short`, `int`, `unsigned int`, `long`, `unsigned long`, `float`, `double`
 
-For DTYPE codes and byte sizes, see the [Protocol specification](https://sebajost.github.io/blaeck-protocol/protocol/datatypes).
-
-Full protocol specification with version history: [sebajost.github.io/blaeck-protocol](https://sebajost.github.io/blaeck-protocol/blaecktcpy/overview)
+For DTYPE codes, byte sizes, and the full protocol specification with version history, see [sebajost.github.io/blaeck-protocol](https://sebajost.github.io/blaeck-protocol/protocol/datatypes).
 
 ## Hub mode
 
@@ -195,27 +189,22 @@ See the [examples](examples/) folder:
 
 | Example | Description |
 |---|---|
-| `sine.py` | Sine wave generator |
-| `datatype_test.py` | Tests all supported datatypes including edge cases |
-| `command_parser.py` | Custom command handling with `@bltcp.on_command()` |
-| `csv_reader.py` | Stream CSV file data as signals |
-| `csv_generator.py` | Generate test CSV data for `csv_reader.py` |
-| `timestamps.py` | Timestamp modes (NONE, UNIX) for data frames |
+| [`sine.py`](examples/server/sine.py) | Sine wave generator |
+| [`datatype_test.py`](examples/server/datatype_test.py) | Tests all supported datatypes including edge cases |
+| [`command_parser.py`](examples/server/command_parser.py) | Custom command handling with `@bltcp.on_command()` |
+| [`csv_reader.py`](examples/server/csv_reader.py) | Stream CSV file data as signals |
+| [`csv_generator.py`](examples/server/csv_generator.py) | Generate test CSV data for `csv_reader.py` |
+| [`timestamps.py`](examples/server/timestamps.py) | Timestamp modes (NONE, UNIX) for data frames |
 
 ### Hub
 
 | Example | Description |
 |---|---|
-| `basic.py` | Aggregates two upstream servers and a local signal |
-| `schema_change.py` | Runtime signal changes via custom commands with automatic re-discovery |
-| `signal_processing.py` | Transform and compute signals via `on_data_received` |
-| `mixed_sources.py` | BlaeckTCP microcontroller + SCPI power supply |
+| [`basic.py`](examples/hub/basic.py) | Aggregates two upstream servers and a local signal |
+| [`schema_change.py`](examples/hub/schema_change.py) | Runtime signal changes via custom commands with automatic re-discovery |
+| [`signal_processing.py`](examples/hub/signal_processing.py) | Transform and compute signals via `on_data_received` |
+| [`mixed_sources.py`](examples/hub/mixed_sources.py) | BlaeckTCP microcontroller + SCPI power supply |
 
 ## License
 
 MIT
-
-## Documentation
-
-- [Hub mode](docs/hub.md)
-- [API Reference](docs/api.md)
