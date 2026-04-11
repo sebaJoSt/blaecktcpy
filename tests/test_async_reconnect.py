@@ -392,7 +392,13 @@ class TestAsyncReconnectIntegration:
 
     def _make_upstream_server(self, port=0):
         """Create a BlaeckTCPy that acts as an upstream device."""
-        server = BlaeckTCPy("127.0.0.1", port, "ESP32", "HW", "1.0")
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=port,
+                     device_name="ESP32",
+                     device_hw_version="HW",
+                     device_fw_version="1.0",
+                 )
         server.add_signal("temp", "float")
         server.add_signal("humidity", "float")
         server.start()
@@ -422,7 +428,13 @@ class TestAsyncReconnectIntegration:
         )
         t.start()
 
-        hub = BlaeckTCPy("127.0.0.1", 0, "Hub", "HW", "1.0")
+        hub = BlaeckTCPy(
+                  ip="127.0.0.1",
+                  port=0,
+                  device_name="Hub",
+                  device_hw_version="HW",
+                  device_fw_version="1.0",
+              )
         try:
             hub.add_tcp("127.0.0.1", port, name="ESP32", auto_reconnect=True)
             hub.start()
@@ -476,7 +488,13 @@ class TestAsyncReconnectIntegration:
         t_a.start()
         t_b.start()
 
-        hub = BlaeckTCPy("127.0.0.1", 0, "Hub", "HW", "1.0")
+        hub = BlaeckTCPy(
+                  ip="127.0.0.1",
+                  port=0,
+                  device_name="Hub",
+                  device_hw_version="HW",
+                  device_fw_version="1.0",
+              )
         try:
             hub.add_tcp("127.0.0.1", port_a, name="DevA", auto_reconnect=True)
             hub.add_tcp("127.0.0.1", port_b, name="DevB")

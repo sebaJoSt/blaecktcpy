@@ -61,7 +61,14 @@ class TestFormatUptime:
 
 class TestIntervalStr:
     def _make_server(self):
-        return BlaeckTCPy("127.0.0.1", 0, "Test", "HW", "1.0", http_port=None)
+        return BlaeckTCPy(
+                   ip="127.0.0.1",
+                   port=0,
+                   device_name="Test",
+                   device_hw_version="HW",
+                   device_fw_version="1.0",
+                   http_port=None,
+               )
 
     def test_fixed_interval(self):
         server = self._make_server()
@@ -126,8 +133,14 @@ class TestEsc:
 
 class TestGetState:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "TestDev", "HW1", "FW1",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="TestDev",
+                          device_hw_version="HW1",
+                          device_fw_version="FW1",
+                          http_port=None,
+                      )
         self.server.add_signal("temp", "float", 22.5)
         self.server.add_signal("led", "bool", True)
         self.server.start()
@@ -171,8 +184,14 @@ class TestGetState:
 
 class TestRenderHtml:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "HtmlDev", "HW", "FW",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="HtmlDev",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=None,
+                      )
         self.server.add_signal("voltage", "double", 3.3)
         self.server.start()
         self.server._port = self.server._server_socket.getsockname()[1]
@@ -196,8 +215,14 @@ class TestRenderHtml:
 
 class TestHttpServer:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "HttpTest", "HW", "FW",
-                                 http_port=0)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="HttpTest",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=0,
+                      )
         self.server.add_signal("x", "float", 1.0)
         self.server.start()
         self.server._port = self.server._server_socket.getsockname()[1]
@@ -237,7 +262,14 @@ class TestHttpServer:
 class TestIntervalStrFallback:
     def test_unknown_negative_value(self):
         """Line 249: fallback for unrecognised negative interval."""
-        server = BlaeckTCPy("127.0.0.1", 0, "T", "H", "F", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="T",
+                     device_hw_version="H",
+                     device_fw_version="F",
+                     http_port=None,
+                 )
         server._fixed_interval_ms = -999
         assert _interval_str(server) == "-999"
         server.close()
@@ -276,8 +308,14 @@ class TestTransportStr:
 
 class TestGetStateWithClients:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "TestDev", "HW", "FW",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="TestDev",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=None,
+                      )
         self.server.start()
         self.server._port = self.server._server_socket.getsockname()[1]
 
@@ -335,8 +373,14 @@ def _make_fake_upstream(name="UpDev", connected=True, interval_ms=500,
 
 class TestGetStateWithUpstreams:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "HubDev", "HW", "FW",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="HubDev",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=None,
+                      )
         self.server.start()
         self.server._port = self.server._server_socket.getsockname()[1]
 
@@ -375,8 +419,14 @@ class TestGetStateWithUpstreams:
 
 class TestRenderHtmlWithClients:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "HtmlDev", "HW", "FW",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="HtmlDev",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=None,
+                      )
         self.server.start()
         self.server._port = self.server._server_socket.getsockname()[1]
 
@@ -404,8 +454,14 @@ class TestRenderHtmlWithClients:
 
 class TestRenderHtmlWithUpstreams:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "HubHtml", "HW", "FW",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="HubHtml",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=None,
+                      )
         self.server.add_signal("x", "float", 0.0)
         self.server.start()
         self.server._port = self.server._server_socket.getsockname()[1]

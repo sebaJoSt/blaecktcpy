@@ -12,6 +12,7 @@ Unified BlaeckTCP protocol implementation. Works as a standalone server or as a 
 
 ```python
 BlaeckTCPy(
+    *,
     ip: str,
     port: int,
     device_name: str,

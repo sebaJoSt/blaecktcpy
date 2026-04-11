@@ -33,12 +33,26 @@ from blaecktcpy import BlaeckTCPy
 EXAMPLE_VERSION = "1.0"
 
 # --- Upstream servers ---
-sine = BlaeckTCPy("127.0.0.1", 10024, "Sine Generator", "Python Script", EXAMPLE_VERSION, log_level=logging.WARNING)
+sine = BlaeckTCPy(
+           ip="127.0.0.1",
+           port=10024,
+           device_name="Sine Generator",
+           device_hw_version="Python Script",
+           device_fw_version=EXAMPLE_VERSION,
+           log_level=logging.WARNING,
+       )
 for i in range(1, 4):
     sine.add_signal(f"Sine_{i}", "float")
 sine.start()
 
-cosine = BlaeckTCPy("127.0.0.1", 10025, "Cosine Generator", "Python Script", EXAMPLE_VERSION, log_level=logging.WARNING)
+cosine = BlaeckTCPy(
+             ip="127.0.0.1",
+             port=10025,
+             device_name="Cosine Generator",
+             device_hw_version="Python Script",
+             device_fw_version=EXAMPLE_VERSION,
+             log_level=logging.WARNING,
+         )
 for i in range(1, 3):
     cosine.add_signal(f"Cosine_{i}", "float")
 cosine.start()
@@ -57,7 +71,13 @@ threading.Thread(target=run_server, args=(cosine, lambda t: math.cos(t * 0.0005)
 time.sleep(0.2)
 
 # --- Hub ---
-hub = BlaeckTCPy("127.0.0.1", 23, "Basic Hub", "Python Script", EXAMPLE_VERSION)
+hub = BlaeckTCPy(
+          ip="127.0.0.1",
+          port=23,
+          device_name="Basic Hub",
+          device_hw_version="Python Script",
+          device_fw_version=EXAMPLE_VERSION,
+      )
 
 # Local signal
 sawtooth = hub.add_signal("Sawtooth_1", "float")

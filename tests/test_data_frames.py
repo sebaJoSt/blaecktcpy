@@ -875,7 +875,13 @@ class TestHubWriteUpdate:
             device.close()
 
     def test_write_before_start_raises(self):
-        device = BlaeckTCPy("127.0.0.1", 0, "Test", "HW", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Test",
+                     device_hw_version="HW",
+                     device_fw_version="1.0",
+                 )
         with pytest.raises(KeyError):
             device.write("x", 1.0)
 
@@ -908,7 +914,13 @@ class TestHubWriteUpdate:
             device.close()
 
     def test_update_before_start_raises(self):
-        device = BlaeckTCPy("127.0.0.1", 0, "Test", "HW", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Test",
+                     device_hw_version="HW",
+                     device_fw_version="1.0",
+                 )
         with pytest.raises(KeyError):
             device.update("x", 1.0)
 
@@ -1118,7 +1130,13 @@ class TestHubWriteUpdate:
     # ---- read() ----
 
     def test_read_before_start_raises(self):
-        device = BlaeckTCPy("127.0.0.1", 0, "Test", "HW", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Test",
+                     device_hw_version="HW",
+                     device_fw_version="1.0",
+                 )
         with pytest.raises(AttributeError):
             device.read()
 
@@ -1143,7 +1161,13 @@ class TestHubWriteUpdate:
 
     def test_resolve_index_empty_signals(self):
         """Index access with no local signals gives a clear error."""
-        device = BlaeckTCPy("127.0.0.1", 0, "Test", "HW", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Test",
+                     device_hw_version="HW",
+                     device_fw_version="1.0",
+                 )
         device._started = True
         device._local_signal_count = 0
         with pytest.raises(IndexError, match="Signal index 0 out of range"):
@@ -1152,7 +1176,13 @@ class TestHubWriteUpdate:
     # ---- add_signals() / delete_signals() ----
 
     def test_add_signals_bulk_before_start(self):
-        device = BlaeckTCPy("127.0.0.1", 0, "Test", "HW", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Test",
+                     device_hw_version="HW",
+                     device_fw_version="1.0",
+                 )
         device.add_signals([
             Signal("A", "float"),
             Signal("B", "int"),

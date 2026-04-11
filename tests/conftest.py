@@ -15,7 +15,13 @@ from blaecktcpy.hub._upstream import _UpstreamBase  # noqa: E402
 
 def _make_server_on_free_port():
     """Create an unstarted BlaeckTCPy that will bind to a free port on start()."""
-    return BlaeckTCPy("127.0.0.1", 0, "Test", "HW", "1.0")
+    return BlaeckTCPy(
+               ip="127.0.0.1",
+               port=0,
+               device_name="Test",
+               device_hw_version="HW",
+               device_fw_version="1.0",
+           )
 
 
 def _start_retry(device, attempts=1):

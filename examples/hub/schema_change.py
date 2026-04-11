@@ -45,7 +45,14 @@ EXAMPLE_VERSION = "1.0"
 # ---------------------------------------------------------------------------
 # Upstream: a sensor that can dynamically add/remove signals
 # ---------------------------------------------------------------------------
-sensor = BlaeckTCPy("127.0.0.1", 10024, "Sensor", "Python Script", EXAMPLE_VERSION, log_level=logging.WARNING)
+sensor = BlaeckTCPy(
+             ip="127.0.0.1",
+             port=10024,
+             device_name="Sensor",
+             device_hw_version="Python Script",
+             device_fw_version=EXAMPLE_VERSION,
+             log_level=logging.WARNING,
+         )
 sensor.timestamp_mode = TimestampMode.UNIX
 
 temp = sensor.add_signal("Temp", "float")
@@ -95,7 +102,13 @@ time.sleep(0.2)
 # ---------------------------------------------------------------------------
 # Hub: custom commands are forwarded to upstreams automatically
 # ---------------------------------------------------------------------------
-hub = BlaeckTCPy("127.0.0.1", 23, "Schema Change Hub", "Python Script", EXAMPLE_VERSION)
+hub = BlaeckTCPy(
+          ip="127.0.0.1",
+          port=23,
+          device_name="Schema Change Hub",
+          device_hw_version="Python Script",
+          device_fw_version=EXAMPLE_VERSION,
+      )
 hub.timestamp_mode = TimestampMode.UNIX
 hub.local_interval_ms = 500
 

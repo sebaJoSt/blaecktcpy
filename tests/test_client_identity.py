@@ -197,7 +197,13 @@ class TestHubSendsIdentity:
     """Verify hub includes identity when calling GET_DEVICES on upstreams."""
 
     def test_hub_sends_identity_in_get_devices(self):
-        device = BlaeckTCPy("127.0.0.1", 0, "My Hub", "HW", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="My Hub",
+                     device_hw_version="HW",
+                     device_fw_version="1.0",
+                 )
 
         transport = RecordingTransport("ESP32")
         upstream = _UpstreamDevice(

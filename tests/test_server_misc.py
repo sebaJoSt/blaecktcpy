@@ -48,7 +48,14 @@ class TestIntervalTimer:
 
 class TestRepr:
     def test_repr_before_start(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     http_port=None,
+                 )
         r = repr(server)
         assert "blaecktcpy" in r
         assert "0 clients" in r
@@ -57,7 +64,14 @@ class TestRepr:
         server.close()
 
     def test_repr_after_start_with_signals(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     http_port=None,
+                 )
         server.add_signal("x", "float", 0.0)
         server.start()
         r = repr(server)
@@ -66,7 +80,14 @@ class TestRepr:
         server.close()
 
     def test_repr_with_upstream(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     http_port=None,
+                 )
         server._upstreams.append(SimpleNamespace())
         r = repr(server)
         assert "1 upstreams" in r
@@ -80,7 +101,14 @@ class TestRepr:
 
 class TestContextManager:
     def test_with_statement(self):
-        with BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None) as server:
+        with BlaeckTCPy(
+                 ip="127.0.0.1",
+                 port=0,
+                 device_name="Dev",
+                 device_hw_version="HW",
+                 device_fw_version="FW",
+                 http_port=None,
+             ) as server:
             server.start()
             assert server._started
         # After exiting, close() should have been called (server socket closed)
@@ -108,7 +136,14 @@ class TestFindFreePort:
 
 class TestAddSignalEdgeCases:
     def test_add_signal_bad_type(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     http_port=None,
+                 )
         with pytest.raises(TypeError, match="Expected Signal or str"):
             server.add_signal(42)
         server.close()
@@ -120,7 +155,14 @@ class TestAddSignalEdgeCases:
 
 class TestDeleteSignalsBeforeStart:
     def test_clears_signal_list(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     http_port=None,
+                 )
         server.add_signal("x", "float", 0.0)
         assert len(server.signals) == 1
         server.delete_signals()
@@ -134,8 +176,14 @@ class TestDeleteSignalsBeforeStart:
 
 class TestAddUpstreamAfterStart:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="Dev",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=None,
+                      )
         self.server.start()
 
     def teardown_method(self):
@@ -156,7 +204,14 @@ class TestAddUpstreamAfterStart:
 
 class TestStartTwice:
     def test_start_twice_raises(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     http_port=None,
+                 )
         server.start()
         with pytest.raises(RuntimeError, match="Already started"):
             server.start()
@@ -185,8 +240,14 @@ class TestDecodeFourByte:
 
 class TestResolveTimestamp:
     def setup_method(self):
-        self.server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW",
-                                 http_port=None)
+        self.server = BlaeckTCPy(
+                          ip="127.0.0.1",
+                          port=0,
+                          device_name="Dev",
+                          device_hw_version="HW",
+                          device_fw_version="FW",
+                          http_port=None,
+                      )
         self.server.add_signal("x", "float")
         self.server.start()
 
@@ -210,7 +271,14 @@ class TestResolveTimestamp:
 
 class TestOnBeforeWrite:
     def test_registers_callback(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW", http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     http_port=None,
+                 )
 
         @server.on_before_write()
         def refresh():
@@ -226,7 +294,14 @@ class TestOnBeforeWrite:
 
 class TestLoggerDisabled:
     def test_logger_disabled_when_none(self):
-        server = BlaeckTCPy("127.0.0.1", 0, "Dev", "HW", "FW",
-                            log_level=None, http_port=None)
+        server = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="Dev",
+                     device_hw_version="HW",
+                     device_fw_version="FW",
+                     log_level=None,
+                     http_port=None,
+                 )
         assert server._logger.disabled is True
         server.close()

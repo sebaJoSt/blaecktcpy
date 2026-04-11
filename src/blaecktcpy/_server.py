@@ -149,6 +149,7 @@ class BlaeckTCPy:
 
     def __init__(
         self,
+        *,
         ip: str,
         port: int,
         device_name: str,

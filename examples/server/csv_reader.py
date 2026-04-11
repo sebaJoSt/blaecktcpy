@@ -57,8 +57,12 @@ def main():
     print(f"Signals:     {signal_names}")
 
     bltcp = BlaeckTCPy(
-        "127.0.0.1", PORT, "CSV Tail Reader", "Python Script", EXAMPLE_VERSION
-    )
+                ip="127.0.0.1",
+                port=PORT,
+                device_name="CSV Tail Reader",
+                device_hw_version="Python Script",
+                device_fw_version=EXAMPLE_VERSION,
+            )
     bltcp.timestamp_mode = TimestampMode.UNIX
 
     for name in signal_names:

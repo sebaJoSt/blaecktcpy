@@ -313,7 +313,13 @@ class TestMultiSlavePassThrough:
 
     def test_slave_id_map_built_from_symbols(self):
         """Hub builds slave_id_map from upstream symbol MSC/SlaveID."""
-        device = BlaeckTCPy("127.0.0.1", 0, "TestHub", "1.0", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="TestHub",
+                     device_hw_version="1.0",
+                     device_fw_version="1.0",
+                 )
         upstream = _UpstreamDevice(
             device_name="Arduino",
             transport=None,
@@ -344,7 +350,13 @@ class TestMultiSlavePassThrough:
 
     def test_slave_id_map_multiple_upstreams(self):
         """Slave IDs are contiguous across multiple upstreams."""
-        device = BlaeckTCPy("127.0.0.1", 0, "TestHub", "1.0", "1.0")
+        device = BlaeckTCPy(
+                     ip="127.0.0.1",
+                     port=0,
+                     device_name="TestHub",
+                     device_hw_version="1.0",
+                     device_fw_version="1.0",
+                 )
 
         upstream_a = _UpstreamDevice(device_name="A", transport=None, relay_downstream=True)
         upstream_a.symbol_table = [

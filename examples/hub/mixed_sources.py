@@ -51,7 +51,13 @@ PSU_PORT = 5025  # standard SCPI port
 PSU_POLL_INTERVAL = 0.5  # seconds
 
 # -- Hub setup --
-hub = BlaeckTCPy(HUB_IP, HUB_PORT, "Stress Board Hub", "Python Script", EXAMPLE_VERSION)
+hub = BlaeckTCPy(
+          ip=HUB_IP,
+          port=HUB_PORT,
+          device_name="Stress Board Hub",
+          device_hw_version="Python Script",
+          device_fw_version=EXAMPLE_VERSION,
+      )
 
 # Relay all microcontroller signals to Loggbok
 hub.add_tcp(BOARD_IP, BOARD_PORT, "StressBoard", interval_ms=500)
