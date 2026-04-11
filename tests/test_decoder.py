@@ -677,3 +677,168 @@ class TestMsgKeyConstants:
         assert decoder.MSGKEY_DEVICES_V2 in decoder.MSGKEY_DEVICES_ALL
         assert decoder.MSGKEY_DEVICES_V1 in decoder.MSGKEY_DEVICES_ALL
         assert decoder.MSGKEY_DEVICES_LEGACY in decoder.MSGKEY_DEVICES_ALL
+
+
+# ---------------------------------------------------------------------------
+# B0 parse_symbol_list — truncation edge cases
+# ---------------------------------------------------------------------------
+
+class TestParseSymbolListTruncation:
+
+    def test_truncated_msc_only_one_byte(self):
+        """Line 147: pos + 2 > len(data) — only 1 byte after header."""
+        content = _header(0xB0) + b"\x01"
+        symbols = decoder.parse_symbol_list(content)
+        assert symbols == []
+
+    def test_truncated_after_name_no_dtype(self):
+        """Line 162: pos >= len(data) after name — no DTYPE byte."""
+        content = _header(0xB0) + b"\x01\x00" + b"temp\0"
+        symbols = decoder.parse_symbol_list(content)
+        assert symbols == []
+
+
+# ---------------------------------------------------------------------------
+# D2 parse_data — validation error paths
+# ---------------------------------------------------------------------------
+
+class TestParseDataD2Errors:
+
+    def test_payload_too_short(self):
+        """Line 222: D2 payload < 12 bytes."""
+        table = _make_symbols(("x", 8))
+        content = _header(0xD2) + b"\x00" * 5
+        with pytest.raises(ValueError, match="D2 payload too short"):
+            decoder.parse_data(content, table)
+
+    def test_missing_separator_after_restart(self):
+        """Line 245: no ':' separator after restart flag."""
+        table = _make_symbols(("x", 8))
+        # Build a frame with a bad separator (0x00 instead of ':')
+        body = b"\x00" + b"\x00" + b"\x00" * 20
+        content = _header(0xD2) + body
+        content += _crc32(content)
+        with pytest.raises(ValueError, match="separator after D2 restart"):
+            decoder.parse_data(content, table)
+
+    def test_missing_separator_after_schema(self):
+        """Line 256: no ':' after schema hash."""
+        body = b"\x00:"  # restart + ':'
+        body += b"\x00\x00"  # schema hash
+        body += b"\x00"  # bad separator
+        body += b"\x00" * 15
+        content = _header(0xD2) + body
+        content += _crc32(content)
+        with pytest.raises(ValueError, match="separator after D2 schema hash"):
+            decoder.parse_data(content, [])
+
+    def test_truncated_timestamp(self):
+        """Line 269: timestamp_mode > 0 but fewer than 8 bytes available."""
+        body = b"\x00:"      # restart + ':'
+        body += b"\x00\x00:" # schema hash + ':'
+        body += b"\x01"      # timestamp_mode = 1
+        body += b"\x00\x00"  # only 2 bytes of timestamp (need 8)
+        # total body = 8, data = body(8)+crc(4) = 12 >= 12 ✓
+        content = _header(0xD2) + body
+        content += _crc32(content)
+        with pytest.raises(ValueError, match="Truncated D2 timestamp"):
+            decoder.parse_data(content, [])
+
+    def test_payload_too_short_for_status(self):
+        """Line 281: signal_data_end < pos after metadata."""
+        body = b"\x00:"       # restart + ':'
+        body += b"\x00\x00:"  # schema hash + ':'
+        body += b"\x00:"      # timestamp_mode=0 + ':'
+        body += b"\x00"       # padding to reach 8 bytes of body
+        # data = body(8)+crc(4) = 12, signal_data_end = 12-9 = 3, pos = 7
+        content = _header(0xD2) + body
+        content += _crc32(content)
+        with pytest.raises(ValueError, match="D2 payload too short"):
+            decoder.parse_data(content, [])
+
+
+# ---------------------------------------------------------------------------
+# D1 parse_data — validation error paths
+# ---------------------------------------------------------------------------
+
+class TestParseDataD1Errors:
+
+    def test_payload_too_short(self):
+        """Line 314: D1 payload < 9 bytes."""
+        content = _header(0xD1) + b"\x00" * 2
+        with pytest.raises(ValueError, match="D1 payload too short"):
+            decoder.parse_data(content, [])
+
+    def test_missing_separator_after_restart(self):
+        """Line 331: no ':' separator after restart flag."""
+        body = b"\x00\x00" + b"\x00" * 3 + b"\x00"  # 6 bytes, last = status
+        content = _header(0xD1) + body
+        crc_input = content[:-1]
+        content += _crc32(crc_input)
+        with pytest.raises(ValueError, match="separator after D1 restart"):
+            decoder.parse_data(content, [])
+
+
+# ---------------------------------------------------------------------------
+# B1 parse_data — error paths
+# ---------------------------------------------------------------------------
+
+class TestParseDataB1Errors:
+
+    def test_payload_too_short(self):
+        """Line 388: B1 payload < 5 bytes."""
+        content = _header(0xB1) + b"\x00\x00"
+        with pytest.raises(ValueError, match="B1 payload too short"):
+            decoder.parse_data(content, [])
+
+    def test_unknown_datatype_code(self):
+        """Line 405: symbol table has unknown dtype code."""
+        bad_sym = decoder.DecodedSymbol(
+            name="x", datatype_code=0xFF, datatype_name="??", datatype_size=1,
+        )
+        body = b"\x00" * 6  # some data + status
+        content = _header(0xB1) + body
+        crc_input = content[:-1]
+        content += _crc32(crc_input)
+        with pytest.raises(ValueError, match="Unknown datatype code"):
+            decoder.parse_data(content, [bad_sym])
+
+
+# ---------------------------------------------------------------------------
+# Device parsing — edge cases
+# ---------------------------------------------------------------------------
+
+class TestDeviceParsingEdgeCases:
+
+    def test_b6_truncated_device_entry(self):
+        """Line 500: pos + 2 > len(data) mid-loop in B6."""
+        body = bytes([2])  # device count = 2
+        body += bytes([1, 0])  # device 1 MSC+SID
+        for f in ["D", "h", "f", "l", "n", "r", "t", "p"]:
+            body += f.encode() + b"\0"
+        # No room for device 2's MSC+SID → loop breaks
+        # Client trailer reads empty strings
+        frame = _header(0xB6) + body
+        devices = decoder.parse_all_devices(frame)
+        assert len(devices) == 1
+        assert devices[0].device_name == "D"
+
+    def test_b2_msc_sid_only_no_strings(self):
+        """Line 541: pos >= len(data) after reading MSC+SID."""
+        frame = _header(0xB2) + bytes([1, 0])
+        devices = decoder.parse_all_devices(frame)
+        assert devices == []
+
+    def test_read_string_no_null_terminator(self):
+        """Lines 486-488: read_string fallback when no null terminator."""
+        # Build a B3 frame where the last field has no null terminator
+        body = bytes([1, 0])
+        body += b"Dev\0"  # device_name
+        body += b"hw\0"   # hw_version
+        body += b"fw\0"   # fw_version
+        body += b"lib\0"  # lib_version
+        body += b"noterm" # lib_name without null terminator
+        frame = _header(0xB3) + body
+        devices = decoder.parse_all_devices(frame)
+        assert len(devices) == 1
+        assert devices[0].lib_name == "noterm"
