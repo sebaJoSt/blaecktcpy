@@ -10,6 +10,8 @@ import logging
 import select
 import socket
 import time
+from abc import ABC, abstractmethod
+from typing import Protocol, runtime_checkable
 
 # Windows socket error codes
 _WSAEWOULDBLOCK = 10035
@@ -27,8 +29,46 @@ _END_MARKER = b"/BLAECK>"
 _MAX_BUFFER = 1_048_576  # 1 MB buffer limit
 
 
-class _UpstreamBase:
-    """Base class with shared frame extraction and polling logic."""
+@runtime_checkable
+class Transport(Protocol):
+    """Interface for upstream transport connections.
+
+    Any object satisfying this protocol can be used as an upstream
+    transport in :class:`~blaecktcpy.BlaeckTCPy` hub mode.  The
+    built-in implementations are :class:`UpstreamTCP` and
+    :class:`UpstreamSerial`; custom transports (e.g. for testing)
+    need only implement these methods.
+    """
+
+    name: str
+    last_error: str
+
+    @property
+    def connected(self) -> bool: ...
+
+    @property
+    def connect_pending(self) -> bool: ...
+
+    @property
+    def last_seen(self) -> float: ...
+
+    def connect(self, timeout: float = 5.0) -> bool: ...
+    def start_connect(self, timeout: float = 5.0) -> None: ...
+    def check_connect(self) -> bool | None: ...
+    def read_available(self) -> bytes: ...
+    def send(self, data: bytes) -> bool: ...
+    def send_command(self, command: str) -> bool: ...
+    def read_frames(self) -> list[bytes]: ...
+    def close(self) -> None: ...
+
+
+class _UpstreamBase(ABC):
+    """Base class with shared frame extraction and polling logic.
+
+    Subclasses must implement :meth:`connect`, :meth:`read_available`,
+    and :meth:`send`.  Everything else (frame extraction, command
+    wrapping, connect lifecycle) is provided by this base class.
+    """
 
     def __init__(self, name: str, logger: logging.Logger | None = None):
         self.name = name
@@ -41,14 +81,14 @@ class _UpstreamBase:
 
     # -- Subclass must implement --
 
-    def connect(self, timeout: float = 5.0) -> bool:
-        raise NotImplementedError
+    @abstractmethod
+    def connect(self, timeout: float = 5.0) -> bool: ...
 
-    def read_available(self) -> bytes:
-        raise NotImplementedError
+    @abstractmethod
+    def read_available(self) -> bytes: ...
 
-    def send(self, data: bytes) -> bool:
-        raise NotImplementedError
+    @abstractmethod
+    def send(self, data: bytes) -> bool: ...
 
     def close(self) -> None:
         if self._connected:
