@@ -18,7 +18,7 @@ from . import _decoder as decoder
 from ._upstream import UpstreamTCP, _UpstreamBase
 
 if TYPE_CHECKING:
-    from .._server import BlaeckTCPy
+    from .._protocols import HubHost
 
 # Message IDs for data frames
 _MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B
@@ -70,7 +70,7 @@ class _UpstreamDevice:
 class HubManager:
     """Manages upstream device connections and data relay."""
 
-    def __init__(self, server: BlaeckTCPy, logger: logging.Logger) -> None:
+    def __init__(self, server: HubHost, logger: logging.Logger) -> None:
         self._server = server
         self._logger = logger
         self._upstreams: list[_UpstreamDevice] = []

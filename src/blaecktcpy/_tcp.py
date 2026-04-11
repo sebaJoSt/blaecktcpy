@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from ._signal import IntervalMode
 
 if TYPE_CHECKING:
-    from ._server import BlaeckTCPy
+    from ._protocols import TCPHost
 
 _MAX_RECV_BUFFER = 65536
 _CLIENT_RECV_CHUNK = 4096
@@ -24,7 +24,7 @@ _CLIENT_RECV_CHUNK = 4096
 class ClientManager:
     """Manages TCP server socket and downstream client connections."""
 
-    def __init__(self, server: BlaeckTCPy, logger: logging.Logger) -> None:
+    def __init__(self, server: TCPHost, logger: logging.Logger) -> None:
         self._server = server
         self._logger = logger
         self._server_socket: socket.socket | None = None
