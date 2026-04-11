@@ -536,9 +536,9 @@ class BlaeckTCPy:
             if 0 <= key < lc:
                 return key
             raise IndexError(f"Signal index {key} out of range")
-        for i in range(lc):
-            if self.signals[i].signal_name == key:
-                return i
+        idx = self.signals.index_of(key)
+        if idx is not None and idx < lc:
+            return idx
         raise KeyError(f"Signal '{key}' not found")
 
     def write(

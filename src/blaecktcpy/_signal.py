@@ -175,13 +175,21 @@ class SignalList(list):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._name_cache: dict[str, Signal] | None = None
+        self._index_cache: dict[str, int] | None = None
 
     def _invalidate_cache(self):
         self._name_cache = None
+        self._index_cache = None
 
     def _ensure_cache(self):
         if self._name_cache is None:
             self._name_cache = {sig.signal_name: sig for sig in self}
+            self._index_cache = {sig.signal_name: i for i, sig in enumerate(self)}
+
+    def index_of(self, name: str) -> int | None:
+        """Return the index of a signal by name, or None if not found. O(1)."""
+        self._ensure_cache()
+        return self._index_cache.get(name)
 
     def __getitem__(self, key):
         if isinstance(key, str):
