@@ -42,19 +42,20 @@ def _build_b6_frame(
     msg_key = b"\xb6"
     msg_id = (1).to_bytes(4, "little")
     payload = (
-        b"\x00\x00"  # MSC=0, SlaveID=0
+        b"\x01"  # DeviceCount = 1
+        + b"\x00\x00"  # MSC=0, SlaveID=0
         + device_name.encode() + b"\x00"
         + hw.encode() + b"\x00"
         + fw.encode() + b"\x00"
         + lib_ver.encode() + b"\x00"
         + lib_name.encode() + b"\x00"
+        + server_restarted.encode() + b"\x00"
+        + b"server\x00"  # device_type
+        + b"0\x00"  # parent
         + b"0\x00"  # assigned_client_id
         + b"1\x00"  # data_enabled
         + b"\x00"  # client_name (empty)
         + b"\x00"  # client_type (empty -> "unknown")
-        + server_restarted.encode() + b"\x00"
-        + b"server\x00"  # device_type
-        + b"0\x00"  # parent
     )
     return msg_key + b":" + msg_id + b":" + payload
 

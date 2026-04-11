@@ -1347,7 +1347,32 @@ class BlaeckTCPy:
         if self._upstreams:
             # Hub-style: master + slave devices
             for client_id, conn in list(self._clients.items()):
-                payload = (
+                # Count devices: 1 master + relayed upstream devices
+                device_count = 1
+                for upstream in self._upstreams:
+                    if not upstream.relay_downstream:
+                        continue
+                    for info in upstream.device_infos:
+                        if upstream.slave_id_map.get((info.msc, info.slave_id)) is not None:
+                            device_count += 1
+
+                # Client fields (once per frame, appended after devices)
+                client_trailer = (
+                    str(client_id).encode()
+                    + b"\0"
+                    + (b"1" if client_id in self.data_clients else b"0")
+                    + b"\0"
+                    + self._client_meta.get(client_id, {}).get("name", "").encode()
+                    + b"\0"
+                    + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
+                    + b"\0"
+                )
+
+                # DeviceCount + device entries
+                payload = bytes([device_count])
+
+                # Master device
+                payload += (
                     _MSC_MASTER
                     + b"\x00"  # SlaveID 0 for master
                     + self._device_name
@@ -1359,14 +1384,6 @@ class BlaeckTCPy:
                     + LIB_VERSION.encode()
                     + b"\0"
                     + LIB_NAME.encode()
-                    + b"\0"
-                    + str(client_id).encode()
-                    + b"\0"
-                    + (b"1" if client_id in self.data_clients else b"0")
-                    + b"\0"
-                    + self._client_meta.get(client_id, {}).get("name", "").encode()
-                    + b"\0"
-                    + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
                     + b"\0"
                     + (b"1" if self._server_restarted else b"0")
                     + b"\0"
@@ -1407,14 +1424,6 @@ class BlaeckTCPy:
                             + b"\0"
                             + info.lib_name.encode()
                             + b"\0"
-                            + str(client_id).encode()
-                            + b"\0"
-                            + (b"1" if client_id in self.data_clients else b"0")
-                            + b"\0"
-                            + self._client_meta.get(client_id, {}).get("name", "").encode()
-                            + b"\0"
-                            + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
-                            + b"\0"
                             + (info.server_restarted.encode() if info.server_restarted else b"0")
                             + b"\0"
                             + device_type.encode()
@@ -1423,7 +1432,7 @@ class BlaeckTCPy:
                             + b"\0"
                         )
 
-                data = b"<BLAECK:" + header + payload + b"/BLAECK>\r\n"
+                data = b"<BLAECK:" + header + payload + client_trailer + b"/BLAECK>\r\n"
 
                 try:
                     conn.sendall(data)
@@ -1434,7 +1443,10 @@ class BlaeckTCPy:
             # Simple server-style
             for client_id, conn in list(self._clients.items()):
                 device_info = (
-                    self._master_slave_config
+                    # DeviceCount = 1
+                    b"\x01"
+                    # Single device entry
+                    + self._master_slave_config
                     + self._slave_id
                     + self._device_name
                     + b"\0"
@@ -1446,6 +1458,11 @@ class BlaeckTCPy:
                     + b"\0"
                     + LIB_NAME.encode()
                     + b"\0"
+                    + (b"1" if self._server_restarted else b"0")
+                    + b"\0"
+                    + b"server\0"
+                    + b"0\0"  # parent (SlaveID 0 = self)
+                    # Client trailer
                     + str(client_id).encode()
                     + b"\0"
                     + (b"1" if client_id in self.data_clients else b"0")
@@ -1454,10 +1471,6 @@ class BlaeckTCPy:
                     + b"\0"
                     + self._client_meta.get(client_id, {}).get("type", "unknown").encode()
                     + b"\0"
-                    + (b"1" if self._server_restarted else b"0")
-                    + b"\0"
-                    + b"server\0"
-                    + b"0\0"  # parent (SlaveID 0 = self)
                 )
 
                 data = b"<BLAECK:" + header + device_info + b"/BLAECK>\r\n"

@@ -489,6 +489,48 @@ def parse_all_devices(content: bytes) -> list[DecodedDeviceInfo]:
         pos = null_pos + 1
         return s
 
+    # B6 has a different layout: DeviceCount + devices + client trailer
+    if msg_key == 0xB6:
+        device_count = data[pos]
+        pos += 1
+
+        for _ in range(device_count):
+            if pos + 2 > len(data):
+                break
+            msc = data[pos]
+            sid = data[pos + 1]
+            pos += 2
+
+            info = DecodedDeviceInfo(
+                msg_id=msg_id,
+                device_name=read_string(),
+                hw_version=read_string(),
+                fw_version=read_string(),
+                lib_version=read_string(),
+                msc=msc,
+                slave_id=sid,
+                lib_name=read_string(),
+                server_restarted=read_string(),
+                device_type=read_string(),
+                parent=read_string(),
+            )
+            devices.append(info)
+
+        # Client trailer (once per frame, stamped onto all devices)
+        client_id = read_string()
+        data_enabled = read_string()
+        client_name = read_string()
+        client_type = read_string()
+
+        for dev in devices:
+            dev.assigned_client_id = client_id
+            dev.data_enabled = data_enabled
+            dev.client_name = client_name
+            dev.client_type = client_type
+
+        return devices
+
+    # B2–B5: loop until payload exhausted
     while pos + 2 <= len(data):
         msc = data[pos]
         sid = data[pos + 1]
@@ -521,15 +563,6 @@ def parse_all_devices(content: bytes) -> list[DecodedDeviceInfo]:
                 info.assigned_client_id = read_string()
                 info.data_enabled = read_string()
                 info.server_restarted = read_string()
-            case 0xB6:  # MSGKEY_DEVICES
-                info.lib_name = read_string()
-                info.assigned_client_id = read_string()
-                info.data_enabled = read_string()
-                info.client_name = read_string()
-                info.client_type = read_string()
-                info.server_restarted = read_string()
-                info.device_type = read_string()
-                info.parent = read_string()
 
         devices.append(info)
 

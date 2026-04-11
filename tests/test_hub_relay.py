@@ -137,19 +137,20 @@ class TestB6DeviceType:
         msg_id = (1).to_bytes(4, "little")
         msc_slave_id = b"\x00\x00"
         payload = (
-            msc_slave_id
+            b"\x01"  # DeviceCount = 1
+            + msc_slave_id
             + b"TestDevice\0"
             + b"1.0\0"
             + b"2.0\0"
             + b"3.0\0"
             + b"blaecktcpy\0"
+            + b"0\0"
+            + b"server\0"
+            + b"0\0"
             + b"1\0"
             + b"1\0"
             + b"Loggbok\0"
             + b"app\0"
-            + b"0\0"
-            + b"server\0"
-            + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
@@ -166,19 +167,20 @@ class TestB6DeviceType:
         msg_id = (1).to_bytes(4, "little")
         msc_slave_id = b"\x00\x00"
         payload = (
-            msc_slave_id
+            b"\x01"  # DeviceCount = 1
+            + msc_slave_id
             + b"MyHub\0"
             + b"1.0\0"
             + b"2.0\0"
             + b"3.0\0"
             + b"blaecktcpy\0"
+            + b"0\0"
+            + b"hub\0"
+            + b"0\0"
             + b"1\0"
             + b"1\0"
             + b"\0"
             + b"unknown\0"
-            + b"0\0"
-            + b"hub\0"
-            + b"0\0"
         )
         content = msg_key + b":" + msg_id + b":" + payload
         info = decoder.parse_devices(content)
@@ -236,21 +238,24 @@ class TestMultiSlavePassThrough:
         """B6 frame with master + slave returns both entries."""
         msg_key = b"\xb6"
         msg_id = (1).to_bytes(4, "little")
+        device_count = b"\x02"  # 2 devices
         master = (
             b"\x01\x00"  # MSC=master, SlaveID=0
             + b"ArduinoMain\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"blaecktcpy\0" + b"1\0" + b"1\0" + b"Loggbok\0" + b"app\0"
+            + b"blaecktcpy\0"
             + b"0\0" + b"server\0" + b"0\0"
         )
         slave = (
             b"\x02\x08"  # MSC=slave, SlaveID=8
             + b"SensorBoard\0"
             + b"1.1\0" + b"2.1\0" + b"3.1\0"
-            + b"blaeckserial\0" + b"1\0" + b"1\0" + b"Loggbok\0" + b"app\0"
+            + b"blaeckserial\0"
             + b"0\0" + b"server\0" + b"0\0"
         )
-        content = msg_key + b":" + msg_id + b":" + master + slave
+        # Client trailer (once)
+        client_trailer = b"1\0" + b"1\0" + b"Loggbok\0" + b"app\0"
+        content = msg_key + b":" + msg_id + b":" + device_count + master + slave + client_trailer
         devices = decoder.parse_all_devices(content)
         assert len(devices) == 2
         assert devices[0].device_name == "ArduinoMain"
@@ -287,19 +292,21 @@ class TestMultiSlavePassThrough:
         """parse_devices() still returns first entry only."""
         msg_key = b"\xb6"
         msg_id = (1).to_bytes(4, "little")
+        device_count = b"\x02"  # 2 devices
         master = (
             b"\x01\x00" + b"First\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"lib\0" + b"1\0" + b"1\0" + b"\0" + b"unknown\0"
+            + b"lib\0"
             + b"0\0" + b"hub\0" + b"0\0"
         )
         slave = (
             b"\x02\x01" + b"Second\0"
             + b"1.0\0" + b"2.0\0" + b"3.0\0"
-            + b"lib\0" + b"1\0" + b"1\0" + b"\0" + b"unknown\0"
+            + b"lib\0"
             + b"0\0" + b"server\0" + b"0\0"
         )
-        content = msg_key + b":" + msg_id + b":" + master + slave
+        client_trailer = b"1\0" + b"1\0" + b"\0" + b"unknown\0"
+        content = msg_key + b":" + msg_id + b":" + device_count + master + slave + client_trailer
         info = decoder.parse_devices(content)
         assert info.device_name == "First"
         assert info.device_type == "hub"
