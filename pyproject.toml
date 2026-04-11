@@ -12,9 +12,12 @@ authors = [
 ]
 requires-python = ">=3.12"
 license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["blaeck", "tcp", "loggbok", "logging", "arduino"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
     "Topic :: System :: Logging",
     "Topic :: Scientific/Engineering",
@@ -26,7 +29,7 @@ Homepage = "https://github.com/sebaJoSt/blaecktcpy"
 "Source" = "https://github.com/sebaJoSt/blaecktcpy"
 
 [project.optional-dependencies]
-serial = ["pyserial"]
+serial = ["pyserial>=3.5"]
 test = ["pytest>=8"]
 
 [tool.pytest.ini_options]
