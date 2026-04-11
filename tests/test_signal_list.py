@@ -52,3 +52,35 @@ class TestSignalList:
     def test_value_updates_propagate(self):
         self.collection["temperature"].value = 30.0
         assert self.signals[0].value == 30.0
+
+    def test_append_invalidates_cache(self):
+        _ = self.collection["temperature"]  # populate cache
+        new_sig = Signal("wind", "float", 5.0)
+        self.collection.append(new_sig)
+        assert self.collection["wind"].value == 5.0
+
+    def test_del_invalidates_cache(self):
+        _ = self.collection["humidity"]  # populate cache
+        del self.collection[1]
+        with pytest.raises(KeyError):
+            _ = self.collection["humidity"]
+        assert self.collection["pressure"].value == 1013.25
+
+    def test_slice_delete_invalidates_cache(self):
+        _ = self.collection["temperature"]
+        del self.collection[:2]
+        assert len(self.collection) == 1
+        assert self.collection["pressure"].value == 1013.25
+        with pytest.raises(KeyError):
+            _ = self.collection["temperature"]
+
+    def test_clear_invalidates_cache(self):
+        _ = self.collection["temperature"]
+        self.collection.clear()
+        with pytest.raises(KeyError):
+            _ = self.collection["temperature"]
+
+    def test_iadd_invalidates_cache(self):
+        _ = self.collection["temperature"]
+        self.collection += [Signal("wind", "float", 3.0)]
+        assert self.collection["wind"].value == 3.0

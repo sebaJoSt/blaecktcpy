@@ -167,12 +167,66 @@ class SignalList(list):
 
         signals[0].value
         signals["temperature"].value
+
+    Name-based lookups use an internal dict cache (O(1) amortised).
+    The cache is lazily rebuilt after any list mutation.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._name_cache: dict[str, Signal] | None = None
+
+    def _invalidate_cache(self):
+        self._name_cache = None
+
+    def _ensure_cache(self):
+        if self._name_cache is None:
+            self._name_cache = {sig.signal_name: sig for sig in self}
 
     def __getitem__(self, key):
         if isinstance(key, str):
-            for sig in self:
-                if sig.signal_name == key:
-                    return sig
-            raise KeyError(f"No signal named {key!r}")
+            self._ensure_cache()
+            try:
+                return self._name_cache[key]
+            except KeyError:
+                raise KeyError(f"No signal named {key!r}")
         return super().__getitem__(key)
+
+    # Override mutating methods to invalidate the cache
+    def append(self, item):
+        super().append(item)
+        self._invalidate_cache()
+
+    def extend(self, items):
+        super().extend(items)
+        self._invalidate_cache()
+
+    def insert(self, index, item):
+        super().insert(index, item)
+        self._invalidate_cache()
+
+    def remove(self, item):
+        super().remove(item)
+        self._invalidate_cache()
+
+    def pop(self, index=-1):
+        result = super().pop(index)
+        self._invalidate_cache()
+        return result
+
+    def clear(self):
+        super().clear()
+        self._invalidate_cache()
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self._invalidate_cache()
+
+    def __delitem__(self, key):
+        super().__delitem__(key)
+        self._invalidate_cache()
+
+    def __iadd__(self, other):
+        result = super().__iadd__(other)
+        self._invalidate_cache()
+        return result
