@@ -84,3 +84,54 @@ class TestSignalList:
         _ = self.collection["temperature"]
         self.collection += [Signal("wind", "float", 3.0)]
         assert self.collection["wind"].value == 3.0
+
+    def test_extend_invalidates_cache(self):
+        _ = self.collection["temperature"]
+        self.collection.extend([Signal("wind", "float", 3.0)])
+        assert len(self.collection) == 4
+        assert self.collection["wind"].value == 3.0
+
+    def test_remove_invalidates_cache(self):
+        target = self.collection[1]  # humidity
+        _ = self.collection["humidity"]
+        self.collection.remove(target)
+        assert len(self.collection) == 2
+        with pytest.raises(KeyError):
+            _ = self.collection["humidity"]
+
+    def test_pop_returns_signal_and_invalidates_cache(self):
+        _ = self.collection["pressure"]
+        popped = self.collection.pop()
+        assert popped.signal_name == "pressure"
+        assert len(self.collection) == 2
+        with pytest.raises(KeyError):
+            _ = self.collection["pressure"]
+
+    def test_pop_by_index(self):
+        popped = self.collection.pop(0)
+        assert popped.signal_name == "temperature"
+        assert len(self.collection) == 2
+
+    def test_setitem_invalidates_cache(self):
+        _ = self.collection["temperature"]
+        replacement = Signal("altitude", "float", 500.0)
+        self.collection[0] = replacement
+        assert self.collection["altitude"].value == 500.0
+        with pytest.raises(KeyError):
+            _ = self.collection["temperature"]
+
+    def test_insert_invalidates_cache(self):
+        _ = self.collection["temperature"]
+        new_sig = Signal("wind", "float", 5.0)
+        self.collection.insert(1, new_sig)
+        assert len(self.collection) == 4
+        assert self.collection["wind"].value == 5.0
+        assert self.collection[1].signal_name == "wind"
+
+    def test_index_of_existing(self):
+        assert self.collection.index_of("temperature") == 0
+        assert self.collection.index_of("humidity") == 1
+        assert self.collection.index_of("pressure") == 2
+
+    def test_index_of_missing(self):
+        assert self.collection.index_of("nonexistent") is None

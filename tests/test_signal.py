@@ -94,3 +94,19 @@ def test_float_and_double_boundary_values_serialize_little_endian(datatype, valu
     signal = Signal("float-boundary", datatype, value)
     assert signal.value == float(value)
     assert signal.to_bytes() == struct.pack(fmt, float(value))
+
+
+def test_invalid_datatype_raises():
+    with pytest.raises(ValueError, match="Invalid datatype"):
+        Signal("bad", "complex")
+
+
+def test_float_signal_rejects_unconvertible_value():
+    sig = Signal("f", "float", 0.0)
+    with pytest.raises(ValueError, match="Invalid value"):
+        sig.value = object()
+
+
+def test_signal_repr():
+    sig = Signal("temp", "float", 22.5)
+    assert repr(sig) == "temp: float = 22.5"
