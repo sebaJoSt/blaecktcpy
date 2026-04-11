@@ -1,5 +1,10 @@
 # blaecktcpy
 
+[![Tests](https://github.com/sebaJoSt/blaecktcpy/actions/workflows/tests.yml/badge.svg)](https://github.com/sebaJoSt/blaecktcpy/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/blaecktcpy)](https://pypi.org/project/blaecktcpy/)
+[![Python](https://img.shields.io/pypi/pyversions/blaecktcpy)](https://pypi.org/project/blaecktcpy/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A Python TCP server for real-time streaming of named, typed signals using the [Blaeck protocol](https://sebajost.github.io/blaeck-protocol/). Use it to turn any Python script into a signal source that Loggbok or any compatible TCP client can connect to, visualize, and log.
 
 ## Getting Started
@@ -209,3 +214,8 @@ See the [examples](examples/) folder:
 ## License
 
 MIT
+
+## Documentation
+
+- [Hub mode](docs/hub.md)
+- [API Reference](docs/api.md)
