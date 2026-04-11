@@ -3,7 +3,9 @@
 import json
 import sys
 import urllib.request
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -19,8 +21,10 @@ from blaecktcpy._http import (
     _get_state,
     _interval_str,
     _render_html,
+    _transport_str,
     _upstream_interval_str,
 )
+from blaecktcpy.hub._upstream import UpstreamTCP
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +228,213 @@ class TestHttpServer:
         with pytest.raises(urllib.error.HTTPError) as exc_info:
             urllib.request.urlopen(url, timeout=2)
         assert exc_info.value.code == 404
+
+
+# ---------------------------------------------------------------------------
+# _interval_str / _upstream_interval_str — fallback branches
+# ---------------------------------------------------------------------------
+
+class TestIntervalStrFallback:
+    def test_unknown_negative_value(self):
+        """Line 249: fallback for unrecognised negative interval."""
+        server = BlaeckTCPy("127.0.0.1", 0, "T", "H", "F", http_port=None)
+        server._fixed_interval_ms = -999
+        assert _interval_str(server) == "-999"
+        server.close()
+
+
+class TestUpstreamIntervalStrFallback:
+    def test_unknown_negative_value(self):
+        """Line 260: fallback for unrecognised negative interval."""
+        assert _upstream_interval_str(-999) == "-999"
+
+
+# ---------------------------------------------------------------------------
+# _transport_str
+# ---------------------------------------------------------------------------
+
+class TestTransportStr:
+    def test_tcp_transport(self):
+        tcp = UpstreamTCP("dev1", "192.168.1.10", 9325)
+        upstream = SimpleNamespace(transport=tcp)
+        assert _transport_str(upstream) == "TCP 192.168.1.10:9325"
+
+    def test_serial_transport(self):
+        serial_t = SimpleNamespace(port="COM3", baudrate=115200)
+        upstream = SimpleNamespace(transport=serial_t)
+        assert _transport_str(upstream) == "Serial COM3 (115200)"
+
+    def test_serial_transport_no_baud(self):
+        serial_t = SimpleNamespace(port="/dev/ttyUSB0")
+        upstream = SimpleNamespace(transport=serial_t)
+        assert _transport_str(upstream) == "Serial /dev/ttyUSB0"
+
+
+# ---------------------------------------------------------------------------
+# _get_state with clients
+# ---------------------------------------------------------------------------
+
+class TestGetStateWithClients:
+    def setup_method(self):
+        self.server = BlaeckTCPy("127.0.0.1", 0, "TestDev", "HW", "FW",
+                                 http_port=None)
+        self.server.start()
+        self.server._port = self.server._server_socket.getsockname()[1]
+
+    def teardown_method(self):
+        self.server._clients.clear()
+        self.server.close()
+
+    def test_clients_appear_in_state(self):
+        self.server._clients[5] = None
+        self.server._client_addrs[5] = "192.168.1.50:12345"
+        self.server._client_meta[5] = {"name": "MyApp", "type": "logger"}
+        state = _get_state(self.server)
+        assert state["client_count"] == 1
+        c = state["clients"][0]
+        assert c["id"] == 5
+        assert c["name"] == "MyApp (logger)"
+        assert c["address"] == "192.168.1.50:12345"
+        assert c["data"] is False
+
+    def test_client_name_with_unknown_type(self):
+        self.server._clients[1] = None
+        self.server._client_addrs[1] = "10.0.0.1:9000"
+        self.server._client_meta[1] = {"name": "Probe", "type": "unknown"}
+        state = _get_state(self.server)
+        assert state["clients"][0]["name"] == "Probe"
+
+    def test_data_client_flag(self):
+        self.server._clients[7] = None
+        self.server._client_addrs[7] = "10.0.0.2:8000"
+        self.server._client_meta[7] = {}
+        self.server.data_clients.add(7)
+        state = _get_state(self.server)
+        assert state["clients"][0]["data"] is True
+
+
+# ---------------------------------------------------------------------------
+# _get_state with upstreams
+# ---------------------------------------------------------------------------
+
+def _make_fake_upstream(name="UpDev", connected=True, interval_ms=500,
+                        relay=True, auto_reconnect=False, signals=None):
+    """Build a fake _UpstreamDevice-like object for testing."""
+    tcp = UpstreamTCP(name, "10.0.0.1", 9325)
+    tcp._connected = connected
+    return SimpleNamespace(
+        device_name=name,
+        transport=tcp,
+        symbol_table=[SimpleNamespace()] * (len(signals) if signals else 0),
+        interval_ms=interval_ms,
+        relay_downstream=relay,
+        auto_reconnect=auto_reconnect,
+        _signals=signals,
+    )
+
+
+class TestGetStateWithUpstreams:
+    def setup_method(self):
+        self.server = BlaeckTCPy("127.0.0.1", 0, "HubDev", "HW", "FW",
+                                 http_port=None)
+        self.server.start()
+        self.server._port = self.server._server_socket.getsockname()[1]
+
+    def teardown_method(self):
+        self.server.close()
+
+    def test_upstreams_in_state(self):
+        from blaecktcpy._signal import Signal
+        sig = Signal(signal_name="rpm", datatype="int", value=1200)
+        upstream = _make_fake_upstream(signals=[sig])
+        self.server._upstreams.append(upstream)
+        state = _get_state(self.server)
+        assert "upstreams" in state
+        assert len(state["upstreams"]) == 1
+        u = state["upstreams"][0]
+        assert u["name"] == "UpDev"
+        assert u["connected"] is True
+        assert u["signal_count"] == 1
+        assert u["interval"] == "500 ms"
+        assert u["relay"] is True
+        assert u["auto_reconnect"] is False
+        assert u["signals"][0]["name"] == "rpm"
+
+    def test_upstream_disconnected(self):
+        upstream = _make_fake_upstream(connected=False, signals=None)
+        self.server._upstreams.append(upstream)
+        state = _get_state(self.server)
+        u = state["upstreams"][0]
+        assert u["connected"] is False
+        assert u["signals"] == []
+
+
+# ---------------------------------------------------------------------------
+# _render_html with clients and upstreams
+# ---------------------------------------------------------------------------
+
+class TestRenderHtmlWithClients:
+    def setup_method(self):
+        self.server = BlaeckTCPy("127.0.0.1", 0, "HtmlDev", "HW", "FW",
+                                 http_port=None)
+        self.server.start()
+        self.server._port = self.server._server_socket.getsockname()[1]
+
+    def teardown_method(self):
+        self.server._clients.clear()
+        self.server.close()
+
+    def test_client_rows_rendered(self):
+        self.server._clients[1] = None
+        self.server._client_addrs[1] = "10.0.0.1:8000"
+        self.server._client_meta[1] = {"name": "Browser", "type": "web"}
+        self.server.data_clients.add(1)
+        html = _render_html(self.server)
+        assert "Browser (web)" in html
+        assert "10.0.0.1:8000" in html
+        assert "color:green" in html  # data client ✓
+
+    def test_non_data_client_shows_red(self):
+        self.server._clients[2] = None
+        self.server._client_addrs[2] = "10.0.0.2:9000"
+        self.server._client_meta[2] = {}
+        html = _render_html(self.server)
+        assert "color:red" in html  # non-data client ✗
+
+
+class TestRenderHtmlWithUpstreams:
+    def setup_method(self):
+        self.server = BlaeckTCPy("127.0.0.1", 0, "HubHtml", "HW", "FW",
+                                 http_port=None)
+        self.server.add_signal("x", "float", 0.0)
+        self.server.start()
+        self.server._port = self.server._server_socket.getsockname()[1]
+
+    def teardown_method(self):
+        self.server.close()
+
+    def test_upstream_summary_table_rendered(self):
+        from blaecktcpy._signal import Signal
+        sig = Signal(signal_name="temp", datatype="float", value=22.5)
+        upstream = _make_fake_upstream(name="Arduino1", signals=[sig])
+        self.server._upstreams.append(upstream)
+        html = _render_html(self.server)
+        assert "Upstreams (1)" in html
+        assert "Arduino1" in html
+        assert "status-dot up" in html  # connected
+
+    def test_upstream_disconnected_dot(self):
+        upstream = _make_fake_upstream(name="OffDev", connected=False,
+                                       signals=[])
+        self.server._upstreams.append(upstream)
+        html = _render_html(self.server)
+        assert "status-dot down" in html
+
+    def test_upstream_signal_rows_rendered(self):
+        from blaecktcpy._signal import Signal
+        sig = Signal(signal_name="pressure", datatype="double", value=101.3)
+        upstream = _make_fake_upstream(name="Sensor", signals=[sig])
+        self.server._upstreams.append(upstream)
+        html = _render_html(self.server)
+        assert "pressure" in html
+        assert "101.3" in html
