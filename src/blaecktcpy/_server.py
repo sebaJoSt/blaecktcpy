@@ -7,15 +7,13 @@ import socket
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Any
 
 from . import _encoder
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from ._tcp import ClientManager
 from .hub import _decoder as decoder
-from .hub._manager import HubManager
-from .hub._upstream import _UpstreamBase
+from .hub._manager import HubManager, _UpstreamDevice
 
 __all__ = ["BlaeckTCPy"]
 
@@ -85,48 +83,6 @@ class _IntervalTimer:
         while self._setpoint_ms <= elapsed_ms:
             self._setpoint_ms += self._interval_ms
         return True
-
-
-@dataclass
-class _UpstreamDevice:
-    """Internal bookkeeping for one upstream connection."""
-
-    device_name: str
-    transport: _UpstreamBase
-    symbol_table: list[decoder.DecodedSymbol] = field(default_factory=list)
-    index_map: dict[int, int] = field(default_factory=dict)
-    device_infos: list[decoder.DecodedDeviceInfo] = field(default_factory=list)
-    slave_id_map: dict[tuple[int, int], int] = field(default_factory=dict)
-    interval_ms: int = IntervalMode.CLIENT
-    connected: bool = True
-    relay_downstream: bool = True
-    forward_custom_commands: bool | list[str] = True
-    _signals: list[Signal] = field(default_factory=list)
-    _upstream_signals: SignalList | None = field(default=None, repr=False)
-    expected_schema_hash: int = 0
-    schema_stale: bool = False
-    _initial_restart_seen: bool = False
-    _restart_c0_sent: bool = False
-    auto_reconnect: bool = False
-    _reconnect_cooldown: float = 0.0
-    _reconnect_delay: float = 1.0
-    _reconnecting: bool = False
-    _awaiting_symbols: bool = False
-    _awaiting_devices: bool = False
-    _restart_detected: bool = False
-    _discovery_retry_at: float = 0.0
-    _discovery_timeout: float = 0.0
-
-    @property
-    def signals(self) -> SignalList:
-        if self._upstream_signals is None:
-            raise RuntimeError(
-                "Signals not available yet — call start() first"
-            )
-        return self._upstream_signals
-
-    def __getitem__(self, key: int | str) -> Signal:
-        return self.signals[key]
 
 
 class BlaeckTCPy:
