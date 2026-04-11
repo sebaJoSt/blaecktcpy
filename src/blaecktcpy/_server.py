@@ -271,78 +271,91 @@ class BlaeckTCPy:
 
         # Connect and discover all upstreams sequentially
         self._discover_all_upstreams()
-
-        if self._local_signal_count > 0:
-            n = self._local_signal_count
-            interval_info = ""
-            if self._fixed_interval_ms >= 0:
-                interval_info = (
-                    f" (interval: {self._fixed_interval_ms} ms"
-                    f" — client control locked)"
-                )
-            elif self._fixed_interval_ms == IntervalMode.OFF:
-                interval_info = " (DEACTIVATE — client control locked)"
-            elif self._fixed_interval_ms == IntervalMode.CLIENT:
-                interval_info = " (interval: client controlled)"
-            self._logger.info(
-                f"Local: {n} signal{'s' if n != 1 else ''}"
-                f"{interval_info}"
-            )
-
-        # Register upstream signals and build index maps
-        if self._upstreams:
-            offset = self._local_signal_count
-            hub_slave_idx = 0
-            for upstream in self._upstreams:
-                if upstream.relay_downstream:
-                    # Build slave_id_map: (msc, slave_id) → hub slave_id
-                    seen: dict[tuple[int, int], int] = {}
-                    for sym in upstream.symbol_table:
-                        key = (sym.msc, sym.slave_id)
-                        if key not in seen:
-                            hub_slave_idx += 1
-                            seen[key] = hub_slave_idx
-                    # Include device-only entries (devices with no symbols)
-                    for info in upstream.device_infos:
-                        key = (info.msc, info.slave_id)
-                        if key not in seen:
-                            hub_slave_idx += 1
-                            seen[key] = hub_slave_idx
-                    upstream.slave_id_map = seen
-
-                    # Relayed: register on self so downstream clients see them
-                    for i, sym in enumerate(upstream.symbol_table):
-                        sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
-                            sym.datatype_code, "float"
-                        )
-                        sig = Signal(sym.name, sig_type)
-                        self.signals.append(sig)
-                        upstream._signals.append(self.signals[offset])
-                        upstream.index_map[i] = offset
-                        offset += 1
-                else:
-                    # Non-relayed: store signals internally for hub-side access
-                    for i, sym in enumerate(upstream.symbol_table):
-                        sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
-                            sym.datatype_code, "float"
-                        )
-                        sig = Signal(sym.name, sig_type)
-                        upstream._signals.append(sig)
-                        upstream.index_map[i] = i
-
-                # Freeze signal collection now that _signals is fully populated
-                upstream._upstream_signals = SignalList(upstream._signals)
-                # Cache schema hash for mismatch detection
-                upstream.expected_schema_hash = decoder.compute_schema_hash(
-                    [(s.name, s.datatype_code) for s in upstream.symbol_table]
-                )
+        self._log_local_signals()
+        self._register_upstream_signals()
 
         self._started = True
         self._start_time = time.time()
         self._update_schema_hash()
         self._install_signal_handler()
+        self._activate_upstreams()
+        self._log_startup_banner()
+        self._start_http_status_page()
+        atexit.register(self.close)
 
-        # Activate/deactivate upstreams based on interval setting
+    def _log_local_signals(self) -> None:
+        """Log local signal count and interval mode."""
+        if self._local_signal_count == 0:
+            return
+        n = self._local_signal_count
+        interval_info = ""
+        if self._fixed_interval_ms >= 0:
+            interval_info = (
+                f" (interval: {self._fixed_interval_ms} ms"
+                f" — client control locked)"
+            )
+        elif self._fixed_interval_ms == IntervalMode.OFF:
+            interval_info = " (DEACTIVATE — client control locked)"
+        elif self._fixed_interval_ms == IntervalMode.CLIENT:
+            interval_info = " (interval: client controlled)"
+        self._logger.info(
+            f"Local: {n} signal{'s' if n != 1 else ''}"
+            f"{interval_info}"
+        )
+
+    def _register_upstream_signals(self) -> None:
+        """Build slave_id_maps, register upstream signals, and build index maps."""
+        if not self._upstreams:
+            return
+
+        offset = self._local_signal_count
+        hub_slave_idx = 0
+        for upstream in self._upstreams:
+            if upstream.relay_downstream:
+                # Build slave_id_map: (msc, slave_id) → hub slave_id
+                seen: dict[tuple[int, int], int] = {}
+                for sym in upstream.symbol_table:
+                    key = (sym.msc, sym.slave_id)
+                    if key not in seen:
+                        hub_slave_idx += 1
+                        seen[key] = hub_slave_idx
+                # Include device-only entries (devices with no symbols)
+                for info in upstream.device_infos:
+                    key = (info.msc, info.slave_id)
+                    if key not in seen:
+                        hub_slave_idx += 1
+                        seen[key] = hub_slave_idx
+                upstream.slave_id_map = seen
+
+                # Relayed: register on self so downstream clients see them
+                for i, sym in enumerate(upstream.symbol_table):
+                    sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
+                        sym.datatype_code, "float"
+                    )
+                    sig = Signal(sym.name, sig_type)
+                    self.signals.append(sig)
+                    upstream._signals.append(self.signals[offset])
+                    upstream.index_map[i] = offset
+                    offset += 1
+            else:
+                # Non-relayed: store signals internally for hub-side access
+                for i, sym in enumerate(upstream.symbol_table):
+                    sig_type = decoder.DTYPE_TO_SIGNAL_TYPE.get(
+                        sym.datatype_code, "float"
+                    )
+                    sig = Signal(sym.name, sig_type)
+                    upstream._signals.append(sig)
+                    upstream.index_map[i] = i
+
+            # Freeze signal collection now that _signals is fully populated
+            upstream._upstream_signals = SignalList(upstream._signals)
+            # Cache schema hash for mismatch detection
+            upstream.expected_schema_hash = decoder.compute_schema_hash(
+                [(s.name, s.datatype_code) for s in upstream.symbol_table]
+            )
+
+    def _activate_upstreams(self) -> None:
+        """Send ACTIVATE or DEACTIVATE to upstreams based on interval setting."""
         for upstream in self._upstreams:
             if upstream.interval_ms >= 0:
                 b = upstream.interval_ms.to_bytes(4, "little")
@@ -351,6 +364,8 @@ class BlaeckTCPy:
             elif upstream.interval_ms == IntervalMode.OFF:
                 upstream.transport.send_command("BLAECK.DEACTIVATE")
 
+    def _log_startup_banner(self) -> None:
+        """Log the startup banner with address and signal count."""
         total = len(self.signals)
         n_up = len(self._upstreams)
         if n_up:
@@ -365,33 +380,34 @@ class BlaeckTCPy:
                 f"{_BOLD}{self._ip}:{self._port}{_RESET}"
             )
 
-        # Start HTTP status page
-        if self._http_port is not None:
-            from ._http import start_http_server
-            http_ip = "127.0.0.1" if self._ip in ("0.0.0.0", "") else self._ip
-            try:
-                self._httpd = start_http_server(self, self._http_port)
-            except OSError:
-                orig_port = self._http_port
-                alt_port = self._find_free_port(http_ip, self._http_port)
-                try:
-                    self._httpd = start_http_server(self, alt_port)
-                    self._http_port = alt_port
-                    self._logger.warning(
-                        f"HTTP port {orig_port} was in use, "
-                        f"using port {alt_port} instead"
-                    )
-                except OSError as e:
-                    self._logger.warning(
-                        f"HTTP status page could not start: {e}"
-                    )
-            if self._httpd is not None:
-                self._logger.info(
-                    f"{_RESET}Status page: "
-                    f"{_BLUE_ULINE}http://{http_ip}:{self._http_port}{_RESET}"
-                )
+    def _start_http_status_page(self) -> None:
+        """Start the HTTP status page server if configured."""
+        if self._http_port is None:
+            return
 
-        atexit.register(self.close)
+        from ._http import start_http_server
+        http_ip = "127.0.0.1" if self._ip in ("0.0.0.0", "") else self._ip
+        try:
+            self._httpd = start_http_server(self, self._http_port)
+        except OSError:
+            orig_port = self._http_port
+            alt_port = self._find_free_port(http_ip, self._http_port)
+            try:
+                self._httpd = start_http_server(self, alt_port)
+                self._http_port = alt_port
+                self._logger.warning(
+                    f"HTTP port {orig_port} was in use, "
+                    f"using port {alt_port} instead"
+                )
+            except OSError as e:
+                self._logger.warning(
+                    f"HTTP status page could not start: {e}"
+                )
+        if self._httpd is not None:
+            self._logger.info(
+                f"{_RESET}Status page: "
+                f"{_BLUE_ULINE}http://{http_ip}:{self._http_port}{_RESET}"
+            )
 
     def _init_socket(self):
         """Create TCP socket."""
