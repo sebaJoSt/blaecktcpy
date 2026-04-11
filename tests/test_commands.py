@@ -2,7 +2,6 @@
 
 import pytest
 
-from blaecktcpy import BlaeckTCPy
 from blaecktcpy._server import _UpstreamDevice
 from conftest import _make_server_on_free_port, _start_retry, RecordingTransport
 
@@ -11,11 +10,7 @@ class TestForwardCommandRegistration:
     """Verify on_command(forward=False) opt-out registration."""
 
     def setup_method(self):
-        self.device = BlaeckTCPy.__new__(BlaeckTCPy)
-        self.device._started = False
-        self.device._command_handlers = {}
-        self.device._non_forwarded_commands = set()
-        self.device._read_callback = None
+        self.device = _make_server_on_free_port()
 
     def test_on_command_forward_true_does_not_opt_out(self):
         @self.device.on_command("SET_LED", forward=True)

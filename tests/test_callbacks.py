@@ -2,7 +2,6 @@
 
 import pytest
 
-from blaecktcpy import BlaeckTCPy
 from blaecktcpy._server import _UpstreamDevice
 from conftest import _make_server_on_free_port, _start_retry, FakeTransport
 
@@ -11,15 +10,7 @@ class TestCallbackRegistration:
     """Verify callback decorators register and dispatch correctly."""
 
     def setup_method(self):
-        self.device = BlaeckTCPy.__new__(BlaeckTCPy)
-        self.device._started = False
-        self.device._upstream_disconnect_callback = None
-        self.device._connect_callback = None
-        self.device._disconnect_callback = None
-        self.device._data_received_callbacks = []
-        self.device._command_handlers = {}
-        self.device._non_forwarded_commands = set()
-        self.device._read_callback = None
+        self.device = _make_server_on_free_port()
 
     def test_on_upstream_disconnected_registers(self):
         @self.device.on_upstream_disconnected()
@@ -188,8 +179,7 @@ class TestFireDataReceived:
     """Verify _fire_data_received dispatches to correct callbacks."""
 
     def setup_method(self):
-        self.device = BlaeckTCPy.__new__(BlaeckTCPy)
-        self.device._data_received_callbacks = []
+        self.device = _make_server_on_free_port()
 
     def _make_upstream(self, name):
         transport = FakeTransport(name)
@@ -251,8 +241,7 @@ class TestCallbackExceptionResilience:
     """Verify that a failing callback doesn't crash _fire_data_received."""
 
     def setup_method(self):
-        self.device = BlaeckTCPy.__new__(BlaeckTCPy)
-        self.device._data_received_callbacks = []
+        self.device = _make_server_on_free_port()
 
     def test_exception_does_not_prevent_other_callbacks(self):
         calls = []
