@@ -195,7 +195,7 @@ class TestI2CSkipRelay:
             upstream._signals.append(device.signals[i])
             upstream.index_map[i] = i
         upstream._upstream_signals = SignalList(upstream._signals)
-        device._upstreams.append(upstream)
+        device._hub._upstreams.append(upstream)
 
         return device, client, upstream, transport
 
@@ -397,7 +397,7 @@ class TestResendActivate:
         try:
             transport = RecordingTransport("test")
             upstream = self._make_upstream(transport, interval_ms=500)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             device._resend_activate(upstream)
 
@@ -415,7 +415,7 @@ class TestResendActivate:
         try:
             transport = RecordingTransport("test")
             upstream = self._make_upstream(transport, interval_ms=0)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             device._resend_activate(upstream)
 
@@ -432,7 +432,7 @@ class TestResendActivate:
         try:
             transport = RecordingTransport("test")
             upstream = self._make_upstream(transport, interval_ms=IntervalMode.OFF)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             device._resend_activate(upstream)
 
@@ -449,7 +449,7 @@ class TestResendActivate:
         try:
             transport = RecordingTransport("test")
             upstream = self._make_upstream(transport, interval_ms=IntervalMode.CLIENT)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             device._last_client_activate_cmd = "BLAECK.ACTIVATE,232,3,0,0"
             device._resend_activate(upstream)
@@ -467,7 +467,7 @@ class TestResendActivate:
         try:
             transport = RecordingTransport("test")
             upstream = self._make_upstream(transport, interval_ms=IntervalMode.CLIENT)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             device._last_client_activate_cmd = None
             device._resend_activate(upstream)
@@ -483,7 +483,7 @@ class TestResendActivate:
         try:
             transport = RecordingTransport("test")
             upstream = self._make_upstream(transport, interval_ms=60000)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             device._resend_activate(upstream)
 

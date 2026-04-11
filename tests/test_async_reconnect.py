@@ -98,7 +98,7 @@ def _make_hub_with_reconnectable_upstream(
     upstream._upstream_signals = SignalList(upstream._signals)
     upstream.connected = True
 
-    device._upstreams.append(upstream)
+    device._hub._upstreams.append(upstream)
     device._update_schema_hash()
 
     return device, upstream, transport
@@ -402,7 +402,7 @@ class TestAsyncReconnectIntegration:
         server.add_signal("temp", "float")
         server.add_signal("humidity", "float")
         server.start()
-        actual_port = server._server_socket.getsockname()[1]
+        actual_port = server._tcp._server_socket.getsockname()[1]
         return server, actual_port
 
     @staticmethod
@@ -438,7 +438,7 @@ class TestAsyncReconnectIntegration:
         try:
             hub.add_tcp("127.0.0.1", port, name="ESP32", auto_reconnect=True)
             hub.start()
-            hub_upstream = hub._upstreams[0]
+            hub_upstream = hub._hub._upstreams[0]
 
             assert hub_upstream.connected is True
             assert len(hub_upstream.symbol_table) == 2
@@ -500,8 +500,8 @@ class TestAsyncReconnectIntegration:
             hub.add_tcp("127.0.0.1", port_b, name="DevB")
             hub.start()
 
-            up_a = hub._upstreams[0]
-            up_b = hub._upstreams[1]
+            up_a = hub._hub._upstreams[0]
+            up_b = hub._hub._upstreams[1]
 
             assert up_a.connected is True
             assert up_b.connected is True

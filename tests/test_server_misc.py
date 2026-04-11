@@ -88,10 +88,10 @@ class TestRepr:
                      device_fw_version="FW",
                      http_port=None,
                  )
-        server._upstreams.append(SimpleNamespace())
+        server._hub._upstreams.append(SimpleNamespace())
         r = repr(server)
         assert "1 upstreams" in r
-        server._upstreams.clear()
+        server._hub._upstreams.clear()
         server.close()
 
 
@@ -112,7 +112,7 @@ class TestContextManager:
             server.start()
             assert server._started
         # After exiting, close() should have been called (server socket closed)
-        assert not hasattr(server, "_sel") or server._server_socket.fileno() == -1
+        assert server._tcp._sel is None or server._tcp._server_socket.fileno() == -1
 
 
 # ---------------------------------------------------------------------------

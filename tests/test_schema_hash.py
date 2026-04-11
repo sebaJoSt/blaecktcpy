@@ -84,7 +84,7 @@ def _make_hub_with_upstream(
             upstream.index_map[i] = i
     upstream._upstream_signals = SignalList(upstream._signals)
     upstream.connected = True
-    device._upstreams.append(upstream)
+    device._hub._upstreams.append(upstream)
     device._update_schema_hash()
 
     return device, upstream, transport

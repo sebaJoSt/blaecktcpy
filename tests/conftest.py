@@ -28,7 +28,7 @@ def _start_retry(device, attempts=1):
     """Start device; after start, update _port from the actual bound address."""
     device.start()
     # Port 0 means OS picks a free port — read the actual port after bind
-    device._port = device._server_socket.getsockname()[1]
+    device._port = device._tcp._server_socket.getsockname()[1]
 
 
 class FakeTransport(_UpstreamBase):

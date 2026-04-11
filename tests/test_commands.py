@@ -12,7 +12,6 @@ class TestForwardCommandRegistration:
 
     def setup_method(self):
         self.device = BlaeckTCPy.__new__(BlaeckTCPy)
-        self.device._upstreams = []
         self.device._started = False
         self.device._command_handlers = {}
         self.device._non_forwarded_commands = set()
@@ -66,7 +65,7 @@ class TestCustomCommandForwarding:
             relay_downstream=True,
             forward_custom_commands=forward_custom_commands,
         )
-        device._upstreams.append(upstream)
+        device._hub._upstreams.append(upstream)
         _start_retry(device)
 
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -185,7 +184,7 @@ class TestCustomCommandForwarding:
             forward_custom_commands=False,
         )
 
-        device._upstreams.extend([upstream_a, upstream_b])
+        device._hub._upstreams.extend([upstream_a, upstream_b])
         _start_retry(device)
 
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -263,7 +262,7 @@ class TestCustomCommandForwarding:
             forward_custom_commands=["SET_SPEED"],
         )
 
-        device._upstreams.extend([upstream_a, upstream_b])
+        device._hub._upstreams.extend([upstream_a, upstream_b])
         _start_retry(device)
 
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

@@ -12,7 +12,6 @@ class TestCallbackRegistration:
 
     def setup_method(self):
         self.device = BlaeckTCPy.__new__(BlaeckTCPy)
-        self.device._upstreams = []
         self.device._started = False
         self.device._upstream_disconnect_callback = None
         self.device._connect_callback = None

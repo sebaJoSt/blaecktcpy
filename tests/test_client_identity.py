@@ -23,9 +23,9 @@ class TestClientMeta:
 
         try:
             device._accept_new_clients()
-            assert 0 in device._client_meta
-            assert device._client_meta[0] == {"name": "", "type": "unknown"}
-            assert 0 in device._client_addrs
+            assert 0 in device._tcp._client_meta
+            assert device._tcp._client_meta[0] == {"name": "", "type": "unknown"}
+            assert 0 in device._tcp._client_addrs
         finally:
             client.close()
             device.close()
@@ -40,15 +40,15 @@ class TestClientMeta:
 
         try:
             device._accept_new_clients()
-            assert 0 in device._client_meta
+            assert 0 in device._tcp._client_meta
             client.close()
             time.sleep(0.05)
             device.read()
         finally:
             device.close()
 
-        assert 0 not in device._client_meta
-        assert 0 not in device._client_addrs
+        assert 0 not in device._tcp._client_meta
+        assert 0 not in device._tcp._client_addrs
 
 
 class TestIdentityParsing:
@@ -73,8 +73,8 @@ class TestIdentityParsing:
             time.sleep(0.05)
             device.read()
 
-            assert device._client_meta[0]["name"] == "My App"
-            assert device._client_meta[0]["type"] == "app"
+            assert device._tcp._client_meta[0]["name"] == "My App"
+            assert device._tcp._client_meta[0]["type"] == "app"
         finally:
             client.close()
             device.close()
@@ -87,8 +87,8 @@ class TestIdentityParsing:
             time.sleep(0.05)
             device.read()
 
-            assert device._client_meta[0]["name"] == "My Hub"
-            assert device._client_meta[0]["type"] == "unknown"
+            assert device._tcp._client_meta[0]["name"] == "My Hub"
+            assert device._tcp._client_meta[0]["type"] == "unknown"
         finally:
             client.close()
             device.close()
@@ -101,8 +101,8 @@ class TestIdentityParsing:
             time.sleep(0.05)
             device.read()
 
-            assert device._client_meta[0]["name"] == ""
-            assert device._client_meta[0]["type"] == "unknown"
+            assert device._tcp._client_meta[0]["name"] == ""
+            assert device._tcp._client_meta[0]["type"] == "unknown"
         finally:
             client.close()
             device.close()
@@ -115,8 +115,8 @@ class TestIdentityParsing:
             time.sleep(0.05)
             device.read()
 
-            assert device._client_meta[0]["name"] == ""
-            assert device._client_meta[0]["type"] == "unknown"
+            assert device._tcp._client_meta[0]["name"] == ""
+            assert device._tcp._client_meta[0]["type"] == "unknown"
         finally:
             client.close()
             device.close()
@@ -128,13 +128,13 @@ class TestIdentityParsing:
             client.sendall(b"<BLAECK.GET_DEVICES,0,0,0,0,Old Name,app>")
             time.sleep(0.05)
             device.read()
-            assert device._client_meta[0]["name"] == "Old Name"
+            assert device._tcp._client_meta[0]["name"] == "Old Name"
 
             client.sendall(b"<BLAECK.GET_DEVICES,0,0,0,0,New Name,hub>")
             time.sleep(0.05)
             device.read()
-            assert device._client_meta[0]["name"] == "New Name"
-            assert device._client_meta[0]["type"] == "hub"
+            assert device._tcp._client_meta[0]["name"] == "New Name"
+            assert device._tcp._client_meta[0]["type"] == "hub"
         finally:
             client.close()
             device.close()
@@ -211,7 +211,7 @@ class TestHubSendsIdentity:
             transport=transport,
             relay_downstream=True,
         )
-        device._upstreams.append(upstream)
+        device._hub._upstreams.append(upstream)
 
         # Simulate what add_upstream does for GET_DEVICES
         identity = f",0,0,0,0,My Hub,hub"

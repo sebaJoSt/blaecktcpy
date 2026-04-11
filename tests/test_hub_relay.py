@@ -330,7 +330,7 @@ class TestMultiSlavePassThrough:
             decoder.DecodedSymbol("pressure", 8, "float", 4, msc=2, slave_id=8),
             decoder.DecodedSymbol("humidity", 8, "float", 4, msc=2, slave_id=42),
         ]
-        device._upstreams.append(upstream)
+        device._hub._upstreams.append(upstream)
 
         # Simulate start() slave_id_map building
         hub_slave_idx = 0
@@ -369,11 +369,11 @@ class TestMultiSlavePassThrough:
             decoder.DecodedSymbol("b1", 8, "float", 4, msc=1, slave_id=0),
         ]
 
-        device._upstreams.extend([upstream_a, upstream_b])
+        device._hub._upstreams.extend([upstream_a, upstream_b])
 
         # Simulate start() logic
         hub_slave_idx = 0
-        for up in device._upstreams:
+        for up in device._hub._upstreams:
             if not up.relay_downstream:
                 continue
             seen: dict[tuple[int, int], int] = {}

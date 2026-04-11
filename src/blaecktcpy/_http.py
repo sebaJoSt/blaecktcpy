@@ -279,9 +279,9 @@ def _get_state(server: BlaeckTCPy) -> dict:
 
     # Clients
     clients = []
-    for cid in sorted(server._clients):
-        addr = server._client_addrs.get(cid, "")
-        meta = server._client_meta.get(cid, {})
+    for cid in sorted(server._tcp._clients):
+        addr = server._tcp._client_addrs.get(cid, "")
+        meta = server._tcp._client_meta.get(cid, {})
         name = meta.get("name", "")
         ctype = meta.get("type", "")
         label = f"{name} ({ctype})" if name and ctype and ctype != "unknown" else name
@@ -319,9 +319,9 @@ def _get_state(server: BlaeckTCPy) -> dict:
     }
 
     # Upstreams (hub mode)
-    if server._upstreams:
+    if server._hub._upstreams:
         upstreams = []
-        for u in server._upstreams:
+        for u in server._hub._upstreams:
             signals = []
             for sig in (u._signals or []):
                 signals.append({

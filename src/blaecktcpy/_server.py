@@ -313,7 +313,7 @@ class BlaeckTCPy:
     def _log_startup_banner(self) -> None:
         """Log the startup banner with address and signal count."""
         total = len(self.signals)
-        n_up = len(self._upstreams)
+        n_up = len(self._hub._upstreams)
         if n_up:
             self._logger.info(
                 f"{_RESET}{_BOLD}blaecktcpy v{LIB_VERSION}{_RESET} — Listening on "
@@ -354,65 +354,6 @@ class BlaeckTCPy:
                 f"{_RESET}Status page: "
                 f"{_BLUE_ULINE}http://{http_ip}:{self._http_port}{_RESET}"
             )
-
-    # ── Forwarding properties for TCP state (test compatibility) ─────
-
-    @property
-    def _server_socket(self) -> socket.socket:
-        assert self._tcp._server_socket is not None
-        return self._tcp._server_socket
-
-    @property
-    def _clients(self) -> dict[int, socket.socket]:
-        return self._tcp._clients
-
-    @property
-    def _commanding_client(self) -> socket.socket | None:
-        return self._tcp._commanding_client
-
-    @_commanding_client.setter
-    def _commanding_client(self, value: socket.socket | None) -> None:
-        self._tcp._commanding_client = value
-
-    @property
-    def _sel(self) -> Any:
-        return self._tcp._sel
-
-    @property
-    def data_clients(self) -> set[int]:
-        return self._tcp.data_clients
-
-    @data_clients.setter
-    def data_clients(self, value: set[int]) -> None:
-        self._tcp.data_clients = value
-
-    @property
-    def _client_meta(self) -> dict[int, dict[str, str]]:
-        return self._tcp._client_meta
-
-    @property
-    def _client_addrs(self) -> dict[int, str]:
-        return self._tcp._client_addrs
-
-    @property
-    def _recv_buffers(self) -> dict:
-        return self._tcp._recv_buffers
-
-    # ── Forwarding properties for hub state (test compatibility) ────
-
-    @property
-    def _upstreams(self) -> list[_UpstreamDevice]:
-        try:
-            return self._hub._upstreams
-        except AttributeError:
-            return getattr(self, '_upstreams_direct', [])
-
-    @_upstreams.setter
-    def _upstreams(self, value: list[_UpstreamDevice]) -> None:
-        try:
-            self._hub._upstreams = value
-        except AttributeError:
-            object.__setattr__(self, '_upstreams_direct', value)
 
     @staticmethod
     def _find_free_port(ip: str, starting_port: int) -> int:
@@ -705,6 +646,19 @@ class BlaeckTCPy:
         """The client socket that sent the most recent command, or None."""
         return self._tcp._commanding_client
 
+    @property
+    def data_clients(self) -> set[int]:
+        """Set of client IDs that receive data frames.
+
+        Mutate this set (e.g. ``discard``, ``add``) to control which
+        clients receive data.
+        """
+        return self._tcp.data_clients
+
+    @data_clients.setter
+    def data_clients(self, value: set[int]) -> None:
+        self._tcp.data_clients = value
+
     def _accept_new_clients(self) -> None:
         """Accept all pending new connections."""
         self._tcp.accept()
@@ -890,8 +844,8 @@ class BlaeckTCPy:
         name = params[4].strip() if len(params) > 4 else ""
         rtype = params[5].strip() if len(params) > 5 else "unknown"
         if name:
-            self._client_meta[client_id] = {"name": name, "type": rtype}
-            addr = self._client_addrs.get(client_id, "")
+            self._tcp._client_meta[client_id] = {"name": name, "type": rtype}
+            addr = self._tcp._client_addrs.get(client_id, "")
             self._logger.info(
                 f"Client #{client_id} identified ({rtype}: {name})"
             )
@@ -904,7 +858,7 @@ class BlaeckTCPy:
         messages = self._tcp_read()
 
         for command, params, conn in messages:
-            self._commanding_client = conn
+            self._tcp._commanding_client = conn
             self._dispatch_protocol_command(command, params, conn)
 
             # Dispatch to specific command handler
@@ -932,7 +886,7 @@ class BlaeckTCPy:
             "BLAECK.DEACTIVATE",
             "BLAECK.WRITE_DATA",
         ):
-            if self._upstreams:
+            if self._hub._upstreams:
                 self._handle_hub_data_command(command, params)
             else:
                 self._handle_simple_data_command(command, params)
@@ -946,12 +900,12 @@ class BlaeckTCPy:
 
         if command == "BLAECK.WRITE_DATA":
             # One-shot: forward to relayed upstreams only
-            for upstream in self._upstreams:
+            for upstream in self._hub._upstreams:
                 if upstream.relay_downstream and upstream.transport.connected:
                     upstream.transport.send_command(full_cmd)
         else:
             # ACTIVATE/DEACTIVATE: only forward to client-managed relayed upstreams
-            for upstream in self._upstreams:
+            for upstream in self._hub._upstreams:
                 if (
                     upstream.relay_downstream
                     and upstream.interval_ms == IntervalMode.CLIENT
@@ -1021,7 +975,7 @@ class BlaeckTCPy:
             full_cmd = f"{command},{','.join(str(p) for p in params)}"
         else:
             full_cmd = command
-        for upstream in self._upstreams:
+        for upstream in self._hub._upstreams:
             fcc = upstream.forward_custom_commands
             if not fcc or not upstream.transport.connected:
                 continue
@@ -1039,7 +993,7 @@ class BlaeckTCPy:
 
         header = self.MSG_SYMBOL_LIST + b":" + msg_id.to_bytes(4, "little") + b":"
 
-        if self._upstreams:
+        if self._hub._upstreams:
             # Hub-style: MSC_MASTER for local, MSC_SLAVE for upstream
             payload = b""
             # Local (master) signals first
@@ -1053,7 +1007,7 @@ class BlaeckTCPy:
                     + sig.get_dtype_byte()
                 )
             # Upstream (slave) signals — only relayed upstreams
-            for upstream in self._upstreams:
+            for upstream in self._hub._upstreams:
                 if not upstream.relay_downstream:
                     continue
                 for sym in upstream.symbol_table:
@@ -1083,8 +1037,8 @@ class BlaeckTCPy:
 
         header = self.MSG_DEVICES + b":" + msg_id.to_bytes(4, "little") + b":"
 
-        for client_id, conn in list(self._clients.items()):
-            if self._upstreams:
+        for client_id, conn in list(self._tcp._clients.items()):
+            if self._hub._upstreams:
                 payload = self._build_hub_devices_payload(client_id)
             else:
                 payload = self._build_simple_device_payload(client_id)
@@ -1099,7 +1053,7 @@ class BlaeckTCPy:
         self._server_restarted = False
 
         # Clear upstream server_restarted after sending to prevent stale values
-        for upstream in self._upstreams:
+        for upstream in self._hub._upstreams:
             for info in upstream.device_infos:
                 if info.server_restarted == "1":
                     info.server_restarted = "0"
@@ -1108,7 +1062,7 @@ class BlaeckTCPy:
         """Build B6 payload for hub mode: DeviceCount + devices + client trailer."""
         # Count devices: 1 master + relayed upstream devices
         device_count = 1
-        for upstream in self._upstreams:
+        for upstream in self._hub._upstreams:
             if not upstream.relay_downstream:
                 continue
             for info in upstream.device_infos:
@@ -1127,7 +1081,7 @@ class BlaeckTCPy:
         )
 
         # Upstream devices as slaves
-        for upstream in self._upstreams:
+        for upstream in self._hub._upstreams:
             if not upstream.relay_downstream:
                 continue
             old_sid_to_new: dict[int, int] = {}
@@ -1184,7 +1138,7 @@ class BlaeckTCPy:
     def _build_client_trailer(self, client_id: int) -> bytes:
         """Build B6 client trailer: ClientNo, DataEnabled, ClientName, ClientType."""
         return _encoder.build_client_trailer(
-            client_id, self.data_clients, self._client_meta,
+            client_id, self._tcp.data_clients, self._tcp._client_meta,
         )
 
     def write_all_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None) -> None:
@@ -1529,12 +1483,12 @@ class BlaeckTCPy:
             }
 
         if name is not None:
-            for u in self._upstreams:
+            for u in self._hub._upstreams:
                 if u.device_name == name:
                     return _status(u)
             raise KeyError(f"No upstream named '{name}'")
 
-        return {u.device_name: _status(u) for u in self._upstreams}
+        return {u.device_name: _status(u) for u in self._hub._upstreams}
 
     def __getitem__(self, name: str) -> _UpstreamDevice:
         """Access an upstream device by name.
@@ -1544,7 +1498,7 @@ class BlaeckTCPy:
             bltcp["Arduino"]["temperature"].value
             bltcp["Arduino"].signals[0].value
         """
-        for upstream in self._upstreams:
+        for upstream in self._hub._upstreams:
             if upstream.device_name == name:
                 return upstream
         raise KeyError(f"No upstream named {name!r}")
@@ -1567,7 +1521,7 @@ class BlaeckTCPy:
             self._httpd = None
 
         # Deactivate and close upstreams
-        for upstream in self._upstreams:
+        for upstream in self._hub._upstreams:
             if upstream.transport.connected:
                 upstream.transport.send_command("BLAECK.DEACTIVATE")
             upstream.transport.close()
@@ -1589,7 +1543,7 @@ class BlaeckTCPy:
         n = len(self._tcp._clients)
         clients = f"{n} client{'s' if n != 1 else ''}"
         active = "active" if self._timed_activated else "inactive"
-        n_up = len(self._upstreams)
+        n_up = len(self._hub._upstreams)
         if n_up:
             return (
                 f"blaecktcpy [{clients}] [{active}] "

@@ -92,7 +92,7 @@ class TestRestartFlagRelay:
             ]
             upstream.index_map = {0: 0}
             upstream.interval_ms = 0
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             # Build D1 frame with restart_flag=1
             frame = self._build_d1_frame(restart_flag=True, signal_values=[25.0])
@@ -214,7 +214,7 @@ class TestStatusByteRelay:
             upstream._signals.append(device.signals[0])
             upstream.index_map = {0: 0}
             upstream._upstream_signals = SignalList(upstream._signals)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             # Feed a D1 frame with status=0x01 (I2C CRC error)
             frame_content = self._build_d1_frame(status=0x01, signal_values=[25.0])
@@ -268,7 +268,7 @@ class TestStatusByteRelay:
             upstream._signals.append(device.signals[0])
             upstream.index_map = {0: 0}
             upstream._upstream_signals = SignalList(upstream._signals)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             frame_content = self._build_d1_frame(status=0x00, signal_values=[25.0])
             transport._pending = b"<BLAECK:" + frame_content + b"/BLAECK>\r\n"
@@ -311,7 +311,7 @@ class TestStatusByteRelay:
             upstream._signals.append(device.signals[0])
             upstream.index_map = {0: 0}
             upstream._upstream_signals = SignalList(upstream._signals)
-            device._upstreams.append(upstream)
+            device._hub._upstreams.append(upstream)
 
             frame_content = self._build_b1_frame(status=0x00, signal_values=[11.0])
             transport._pending = b"<BLAECK:" + frame_content + b"/BLAECK>\r\n"
@@ -379,7 +379,7 @@ class TestRelayFrameScoping:
         upstream_a._upstream_signals = SignalList(upstream_a._signals)
         upstream_a.interval_ms = 300
         upstream_a.connected = True
-        device._upstreams.append(upstream_a)
+        device._hub._upstreams.append(upstream_a)
 
         transport_b = FakeTransport("UpstreamB")
         upstream_b = _UpstreamDevice(
@@ -395,7 +395,7 @@ class TestRelayFrameScoping:
         upstream_b._upstream_signals = SignalList(upstream_b._signals)
         upstream_b.interval_ms = 300
         upstream_b.connected = True
-        device._upstreams.append(upstream_b)
+        device._hub._upstreams.append(upstream_b)
 
         # Connect a downstream TCP client
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
