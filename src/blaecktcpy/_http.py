@@ -14,7 +14,7 @@ import json
 import string
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -496,7 +496,7 @@ def _make_handler(server: BlaeckTCPy):
 
 def start_http_server(
     server: BlaeckTCPy, port: int, bind: str = ""
-) -> HTTPServer:
+) -> ThreadingHTTPServer:
     """Start the HTTP status page in a daemon thread.
 
     Args:
@@ -509,7 +509,8 @@ def start_http_server(
     """
     handler = _make_handler(server)
     bind_addr = bind or server._ip
-    httpd = HTTPServer((bind_addr, port), handler)
+    httpd = ThreadingHTTPServer((bind_addr, port), handler)
+    httpd.daemon_threads = True
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     return httpd
