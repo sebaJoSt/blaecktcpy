@@ -314,6 +314,7 @@ class UpstreamSerial(_UpstreamBase):
 
     def connect(self, timeout: float = 5.0) -> bool:
         try:
+            assert _pyserial is not None
             ser = _pyserial.Serial()
             ser.port = self.port
             ser.baudrate = self.baudrate

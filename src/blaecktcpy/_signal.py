@@ -1,8 +1,10 @@
 """Signal dataclass for BlaeckTCP typed data."""
 
 import struct
+from collections.abc import Iterable
 from enum import IntEnum
 from dataclasses import dataclass, field
+from typing import SupportsIndex, overload
 
 
 class IntervalMode(IntEnum):
@@ -156,11 +158,11 @@ class Signal:
         """Get the datatype code as a single byte"""
         return self.DATATYPE_TO_CODE[self.datatype].to_bytes(1, "little")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.signal_name}: {self.datatype} = {self.value}"
 
 
-class SignalList(list):
+class SignalList(list[Signal]):
     """A list of signals with name-based access.
 
     Supports indexing by integer or signal name::
@@ -177,11 +179,11 @@ class SignalList(list):
         self._name_cache: dict[str, Signal] | None = None
         self._index_cache: dict[str, int] | None = None
 
-    def _invalidate_cache(self):
+    def _invalidate_cache(self) -> None:
         self._name_cache = None
         self._index_cache = None
 
-    def _ensure_cache(self):
+    def _ensure_cache(self) -> None:
         if self._name_cache is None:
             self._name_cache = {sig.signal_name: sig for sig in self}
             self._index_cache = {sig.signal_name: i for i, sig in enumerate(self)}
@@ -189,11 +191,20 @@ class SignalList(list):
     def index_of(self, name: str) -> int | None:
         """Return the index of a signal by name, or None if not found. O(1)."""
         self._ensure_cache()
+        assert self._index_cache is not None
         return self._index_cache.get(name)
 
-    def __getitem__(self, key):
+    @overload
+    def __getitem__(self, key: str) -> Signal: ...
+    @overload
+    def __getitem__(self, key: SupportsIndex) -> Signal: ...
+    @overload
+    def __getitem__(self, key: slice) -> list[Signal]: ...
+
+    def __getitem__(self, key: str | SupportsIndex | slice) -> Signal | list[Signal]:  # type: ignore[override]
         if isinstance(key, str):
             self._ensure_cache()
+            assert self._name_cache is not None
             try:
                 return self._name_cache[key]
             except KeyError:
@@ -201,40 +212,40 @@ class SignalList(list):
         return super().__getitem__(key)
 
     # Override mutating methods to invalidate the cache
-    def append(self, item):
+    def append(self, item: Signal) -> None:
         super().append(item)
         self._invalidate_cache()
 
-    def extend(self, items):
+    def extend(self, items: Iterable[Signal]) -> None:
         super().extend(items)
         self._invalidate_cache()
 
-    def insert(self, index, item):
+    def insert(self, index: SupportsIndex, item: Signal) -> None:
         super().insert(index, item)
         self._invalidate_cache()
 
-    def remove(self, item):
+    def remove(self, item: Signal) -> None:
         super().remove(item)
         self._invalidate_cache()
 
-    def pop(self, index=-1):
+    def pop(self, index: SupportsIndex = -1) -> Signal:
         result = super().pop(index)
         self._invalidate_cache()
         return result
 
-    def clear(self):
+    def clear(self) -> None:
         super().clear()
         self._invalidate_cache()
 
-    def __setitem__(self, key, value):
-        super().__setitem__(key, value)
+    def __setitem__(self, key: SupportsIndex | slice, value: Signal | Iterable[Signal]) -> None:  # type: ignore[override]
+        super().__setitem__(key, value)  # type: ignore[index,assignment]
         self._invalidate_cache()
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: SupportsIndex | slice) -> None:
         super().__delitem__(key)
         self._invalidate_cache()
 
-    def __iadd__(self, other):
+    def __iadd__(self, other: Iterable[Signal]) -> "SignalList":
         result = super().__iadd__(other)
         self._invalidate_cache()
         return result

@@ -8,7 +8,9 @@ import signal
 import socket
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from .hub import _decoder as decoder
@@ -198,12 +200,12 @@ class BlaeckTCPy:
         self._timer = _IntervalTimer()
         self._master_slave_config = b"\x00"
         self._slave_id = b"\x00"
-        self._command_handlers: dict[str, object] = {}
+        self._command_handlers: dict[str, Callable[..., Any]] = {}
         self._non_forwarded_commands: set[str] = set()
-        self._read_callback = None
-        self._connect_callback = None
-        self._disconnect_callback = None
-        self._before_write_callback = None
+        self._read_callback: Callable[..., Any] | None = None
+        self._connect_callback: Callable[[int], Any] | None = None
+        self._disconnect_callback: Callable[[int], Any] | None = None
+        self._before_write_callback: Callable[[], Any] | None = None
         self._server_restarted = True
         self._restart_flag_pending = True
         self.data_clients: set[int] = set()
@@ -217,8 +219,8 @@ class BlaeckTCPy:
 
         # Upstream state
         self._upstreams: list[_UpstreamDevice] = []
-        self._upstream_disconnect_callback = None
-        self._data_received_callbacks: list[tuple[str | None, object]] = []
+        self._upstream_disconnect_callback: Callable[..., Any] | None = None
+        self._data_received_callbacks: list[tuple[str | None, Callable[..., Any]]] = []
 
         # Local signal boundary (frozen at start())
         self._local_signal_count = 0
@@ -410,7 +412,7 @@ class BlaeckTCPy:
                 f"{_BLUE_ULINE}http://{http_ip}:{self._http_port}{_RESET}"
             )
 
-    def _init_socket(self):
+    def _init_socket(self) -> None:
         """Create TCP socket."""
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if sys.platform == "win32":
@@ -420,7 +422,7 @@ class BlaeckTCPy:
         else:
             self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    def _bind_socket(self, ip, port):
+    def _bind_socket(self, ip: str, port: int) -> None:
         """Bind socket to address."""
         self._server_socket.bind((ip, port))
 
@@ -442,7 +444,7 @@ class BlaeckTCPy:
         stdin = sys.stdin
         return bool(stdin and hasattr(stdin, "isatty") and stdin.isatty())
 
-    def _start_listening(self):
+    def _start_listening(self) -> None:
         """Start listening for connections."""
         self._server_socket.setblocking(False)
         self._server_socket.listen()
@@ -452,7 +454,7 @@ class BlaeckTCPy:
         self._sel = selectors.DefaultSelector()
         self._sel.register(self._server_socket, selectors.EVENT_READ)
 
-    def _install_signal_handler(self):
+    def _install_signal_handler(self) -> None:
         """Install SIGINT handler for clean shutdown."""
         self._original_sigint = signal.getsignal(signal.SIGINT)
 
@@ -841,11 +843,11 @@ class BlaeckTCPy:
         return bool(getattr(self, "_clients", None))
 
     @property
-    def commanding_client(self):
+    def commanding_client(self) -> socket.socket | None:
         """The client socket that sent the most recent command, or None."""
         return getattr(self, "_commanding_client", None)
 
-    def _accept_new_clients(self):
+    def _accept_new_clients(self) -> None:
         """Accept all pending new connections."""
         while True:
             try:
@@ -873,7 +875,7 @@ class BlaeckTCPy:
                 return cid
         return -1
 
-    def _disconnect_client(self, conn):
+    def _disconnect_client(self, conn: socket.socket) -> None:
         """Remove and close a client connection."""
         client_id = self._client_id_for(conn)
         try:
@@ -910,7 +912,7 @@ class BlaeckTCPy:
         if not self._clients and self._fixed_interval_ms == IntervalMode.CLIENT:
             self._timed_activated = False
 
-    def _tcp_read(self) -> list:
+    def _tcp_read(self) -> list[tuple[str, list[str], socket.socket]]:
         """Non-blocking TCP read; returns list of (command, params, conn) tuples."""
         messages = []
 
@@ -920,6 +922,7 @@ class BlaeckTCPy:
                 self._accept_new_clients()
             else:
                 conn = key.fileobj
+                assert isinstance(conn, socket.socket)
                 try:
                     chunk = conn.recv(_CLIENT_RECV_CHUNK)
                     if not chunk:
@@ -1005,7 +1008,7 @@ class BlaeckTCPy:
     # ========================================================================
     # Callbacks
     # ========================================================================
-    def on_command(self, command: str | None = None, *, forward: bool = True):
+    def on_command(self, command: str | None = None, *, forward: bool = True) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a command handler.
 
         With a command name, registers a handler for that specific command.
@@ -1046,7 +1049,7 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_client_connected(self):
+    def on_client_connected(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when a new client connects.
 
         Receives the client ID. By default all clients receive data.
@@ -1066,7 +1069,7 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_client_disconnected(self):
+    def on_client_disconnected(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when a client disconnects.
 
         Receives the client ID that was disconnected.
@@ -1084,7 +1087,7 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_before_write(self):
+    def on_before_write(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback that fires before data is written.
 
         Use this to update signal values right before they are transmitted.
@@ -1102,7 +1105,7 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_data_received(self, upstream_name: str | None = None):
+    def on_data_received(self, upstream_name: str | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when upstream data arrives.
 
         Args:
@@ -1122,7 +1125,7 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_upstream_disconnected(self):
+    def on_upstream_disconnected(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when an upstream device disconnects.
 
         Example::
@@ -1153,7 +1156,7 @@ class BlaeckTCPy:
                 pass
         return result
 
-    def _update_client_identity(self, params: list, conn) -> None:
+    def _update_client_identity(self, params: list[str], conn: socket.socket) -> None:
         """Extract optional RequesterDeviceName/Type from GET_DEVICES params."""
         if len(params) <= 4:
             return
@@ -1192,7 +1195,7 @@ class BlaeckTCPy:
                 self._read_callback(command, *params)
 
     def _dispatch_protocol_command(
-        self, command: str, params: list, conn
+        self, command: str, params: list[str], conn: socket.socket
     ) -> None:
         """Handle BLAECK.* protocol commands from downstream clients."""
         if command == "BLAECK.WRITE_SYMBOLS":
@@ -2504,15 +2507,15 @@ class BlaeckTCPy:
 
         self._logger.info("Server closed")
 
-    def __enter__(self):
+    def __enter__(self) -> "BlaeckTCPy":
         """Enable 'with' statement usage."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> None:
         """Clean up on exit."""
         self.close()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if hasattr(self, "_clients"):
             n = len(self._clients)
         else:
