@@ -2,7 +2,6 @@
 
 import atexit
 import logging
-import selectors
 import signal
 import socket
 import sys
@@ -13,6 +12,7 @@ from typing import Any
 
 from . import _encoder
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
+from ._tcp import ClientManager
 from .hub import _decoder as decoder
 from .hub._upstream import UpstreamTCP, _UpstreamBase
 
@@ -22,9 +22,6 @@ from importlib.metadata import version as _pkg_version
 
 LIB_VERSION = _pkg_version("blaecktcpy")
 LIB_NAME = "blaecktcpy"
-
-_MAX_RECV_BUFFER = 65536  # 64 KB per-client receive buffer limit
-_CLIENT_RECV_CHUNK = 4096  # Per-read chunk size for client sockets
 
 # ANSI color helpers (only when stdout is a terminal)
 _USE_COLOR = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
@@ -208,10 +205,7 @@ class BlaeckTCPy:
         self._before_write_callback: Callable[[], Any] | None = None
         self._server_restarted = True
         self._restart_flag_pending = True
-        self.data_clients: set[int] = set()
-        self._client_meta: dict[int, dict] = {}
-        self._client_addrs: dict[int, str] = {}
-        self._recv_buffers: dict = {}
+        self._tcp = ClientManager(self, self._logger)
         self._closed = False
         self._timestamp_mode = TimestampMode.NONE
         self._start_time: float = 0.0
@@ -248,12 +242,13 @@ class BlaeckTCPy:
         self._local_signal_count = len(self.signals)
 
         # Create and bind socket
-        self._init_socket()
+        self._tcp.init_socket()
 
         try:
-            self._bind_socket(self._ip, self._port)
+            self._tcp.bind(self._ip, self._port)
         except OSError:
-            self._server_socket.close()
+            assert self._tcp._server_socket is not None
+            self._tcp._server_socket.close()
             if not self._stdin_is_interactive():
                 raise OSError(f"Port {self._port} is already in use")
             alt_port = self._find_free_port(self._ip, self._port)
@@ -265,12 +260,12 @@ class BlaeckTCPy:
             ).strip()
             if answer.lower() in ("", "y", "yes"):
                 self._port = alt_port
-                self._init_socket()
-                self._bind_socket(self._ip, self._port)
+                self._tcp.init_socket()
+                self._tcp.bind(self._ip, self._port)
             else:
                 raise OSError(f"Port {self._port} is already in use")
 
-        self._start_listening()
+        self._tcp.start_listening()
 
         # Connect and discover all upstreams sequentially
         self._discover_all_upstreams()
@@ -412,19 +407,48 @@ class BlaeckTCPy:
                 f"{_BLUE_ULINE}http://{http_ip}:{self._http_port}{_RESET}"
             )
 
-    def _init_socket(self) -> None:
-        """Create TCP socket."""
-        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if sys.platform == "win32":
-            self._server_socket.setsockopt(
-                socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
-            )
-        else:
-            self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # ── Forwarding properties for TCP state (test compatibility) ─────
 
-    def _bind_socket(self, ip: str, port: int) -> None:
-        """Bind socket to address."""
-        self._server_socket.bind((ip, port))
+    @property
+    def _server_socket(self) -> socket.socket:
+        assert self._tcp._server_socket is not None
+        return self._tcp._server_socket
+
+    @property
+    def _clients(self) -> dict[int, socket.socket]:
+        return self._tcp._clients
+
+    @property
+    def _commanding_client(self) -> socket.socket | None:
+        return self._tcp._commanding_client
+
+    @_commanding_client.setter
+    def _commanding_client(self, value: socket.socket | None) -> None:
+        self._tcp._commanding_client = value
+
+    @property
+    def _sel(self) -> Any:
+        return self._tcp._sel
+
+    @property
+    def data_clients(self) -> set[int]:
+        return self._tcp.data_clients
+
+    @data_clients.setter
+    def data_clients(self, value: set[int]) -> None:
+        self._tcp.data_clients = value
+
+    @property
+    def _client_meta(self) -> dict[int, dict[str, str]]:
+        return self._tcp._client_meta
+
+    @property
+    def _client_addrs(self) -> dict[int, str]:
+        return self._tcp._client_addrs
+
+    @property
+    def _recv_buffers(self) -> dict:
+        return self._tcp._recv_buffers
 
     @staticmethod
     def _find_free_port(ip: str, starting_port: int) -> int:
@@ -443,16 +467,6 @@ class BlaeckTCPy:
         """Return True when stdin is attached to an interactive terminal."""
         stdin = sys.stdin
         return bool(stdin and hasattr(stdin, "isatty") and stdin.isatty())
-
-    def _start_listening(self) -> None:
-        """Start listening for connections."""
-        self._server_socket.setblocking(False)
-        self._server_socket.listen()
-        self._clients: dict[int, socket.socket] = {}
-        self._next_client_id = 0
-        self._commanding_client = None
-        self._sel = selectors.DefaultSelector()
-        self._sel.register(self._server_socket, selectors.EVENT_READ)
 
     def _install_signal_handler(self) -> None:
         """Install SIGINT handler for clean shutdown."""
@@ -840,170 +854,36 @@ class BlaeckTCPy:
     @property
     def connected(self) -> bool:
         """True if any downstream client is connected."""
-        return bool(getattr(self, "_clients", None))
+        return bool(self._tcp._clients)
 
     @property
     def commanding_client(self) -> socket.socket | None:
         """The client socket that sent the most recent command, or None."""
-        return getattr(self, "_commanding_client", None)
+        return self._tcp._commanding_client
 
     def _accept_new_clients(self) -> None:
         """Accept all pending new connections."""
-        while True:
-            try:
-                conn, addr = self._server_socket.accept()
-                conn.setblocking(False)
-                conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self._sel.register(conn, selectors.EVENT_READ)
-                client_id = self._next_client_id
-                self._next_client_id += 1
-                self._clients[client_id] = conn
-                self._recv_buffers[conn] = ""
-                self.data_clients.add(client_id)
-                self._client_meta[client_id] = {"name": "", "type": "unknown"}
-                self._client_addrs[client_id] = f"{addr[0]}:{addr[1]}"
-                self._logger.info(f"Client #{client_id} connected: {addr[0]}:{addr[1]}")
-                if self._connect_callback is not None:
-                    self._connect_callback(client_id)
-            except (BlockingIOError, OSError):
-                break
+        self._tcp.accept()
 
-    def _client_id_for(self, conn) -> int:
+    def _client_id_for(self, conn: socket.socket) -> int:
         """Find the client ID for a given socket, or -1 if not found."""
-        for cid, c in self._clients.items():
-            if c is conn:
-                return cid
-        return -1
+        return self._tcp.client_id_for(conn)
 
     def _disconnect_client(self, conn: socket.socket) -> None:
         """Remove and close a client connection."""
-        client_id = self._client_id_for(conn)
-        try:
-            self._sel.unregister(conn)
-        except Exception:
-            pass
-        try:
-            conn.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            conn.close()
-        except OSError:
-            pass
-        if client_id >= 0:
-            self._clients.pop(client_id, None)
-            self.data_clients.discard(client_id)
-            meta = self._client_meta.pop(client_id, {})
-            self._client_addrs.pop(client_id, None)
-        else:
-            meta = {}
-        self._recv_buffers.pop(conn, None)
-        if self._commanding_client is conn:
-            self._commanding_client = None
-        name = meta.get("name", "")
-        rtype = meta.get("type", "unknown")
-        cid = client_id if client_id >= 0 else '?'
-        if name:
-            self._logger.info(f"Client #{cid} disconnected ({rtype}: {name})")
-        else:
-            self._logger.info(f"Client #{cid} disconnected")
-        if client_id >= 0 and self._disconnect_callback is not None:
-            self._disconnect_callback(client_id)
-        if not self._clients and self._fixed_interval_ms == IntervalMode.CLIENT:
-            self._timed_activated = False
+        self._tcp.disconnect(conn)
 
     def _tcp_read(self) -> list[tuple[str, list[str], socket.socket]]:
         """Non-blocking TCP read; returns list of (command, params, conn) tuples."""
-        messages = []
-
-        events = self._sel.select(timeout=0)
-        for key, _ in events:
-            if key.fileobj is self._server_socket:
-                self._accept_new_clients()
-            else:
-                conn = key.fileobj
-                assert isinstance(conn, socket.socket)
-                try:
-                    chunk = conn.recv(_CLIENT_RECV_CHUNK)
-                    if not chunk:
-                        self._disconnect_client(conn)
-                        continue
-
-                    self._recv_buffers[conn] = self._recv_buffers.get(
-                        conn, ""
-                    ) + chunk.decode("utf-8", errors="ignore")
-
-                    self._logger.debug(f"_tcp_read raw chunk: {chunk!r}")
-
-                    if len(self._recv_buffers[conn]) > _MAX_RECV_BUFFER:
-                        self._logger.warning("Receive buffer overflow — dropping client")
-                        self._disconnect_client(conn)
-                        continue
-
-                    # Extract all complete <...> messages
-                    buf = self._recv_buffers[conn]
-                    while True:
-                        start = buf.find("<")
-                        if start == -1:
-                            buf = ""
-                            break
-                        end = buf.find(">", start)
-                        if end == -1:
-                            buf = buf[start:]  # Keep from '<' onward
-                            break
-                        content = buf[start + 1 : end]
-                        buf = buf[end + 1 :]
-
-                        parts = content.split(",")
-                        command = parts[0].strip()
-                        params = (
-                            [p.strip() for p in parts[1:]] if len(parts) > 1 else []
-                        )
-                        messages.append((command, params, conn))
-
-                    self._recv_buffers[conn] = buf
-
-                except BlockingIOError:
-                    pass
-                except OSError as e:
-                    self._logger.debug(f"Read error: {e}")
-                    self._disconnect_client(conn)
-
-        return messages
+        return self._tcp.read_commands()
 
     def _tcp_send(self, data: bytes) -> bool:
         """Broadcast data to all connected clients."""
-        if not self._clients:
-            return False
-
-        sent = False
-        for conn in list(self._clients.values()):
-            try:
-                conn.sendall(data)
-                sent = True
-            except OSError as e:
-                self._logger.debug(f"Send error: {e}")
-                self._disconnect_client(conn)
-
-        return sent
+        return self._tcp.send_all(data)
 
     def _tcp_send_data(self, data: bytes) -> bool:
         """Send data only to clients in data_clients set."""
-        if not self._clients:
-            return False
-
-        sent = False
-        for client_id, conn in list(self._clients.items()):
-            if client_id not in self.data_clients:
-                continue
-            try:
-                conn.sendall(data)
-                sent = True
-            except OSError as e:
-                self._logger.debug(f"Send error: {e}")
-                self._disconnect_client(conn)
-
-        return sent
+        return self._tcp.send_data(data)
 
     # ========================================================================
     # Callbacks
@@ -2425,29 +2305,7 @@ class BlaeckTCPy:
             upstream.transport.close()
 
         # Close downstream connections
-        if hasattr(self, "_clients"):
-            for conn in list(self._clients.values()):
-                try:
-                    self._sel.unregister(conn)
-                except Exception:
-                    pass
-                try:
-                    conn.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-                try:
-                    conn.close()
-                except OSError:
-                    pass
-            self._clients.clear()
-        if hasattr(self, "_sel"):
-            try:
-                self._sel.unregister(self._server_socket)
-            except Exception:
-                pass
-            self._sel.close()
-        if hasattr(self, "_server_socket"):
-            self._server_socket.close()
+        self._tcp.close()
 
         self._logger.info("Server closed")
 
@@ -2460,10 +2318,7 @@ class BlaeckTCPy:
         self.close()
 
     def __repr__(self) -> str:
-        if hasattr(self, "_clients"):
-            n = len(self._clients)
-        else:
-            n = 0
+        n = len(self._tcp._clients)
         clients = f"{n} client{'s' if n != 1 else ''}"
         active = "active" if self._timed_activated else "inactive"
         n_up = len(self._upstreams)
