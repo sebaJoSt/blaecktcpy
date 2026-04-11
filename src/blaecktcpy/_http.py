@@ -486,6 +486,10 @@ def _make_handler(server: BlaeckTCPy):
             # Silence default stderr logging
             pass
 
+        def address_string(self):
+            # Skip reverse DNS lookup — avoids multi-second delays
+            return self.client_address[0]
+
     return _Handler
 
 
