@@ -586,3 +586,64 @@ def parse_devices(content: bytes) -> DecodedDeviceInfo:
     if not devices:
         raise ValueError("No device entries found in frame")
     return devices[0]
+
+
+#: Union of all decoded message types returned by :func:`parse_message`.
+ParsedMessage = list[DecodedSymbol] | DecodedData | list[DecodedDeviceInfo]
+
+
+def parse_message(
+    content: bytes,
+    symbol_table: list[DecodedSymbol] | None = None,
+) -> ParsedMessage:
+    """Parse any BlaeckTCP frame into a typed dataclass.
+
+    Dispatches based on the message key byte and returns the
+    appropriate decoded type:
+
+    - ``0xB0`` → ``list[DecodedSymbol]``  (symbol list)
+    - ``0xD2 / 0xD1 / 0xB1`` → :class:`DecodedData`
+    - ``0xB2–0xB6`` → ``list[DecodedDeviceInfo]``
+    - ``0xC0`` → :class:`DecodedData` with ``msg_id=MSGKEY_RESTART``
+
+    Args:
+        content: bytes between ``<BLAECK:`` and ``/BLAECK>``
+        symbol_table: signal definitions from a prior B0 parse,
+            required when decoding data frames (D2/D1/B1).
+
+    Returns:
+        The decoded message as the appropriate typed object.
+
+    Raises:
+        ValueError: If the message key is unknown or the frame is
+            malformed.
+    """
+    if not content:
+        raise ValueError("Empty frame content")
+
+    msg_key = content[0]
+
+    if msg_key == MSGKEY_SYMBOL_LIST:
+        return parse_symbol_list(content)
+
+    if msg_key in MSGKEY_DATA_ALL:
+        if symbol_table is None:
+            raise ValueError(
+                f"symbol_table required for data frame {msg_key:#x}"
+            )
+        return parse_data(content, symbol_table)
+
+    if msg_key in MSGKEY_DEVICES_ALL:
+        return parse_all_devices(content)
+
+    if msg_key == MSGKEY_RESTART:
+        _, msg_id, _ = _parse_header(content)
+        return DecodedData(
+            msg_id=msg_id,
+            restart_flag=True,
+            schema_hash=0,
+            timestamp_mode=0,
+            timestamp=None,
+        )
+
+    raise ValueError(f"Unknown message key {msg_key:#x}")

@@ -842,3 +842,90 @@ class TestDeviceParsingEdgeCases:
         devices = decoder.parse_all_devices(frame)
         assert len(devices) == 1
         assert devices[0].lib_name == "noterm"
+
+
+# ---------------------------------------------------------------------------
+# parse_message — unified dispatcher
+# ---------------------------------------------------------------------------
+
+
+class TestParseMessage:
+
+    def test_empty_content_raises(self):
+        with pytest.raises(ValueError, match="Empty frame"):
+            decoder.parse_message(b"")
+
+    def test_unknown_key_raises(self):
+        content = _header(0xFF)
+        with pytest.raises(ValueError, match="Unknown message key"):
+            decoder.parse_message(content)
+
+    def test_dispatches_b0_symbol_list(self):
+        body = b"\x00\x00" + b"temp\0" + bytes([8])
+        content = _header(0xB0) + body
+        result = decoder.parse_message(content)
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], decoder.DecodedSymbol)
+        assert result[0].name == "temp"
+
+    def test_dispatches_d2_data(self):
+        sym_table = _make_symbols(("x", 8))
+        values = [(0, struct.pack("<f", 1.5))]
+        content = _d2_frame(values, sym_table)
+        result = decoder.parse_message(content, symbol_table=sym_table)
+        assert isinstance(result, decoder.DecodedData)
+        assert result.msg_id == 1
+
+    def test_dispatches_d1_data(self):
+        sym_table = _make_symbols(("x", 8))
+        values = [(0, struct.pack("<f", 1.5))]
+        content = _d1_frame(values)
+        result = decoder.parse_message(content, symbol_table=sym_table)
+        assert isinstance(result, decoder.DecodedData)
+
+    def test_dispatches_b1_data(self):
+        sym_table = _make_symbols(("x", 8))
+        values = [struct.pack("<f", 1.5)]
+        content = _b1_frame(values)
+        result = decoder.parse_message(content, symbol_table=sym_table)
+        assert isinstance(result, decoder.DecodedData)
+
+    def test_data_without_symbol_table_raises(self):
+        sym_table = _make_symbols(("x", 8))
+        values = [(0, struct.pack("<f", 1.5))]
+        content = _d2_frame(values, sym_table)
+        with pytest.raises(ValueError, match="symbol_table required"):
+            decoder.parse_message(content)
+
+    def test_dispatches_b6_devices(self):
+        body = bytes([1])  # device count
+        body += bytes([0, 0])  # MSC + SID
+        for field in ["Dev", "hw", "fw", "lib", "name", "0", "type", "0"]:
+            body += field.encode() + b"\0"
+        # Client trailer
+        for field in ["1", "1", "cli", "ctype"]:
+            body += field.encode() + b"\0"
+        content = _header(0xB6) + body
+        result = decoder.parse_message(content)
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], decoder.DecodedDeviceInfo)
+
+    def test_dispatches_b3_devices(self):
+        body = bytes([0, 0]) + b"D\0hw\0fw\0lib\0name\0"
+        content = _header(0xB3) + body
+        result = decoder.parse_message(content)
+        assert isinstance(result, list)
+        assert isinstance(result[0], decoder.DecodedDeviceInfo)
+
+    def test_dispatches_c0_restart(self):
+        content = _header(0xC0, msg_id=42)
+        result = decoder.parse_message(content)
+        assert isinstance(result, decoder.DecodedData)
+        assert result.restart_flag is True
+        assert result.msg_id == 42
+
+    def test_return_type_alias(self):
+        """ParsedMessage type alias is accessible."""
+        assert hasattr(decoder, "ParsedMessage")
