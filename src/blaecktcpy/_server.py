@@ -226,7 +226,6 @@ class BlaeckTCPy:
 
         # Connect and discover all upstreams sequentially
         self._hub.discover_all()
-        self._log_local_signals()
         self._hub.register_signals()
 
         self._started = True
@@ -236,6 +235,7 @@ class BlaeckTCPy:
         self._hub.activate()
         self._log_startup_banner()
         self._start_http_status_page()
+        self._log_local_signals()
         atexit.register(self.close)
 
     def _log_local_signals(self) -> None:
