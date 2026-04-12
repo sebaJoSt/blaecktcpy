@@ -11,6 +11,7 @@ Two routes:
 from __future__ import annotations
 
 import json
+import math
 import string
 import threading
 import time
@@ -43,6 +44,9 @@ _HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
     [data-theme="dark"] #theme-toggle { color:#f0c040; }
     [data-theme="dark"] #theme-toggle svg { width:1.8rem; height:1.8rem; }
     [data-theme="light"] #theme-toggle svg { position:relative; top:-2px; }
+    #server-stopped { text-align:center; padding:.6rem; font-weight:bold; position:sticky; top:0; z-index:999; }
+    [data-theme="light"] #server-stopped { background:#fef2f2; color:#991b1b; border-bottom:1px solid #fecaca; }
+    [data-theme="dark"] #server-stopped { background:#450a0a; color:#fca5a5; border-bottom:1px solid #7f1d1d; }
     footer { text-align:center; font-size:1.2rem; opacity:.65; padding-top:1rem; }
     article { margin-bottom:1rem; padding:1.5rem; }
     article h3 { margin-bottom:1.2rem; }
@@ -56,6 +60,7 @@ _HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
   </style>
 </head>
 <body>
+  <div id="server-stopped" hidden>Server stopped — this page is no longer updating</div>
   <header class="container" style="padding-top:4.5rem; margin-bottom:0;">
     <nav>
       <ul>
@@ -139,9 +144,15 @@ _HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
   // -- Auto-refresh via /api --
   function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; }
   function setHtml(id, v) { var el = document.getElementById(id); if (el) el.innerHTML = v; }
+  var _pollTimer = null;
+  var _stopped = false;
 
   function refresh() {
     fetch('/api').then(r => r.json()).then(function(d) {
+      if (_stopped) {
+        location.reload();
+        return;
+      }
       setText('d-uptime', d.uptime);
       setText('d-interval', d.interval);
       // Timestamp row: show only when not NONE
@@ -197,7 +208,24 @@ _HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
           }
         });
       }
-    }).catch(function(){});
+    }, function(err) {
+      if (!_stopped) {
+        _stopped = true;
+        var banner = document.getElementById('server-stopped');
+        if (banner) {
+          banner.hidden = false;
+          var msg = (err && err.message) ? err.message : '';
+          var isNetworkError = !msg || msg === 'Failed to fetch' || msg === 'NetworkError when attempting to reach resource.';
+          banner.textContent = isNetworkError
+            ? 'Server stopped \u2014 this page is no longer updating'
+            : 'Connection lost: ' + msg;
+        }
+        document.title = '(stopped) ' + document.title;
+        // Slow down to 5 s retries
+        if (_pollTimer) clearInterval(_pollTimer);
+        _pollTimer = setInterval(refresh, 5000);
+      }
+    });
   }
 
   function esc(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
@@ -212,7 +240,7 @@ _HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
     if (us) us.id = 'upstream-summary-body';
   })();
 
-  setInterval(refresh, 1000);
+  _pollTimer = setInterval(refresh, 1000);
   </script>
 </body>
 </html>""")
@@ -272,6 +300,16 @@ def _transport_str(upstream) -> str:
     return f"Serial {port}" + (f" ({baud})" if baud else "")
 
 
+def _safe_value(v):
+    """Convert NaN/Inf to strings so json.dumps produces valid JSON."""
+    if isinstance(v, float):
+        if math.isnan(v):
+            return "NaN"
+        if math.isinf(v):
+            return "Inf" if v > 0 else "-Inf"
+    return v
+
+
 def _get_state(server: BlaeckTCPy) -> dict:
     """Build a JSON-serialisable dict of the full server state."""
     from ._signal import TimestampMode
@@ -301,7 +339,7 @@ def _get_state(server: BlaeckTCPy) -> dict:
         local_signals.append({
             "name": sig.signal_name,
             "type": sig.datatype,
-            "value": sig.value,
+            "value": _safe_value(sig.value),
         })
 
     state = {
@@ -328,7 +366,7 @@ def _get_state(server: BlaeckTCPy) -> dict:
                 signals.append({
                     "name": sig.signal_name,
                     "type": sig.datatype,
-                    "value": sig.value,
+                    "value": _safe_value(sig.value),
                 })
             upstreams.append({
                 "name": u.device_name,
