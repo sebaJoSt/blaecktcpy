@@ -27,3 +27,4 @@ while True:
     for s in bltcp.signals:
         s.value = value
     bltcp.tick()
+    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed

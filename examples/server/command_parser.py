@@ -1,5 +1,7 @@
 """Command Parser — custom command handling with @bltcp.on_command()."""
 
+import time
+
 from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
@@ -41,3 +43,4 @@ bltcp.start()
 
 while True:
     bltcp.tick()
+    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed

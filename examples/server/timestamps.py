@@ -59,3 +59,4 @@ while True:
     # To supply your own timestamp instead, pass unix_timestamp explicitly:
     #   bltcp.timed_write_all_data(unix_timestamp=time.time())
     bltcp.tick()
+    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed

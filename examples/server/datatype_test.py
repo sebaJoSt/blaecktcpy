@@ -1,5 +1,7 @@
 """Datatype Test — exercises all supported BlaeckTCP datatypes."""
 
+import time
+
 from blaecktcpy import BlaeckTCPy
 
 EXAMPLE_VERSION = "1.0"
@@ -47,3 +49,4 @@ print("##LOGGBOK:READY##")
 
 while True:
     bltcp.tick()
+    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed

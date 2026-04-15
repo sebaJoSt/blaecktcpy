@@ -64,6 +64,7 @@ def run_server(server, gen_func):
         for s in server.signals:
             s.value = gen_func(t)
         server.tick()
+        time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
 
 
 threading.Thread(target=run_server, args=(sine, lambda t: math.sin(t * 0.001)), daemon=True).start()
@@ -96,3 +97,4 @@ while True:
     elapsed_ms = (time.time() - hub.start_time) * 1000
     sawtooth.value = (elapsed_ms % 5000) / 5000.0  # 0..1 over 5 seconds
     hub.tick()
+    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed

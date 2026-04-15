@@ -94,6 +94,7 @@ def run_sensor():
         if has_pressure and len(sensor.signals) > 1:
             sensor.signals[1].value = 1013.25 + 10.0 * math.cos(t * 0.3)
         sensor.tick()
+        time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
 
 
 threading.Thread(target=run_sensor, daemon=True).start()
@@ -122,3 +123,4 @@ print("##LOGGBOK:READY##")
 
 while True:
     hub.tick()
+    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed

@@ -101,3 +101,4 @@ print("##LOGGBOK:READY##")
 
 while True:
     hub.tick()
+    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
