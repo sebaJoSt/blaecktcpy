@@ -1,4 +1,10 @@
-"""Command Parser — custom command handling with @bltcp.on_command()."""
+"""Command Parser — custom command handling with @bltcp.on_command().
+
+Run this, then connect with telnet or netcat to send commands:
+    telnet 127.0.0.1 23
+    <SET_LED,1>
+    <MOTOR,255,forward>
+"""
 
 import time
 
@@ -40,6 +46,7 @@ def log_all(command, *params):
 
 
 bltcp.start()
+print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 
 while True:
     bltcp.tick()

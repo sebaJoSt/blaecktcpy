@@ -48,7 +48,7 @@ bltcp.local_interval_ms = 500
 bltcp.start()
 print(f"Timestamp mode : {bltcp.timestamp_mode.name}")
 print(f"Interval       : {bltcp.local_interval_ms} ms")
-print("##LOGGBOK:READY##")
+print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 
 while True:
     t = time.time()

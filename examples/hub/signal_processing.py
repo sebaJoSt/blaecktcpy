@@ -95,7 +95,7 @@ def on_sensor_data(upstream):
 
 
 hub.start()
-print("##LOGGBOK:READY##")
+print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 
 while True:
     hub.tick()

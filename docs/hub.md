@@ -5,7 +5,8 @@ The same `BlaeckTCPy` class serves as a hub when you add upstream connections wi
 ```python
 from blaecktcpy import BlaeckTCPy
 
-hub = BlaeckTCPy("0.0.0.0", 23, "My Hub", "Python", "1.0")
+hub = BlaeckTCPy(ip="0.0.0.0", port=23, device_name="My Hub",
+                 device_hw_version="Python", device_fw_version="1.0")
 
 # Connect to upstream devices
 hub.add_tcp("192.168.1.10", 24, name="ESP32")
@@ -19,6 +20,7 @@ hub.start()
 while True:
     dew_point.value = compute_dew_point()
     hub.tick()
+    time.sleep(0.001)  # prevent busy loop
 ```
 
 Serial upstreams are also supported (`pip install blaecktcpy[serial]`):

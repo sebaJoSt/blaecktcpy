@@ -119,7 +119,7 @@ hub.start()
 
 print("Hub running on 127.0.0.1:23")
 print("Send <ADD_PRESSURE> or <REMOVE_PRESSURE> to the hub to change signals at runtime.")
-print("##LOGGBOK:READY##")
+print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 
 while True:
     hub.tick()

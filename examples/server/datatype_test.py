@@ -1,4 +1,8 @@
-"""Datatype Test — exercises all supported BlaeckTCP datatypes."""
+"""Datatype Test — exercises all supported BlaeckTCP datatypes.
+
+Useful for verifying protocol encoding — connect Loggbok and check
+that all values display correctly at their expected min/max/special values.
+"""
 
 import time
 
@@ -45,8 +49,7 @@ bltcp.add_signal("Double_Inf", "double", float("inf"))
 bltcp.add_signal("Double_NegInf", "double", float("-inf"))
 
 bltcp.start()
-print("##LOGGBOK:READY##")
-
+print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 while True:
     bltcp.tick()
     time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed

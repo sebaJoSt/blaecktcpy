@@ -69,8 +69,7 @@ def main():
         bltcp.add_signal(name, "double")
 
     bltcp.start()
-    print("##LOGGBOK:READY##")
-
+    print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
     # Open file and seek past existing content so we only stream new rows
     f = open(CSV_FILE, newline="")
     reader = csv.reader(f)

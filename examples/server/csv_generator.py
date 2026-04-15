@@ -59,8 +59,7 @@ def main():
         start = time.time()
         row_count = 0
         print("Generating data... (Ctrl+C to stop)")
-        print("##LOGGBOK:READY##")
-
+        print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
         try:
             while True:
                 elapsed = time.time() - start

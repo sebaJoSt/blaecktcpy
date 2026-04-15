@@ -91,7 +91,7 @@ hub.add_tcp("127.0.0.1", 10025, "Cosine", interval_ms=300)
 # hub.add_serial("COM3", 115200, "Arduino", interval_ms=300)
 
 hub.start()
-print("##LOGGBOK:READY##")
+print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 
 while True:
     elapsed_ms = (time.time() - hub.start_time) * 1000

@@ -64,7 +64,12 @@ start = time.time()
 while True:
     bltcp.signals[0].value = math.sin((time.time() - start) * 0.1)
     bltcp.tick()
+    time.sleep(0.001)  # prevent busy loop
 ```
+
+### Verify it works
+
+After starting your script, open the [HTTP status page](#http-status-page) at `http://127.0.0.1:8080` or connect a compatible client to `127.0.0.1:23`.
 
 ### Server-controlled interval
 
@@ -178,6 +183,7 @@ hub.start()
 while True:
     dew_point.value = compute_dew_point()
     hub.tick()
+    time.sleep(0.001)  # prevent busy loop
 ```
 
 For upstream data rates, signal relay, schema change detection, command forwarding, and auto-reconnect, see the full [Hub documentation](docs/hub.md).
@@ -190,7 +196,7 @@ See the [examples](examples/) folder:
 
 | Example | Description |
 |---|---|
-| [`sine.py`](examples/server/sine.py) | Sine wave generator |
+| [`sine.py`](examples/server/sine.py) | ⭐ Start here — sine wave generator |
 | [`datatype_test.py`](examples/server/datatype_test.py) | Tests all supported datatypes including edge cases |
 | [`command_parser.py`](examples/server/command_parser.py) | Custom command handling with `@bltcp.on_command()` |
 | [`csv_reader.py`](examples/server/csv_reader.py) | Stream CSV file data as signals |
@@ -204,7 +210,7 @@ See the [examples](examples/) folder:
 | [`basic.py`](examples/hub/basic.py) | Aggregates two upstream servers and a local signal |
 | [`schema_change.py`](examples/hub/schema_change.py) | Runtime signal changes via custom commands with automatic re-discovery |
 | [`signal_processing.py`](examples/hub/signal_processing.py) | Transform and compute signals via `on_data_received` |
-| [`mixed_sources.py`](examples/hub/mixed_sources.py) | BlaeckTCP microcontroller + SCPI power supply |
+| [`mixed_sources.py`](examples/hub/mixed_sources.py) | BlaeckTCP microcontroller + SCPI power supply (requires hardware) |
 
 ## License
 
