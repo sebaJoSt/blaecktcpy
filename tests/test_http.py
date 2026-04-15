@@ -357,7 +357,7 @@ class TestGetStateWithClients:
 
 def _make_fake_upstream(name="UpDev", connected=True, interval_ms=500,
                         relay=True, auto_reconnect=False, signals=None):
-    """Build a fake _UpstreamDevice-like object for testing."""
+    """Build a fake UpstreamDevice-like object for testing."""
     tcp = UpstreamTCP(name, "10.0.0.1", 9325)
     tcp._connected = connected
     return SimpleNamespace(
@@ -494,3 +494,4 @@ class TestRenderHtmlWithUpstreams:
         html = _render_html(self.server)
         assert "pressure" in html
         assert "101.3" in html
+

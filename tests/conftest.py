@@ -9,7 +9,7 @@ if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
 from blaecktcpy import BlaeckTCPy  # noqa: E402
-from blaecktcpy._server import _UpstreamDevice  # noqa: E402
+from blaecktcpy._server import UpstreamDevice  # noqa: E402
 from blaecktcpy.hub._upstream import _UpstreamBase  # noqa: E402
 
 
@@ -139,3 +139,4 @@ class RecordingTransport(_UpstreamBase):
         self._connected = False
         self._connect_pending = False
         self._connect_result = None
+

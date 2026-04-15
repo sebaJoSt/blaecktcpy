@@ -4,7 +4,7 @@ import binascii
 import struct
 
 from blaecktcpy import Signal, SignalList
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from blaecktcpy.hub import _decoder as decoder
 from conftest import _make_server_on_free_port, _start_retry, FakeTransport, RecordingTransport
 
@@ -59,7 +59,7 @@ def _make_hub_with_upstream(
     _start_retry(device)
 
     transport = transport_cls("Upstream")
-    upstream = _UpstreamDevice(
+    upstream = UpstreamDevice(
         device_name="Upstream", transport=transport, relay_downstream=relay
     )
 
@@ -422,3 +422,4 @@ class TestD1SignalCountFallback:
             assert any(b"BLAECK.WRITE_SYMBOLS" in s for s in transport.sent)
         finally:
             device.close()
+

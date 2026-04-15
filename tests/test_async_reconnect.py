@@ -6,7 +6,7 @@ import time
 import pytest
 
 from blaecktcpy import BlaeckTCPy, Signal, SignalList
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from blaecktcpy.hub import _decoder as decoder
 from conftest import (
     _make_server_on_free_port,
@@ -70,7 +70,7 @@ def _make_hub_with_reconnectable_upstream(
     _start_retry(device)
 
     transport = transport_cls(device_name)
-    upstream = _UpstreamDevice(
+    upstream = UpstreamDevice(
         device_name=device_name,
         transport=transport,
         relay_downstream=True,
@@ -522,3 +522,4 @@ class TestAsyncReconnectIntegration:
             hub.close()
             upstream_a.close()
             upstream_b.close()
+

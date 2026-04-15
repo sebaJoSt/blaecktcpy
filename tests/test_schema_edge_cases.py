@@ -4,7 +4,7 @@ import binascii
 import struct
 
 from blaecktcpy import Signal, SignalList
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from blaecktcpy.hub import _decoder as decoder
 from conftest import _make_server_on_free_port, _start_retry, FakeTransport, RecordingTransport
 
@@ -73,7 +73,7 @@ def _make_hub_with_upstream(
     _start_retry(device)
 
     transport = transport_cls(device_name)
-    upstream = _UpstreamDevice(
+    upstream = UpstreamDevice(
         device_name=device_name, transport=transport, relay_downstream=relay
     )
 
@@ -113,7 +113,7 @@ def _add_second_upstream(
 ):
     """Add a second upstream to an existing hub. Returns (upstream, transport)."""
     transport = transport_cls(device_name)
-    upstream = _UpstreamDevice(
+    upstream = UpstreamDevice(
         device_name=device_name, transport=transport, relay_downstream=relay
     )
 
@@ -501,7 +501,7 @@ class TestSchemaChangeRelay:
         _start_retry(device)
 
         transport = FakeTransport("Remote")
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="Remote", transport=transport, relay_downstream=True
         )
         sym_objs = [decoder.DecodedSymbol("temp", 8, "float", 4)]
@@ -699,3 +699,4 @@ class TestSchemaChangeRelay:
             assert len(all_indices) == len(set(all_indices))
         finally:
             device.close()
+

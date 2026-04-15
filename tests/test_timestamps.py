@@ -354,7 +354,7 @@ class TestHubTimestampRelay:
         """Create a hub with fake upstream(s), optionally with local signals."""
         import socket
         from blaecktcpy import Signal
-        from blaecktcpy._server import _UpstreamDevice
+        from blaecktcpy._server import UpstreamDevice
         from blaecktcpy.hub import _decoder as decoder
         from conftest import FakeTransport
 
@@ -371,7 +371,7 @@ class TestHubTimestampRelay:
         transports = []
         for i in range(num_upstreams):
             transport = FakeTransport(f"upstream_{i}")
-            upstream = _UpstreamDevice(
+            upstream = UpstreamDevice(
                 device_name=f"Upstream_{i}",
                 transport=transport,
                 relay_downstream=True,
@@ -534,14 +534,14 @@ class TestHubTimestampStartValidation:
 
     def test_unix_mode_with_upstream_and_local_raises(self):
         """UNIX mode + relayed upstream + local signals → ValueError at start()."""
-        from blaecktcpy._server import _UpstreamDevice
+        from blaecktcpy._server import UpstreamDevice
         from conftest import FakeTransport
 
         hub = _make_server_on_free_port()
         hub.add_signal("local", "float")
         hub.timestamp_mode = TimestampMode.UNIX
         hub._hub._upstreams.append(
-            _UpstreamDevice(
+            UpstreamDevice(
                 device_name="Arduino",
                 transport=FakeTransport("Arduino"),
                 relay_downstream=True,
@@ -553,13 +553,13 @@ class TestHubTimestampStartValidation:
 
     def test_none_mode_with_upstream_and_local_ok(self):
         """NONE mode + relayed upstream + local signals → no error."""
-        from blaecktcpy._server import _UpstreamDevice
+        from blaecktcpy._server import UpstreamDevice
         from conftest import FakeTransport
 
         hub = _make_server_on_free_port()
         hub.add_signal("local", "float")
         hub._hub._upstreams.append(
-            _UpstreamDevice(
+            UpstreamDevice(
                 device_name="Arduino",
                 transport=FakeTransport("Arduino"),
                 relay_downstream=True,
@@ -582,14 +582,14 @@ class TestHubTimestampStartValidation:
 
     def test_unix_mode_non_relayed_upstream_ok(self):
         """UNIX mode + non-relayed upstream + local signals → no error."""
-        from blaecktcpy._server import _UpstreamDevice
+        from blaecktcpy._server import UpstreamDevice
         from conftest import FakeTransport
 
         hub = _make_server_on_free_port()
         hub.add_signal("local", "float")
         hub.timestamp_mode = TimestampMode.UNIX
         hub._hub._upstreams.append(
-            _UpstreamDevice(
+            UpstreamDevice(
                 device_name="Arduino",
                 transport=FakeTransport("Arduino"),
                 relay_downstream=False,
@@ -632,3 +632,4 @@ class TestRequireStarted:
         server.add_signal("x", "float")
         with pytest.raises(RuntimeError, match="not started"):
             server.timed_write_all_data()
+

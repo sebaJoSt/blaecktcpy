@@ -2,7 +2,7 @@
 
 import pytest
 
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from conftest import _make_server_on_free_port, _start_retry, FakeTransport
 
 
@@ -183,7 +183,7 @@ class TestFireDataReceived:
 
     def _make_upstream(self, name):
         transport = FakeTransport(name)
-        return _UpstreamDevice(device_name=name, transport=transport)
+        return UpstreamDevice(device_name=name, transport=transport)
 
     def test_fires_matching_name(self):
         calls = []
@@ -254,7 +254,7 @@ class TestCallbackExceptionResilience:
         def good_callback(upstream):
             calls.append(upstream.device_name)
 
-        upstream = _UpstreamDevice(device_name="Arduino", transport=FakeTransport("Arduino"))
+        upstream = UpstreamDevice(device_name="Arduino", transport=FakeTransport("Arduino"))
         # _fire_data_received calls each callback independently;
         # but currently it doesn't catch per-callback — the outer
         # try/except in _poll_upstreams handles it.
@@ -262,3 +262,4 @@ class TestCallbackExceptionResilience:
         with pytest.raises(ValueError, match="oops"):
             self.device._fire_data_received(upstream)
         assert calls == []
+

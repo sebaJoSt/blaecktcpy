@@ -17,7 +17,7 @@ from blaecktcpy import (
     STATUS_UPSTREAM_RECONNECTED,
     BlaeckTCPy,
 )
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from blaecktcpy.hub import _decoder as decoder
 from conftest import (
     _make_server_on_free_port,
@@ -175,7 +175,7 @@ class TestI2CSkipRelay:
         device._accept_new_clients()
 
         transport = FakeTransport("MasterWithSlaves")
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="MasterWithSlaves",
             transport=transport,
             relay_downstream=True,
@@ -382,7 +382,7 @@ class TestResendActivate:
     """_resend_activate sends the correct command for each interval mode."""
 
     def _make_upstream(self, transport: RecordingTransport, interval_ms: int):
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="TestDevice",
             transport=transport,
             relay_downstream=True,
@@ -492,3 +492,4 @@ class TestResendActivate:
             assert cmd == "<BLAECK.ACTIVATE,96,234,0,0>"
         finally:
             device.close()
+

@@ -6,7 +6,7 @@ import time
 import pytest
 
 from blaecktcpy import BlaeckTCPy
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from conftest import _make_server_on_free_port, _start_retry, RecordingTransport
 
 
@@ -206,7 +206,7 @@ class TestHubSendsIdentity:
                  )
 
         transport = RecordingTransport("ESP32")
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="ESP32",
             transport=transport,
             relay_downstream=True,
@@ -302,3 +302,4 @@ class TestB6ResponseContainsClientIdentity:
         finally:
             client.close()
             device.close()
+

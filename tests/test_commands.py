@@ -2,7 +2,7 @@
 
 import pytest
 
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from conftest import _make_server_on_free_port, _start_retry, RecordingTransport
 
 
@@ -54,7 +54,7 @@ class TestCustomCommandForwarding:
         device = _make_server_on_free_port()
 
         transport = RecordingTransport("ESP32")
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="ESP32",
             transport=transport,
             relay_downstream=True,
@@ -164,7 +164,7 @@ class TestCustomCommandForwarding:
         device = _make_server_on_free_port()
 
         transport_a = RecordingTransport("ArduinoA")
-        upstream_a = _UpstreamDevice(
+        upstream_a = UpstreamDevice(
             device_name="ArduinoA",
             transport=transport_a,
             relay_downstream=True,
@@ -172,7 +172,7 @@ class TestCustomCommandForwarding:
         )
 
         transport_b = RecordingTransport("ArduinoB")
-        upstream_b = _UpstreamDevice(
+        upstream_b = UpstreamDevice(
             device_name="ArduinoB",
             transport=transport_b,
             relay_downstream=True,
@@ -242,7 +242,7 @@ class TestCustomCommandForwarding:
         device = _make_server_on_free_port()
 
         transport_a = RecordingTransport("LED")
-        upstream_a = _UpstreamDevice(
+        upstream_a = UpstreamDevice(
             device_name="LED",
             transport=transport_a,
             relay_downstream=True,
@@ -250,7 +250,7 @@ class TestCustomCommandForwarding:
         )
 
         transport_b = RecordingTransport("Motor")
-        upstream_b = _UpstreamDevice(
+        upstream_b = UpstreamDevice(
             device_name="Motor",
             transport=transport_b,
             relay_downstream=True,

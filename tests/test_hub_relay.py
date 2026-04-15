@@ -3,7 +3,7 @@
 import pytest
 
 from blaecktcpy import Signal, SignalList, BlaeckTCPy
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from blaecktcpy.hub import _decoder as decoder
 from conftest import _make_server_on_free_port, _start_retry, FakeTransport
 
@@ -14,7 +14,7 @@ class TestRelayFalseRegistration:
     def test_relay_true_registers_on_server(self):
         device = _make_server_on_free_port()
         try:
-            upstream = _UpstreamDevice(
+            upstream = UpstreamDevice(
                 device_name="ESP32",
                 transport=FakeTransport("ESP32"),
                 relay_downstream=True,
@@ -43,7 +43,7 @@ class TestRelayFalseRegistration:
             device.close()
 
     def test_relay_false_stores_internally(self):
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="Arduino",
             transport=FakeTransport("Arduino"),
             relay_downstream=False,
@@ -65,7 +65,7 @@ class TestRelayFalseRegistration:
         assert upstream._signals[0].signal_name == "temp"
 
     def test_relay_false_signals_accessible_via_collection(self):
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="Arduino",
             transport=FakeTransport("Arduino"),
             relay_downstream=False,
@@ -81,7 +81,7 @@ class TestRelayFalseRegistration:
         assert upstream["temp"].value == 22.5
 
     def test_upstream_signals_created_in_start(self):
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="Arduino",
             transport=FakeTransport("Arduino"),
             relay_downstream=False,
@@ -106,7 +106,7 @@ class TestRelayFalseRegistration:
         """Modifying upstream.signals for relay_downstream=True changes the device signal."""
         device = _make_server_on_free_port()
         try:
-            upstream = _UpstreamDevice(
+            upstream = UpstreamDevice(
                 device_name="Arduino",
                 transport=FakeTransport("Arduino"),
                 relay_downstream=True,
@@ -320,7 +320,7 @@ class TestMultiSlavePassThrough:
                      device_hw_version="1.0",
                      device_fw_version="1.0",
                  )
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name="Arduino",
             transport=None,
             relay_downstream=True,
@@ -358,13 +358,13 @@ class TestMultiSlavePassThrough:
                      device_fw_version="1.0",
                  )
 
-        upstream_a = _UpstreamDevice(device_name="A", transport=None, relay_downstream=True)
+        upstream_a = UpstreamDevice(device_name="A", transport=None, relay_downstream=True)
         upstream_a.symbol_table = [
             decoder.DecodedSymbol("a1", 8, "float", 4, msc=1, slave_id=0),
             decoder.DecodedSymbol("a2", 8, "float", 4, msc=2, slave_id=5),
         ]
 
-        upstream_b = _UpstreamDevice(device_name="B", transport=None, relay_downstream=True)
+        upstream_b = UpstreamDevice(device_name="B", transport=None, relay_downstream=True)
         upstream_b.symbol_table = [
             decoder.DecodedSymbol("b1", 8, "float", 4, msc=1, slave_id=0),
         ]
@@ -591,3 +591,4 @@ class TestMultiSlavePassThrough:
         assert 3 not in children  # Slave8 has no children
         assert 5 not in children  # Arduino1 has no children
         assert 7 not in children  # ServerD has no children
+

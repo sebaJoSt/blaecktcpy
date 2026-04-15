@@ -7,7 +7,7 @@ import time
 import pytest
 
 from blaecktcpy import Signal, SignalList, STATUS_OK, STATUS_UPSTREAM_LOST, STATUS_UPSTREAM_RECONNECTED, BlaeckTCPy
-from blaecktcpy._server import _UpstreamDevice
+from blaecktcpy._server import UpstreamDevice
 from blaecktcpy.hub import _decoder as decoder
 from conftest import _make_server_on_free_port, _start_retry, FakeTransport
 
@@ -84,7 +84,7 @@ class TestRestartFlagRelay:
         device.add_signal("sig1", "float", 0.0)
         _start_retry(device)
         try:
-            upstream = _UpstreamDevice(
+            upstream = UpstreamDevice(
                 device_name="Arduino", transport=FakeTransport(), relay_downstream=True
             )
             upstream.symbol_table = [
@@ -199,7 +199,7 @@ class TestStatusByteRelay:
 
             # Manually wire upstream (simulating relay of 1 signal)
             transport = FakeTransport("Arduino")
-            upstream = _UpstreamDevice(
+            upstream = UpstreamDevice(
                 device_name="Arduino", transport=transport, relay_downstream=True
             )
             upstream.symbol_table = [
@@ -256,7 +256,7 @@ class TestStatusByteRelay:
             device._accept_new_clients()
 
             transport = FakeTransport("Arduino")
-            upstream = _UpstreamDevice(
+            upstream = UpstreamDevice(
                 device_name="Arduino", transport=transport, relay_downstream=True
             )
             upstream.symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
@@ -299,7 +299,7 @@ class TestStatusByteRelay:
             device._accept_new_clients()
 
             transport = FakeTransport("Legacy")
-            upstream = _UpstreamDevice(
+            upstream = UpstreamDevice(
                 device_name="Legacy", transport=transport, relay_downstream=True
             )
             upstream.symbol_table = [decoder.DecodedSymbol("temp", 8, "float", 4)]
@@ -366,7 +366,7 @@ class TestRelayFrameScoping:
             device.signals.append(Signal(name, "float", 0.0))
 
         transport_a = FakeTransport("UpstreamA")
-        upstream_a = _UpstreamDevice(
+        upstream_a = UpstreamDevice(
             device_name="UpstreamA", transport=transport_a, relay_downstream=True
         )
         upstream_a.symbol_table = [
@@ -382,7 +382,7 @@ class TestRelayFrameScoping:
         device._hub._upstreams.append(upstream_a)
 
         transport_b = FakeTransport("UpstreamB")
-        upstream_b = _UpstreamDevice(
+        upstream_b = UpstreamDevice(
             device_name="UpstreamB", transport=transport_b, relay_downstream=True
         )
         upstream_b.symbol_table = [
@@ -1229,3 +1229,4 @@ class TestHubWriteUpdate:
         finally:
             client.close()
             device.close()
+

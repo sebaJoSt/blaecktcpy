@@ -26,8 +26,8 @@ _MSG_ID_HUB = 185273100  # 0x0B0B0B0C
 
 
 @dataclass
-class _UpstreamDevice:
-    """Internal bookkeeping for one upstream connection."""
+class UpstreamDevice:
+    """Represents one upstream device connected via hub mode."""
 
     device_name: str
     transport: _UpstreamBase
@@ -74,7 +74,7 @@ class HubManager:
     def __init__(self, server: HubHost, logger: logging.Logger) -> None:
         self._server = server
         self._logger = logger
-        self._upstreams: list[_UpstreamDevice] = []
+        self._upstreams: list[UpstreamDevice] = []
 
     # ── Registration ─────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ class HubManager:
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
         auto_reconnect: bool = False,
-    ) -> _UpstreamDevice:
+    ) -> UpstreamDevice:
         """Register an upstream TCP device for later discovery."""
         if self._server._started:
             raise RuntimeError("Cannot add upstreams after start()")
@@ -112,7 +112,7 @@ class HubManager:
 
         label = name or f"{ip}:{port}"
         transport = UpstreamTCP(label, ip, port, logger=self._logger)
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name=name,
             transport=transport,
             interval_ms=interval_ms,
@@ -135,7 +135,7 @@ class HubManager:
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
-    ) -> _UpstreamDevice:
+    ) -> UpstreamDevice:
         """Register an upstream serial device for later discovery."""
         from ._upstream import UpstreamSerial
 
@@ -154,7 +154,7 @@ class HubManager:
         transport = UpstreamSerial(
             label, port, baudrate, dtr, logger=self._logger
         )
-        upstream = _UpstreamDevice(
+        upstream = UpstreamDevice(
             device_name=name,
             transport=transport,
             interval_ms=interval_ms,
@@ -177,7 +177,7 @@ class HubManager:
 
     def _poll_for_frame(
         self,
-        upstream: _UpstreamDevice,
+        upstream: UpstreamDevice,
         msg_key_match: int | set[int],
         retry_command: str,
         max_polls: int,
@@ -198,7 +198,7 @@ class HubManager:
                 upstream.transport.send_command(retry_command)
         return None
 
-    def _discover_upstream(self, upstream: _UpstreamDevice) -> None:
+    def _discover_upstream(self, upstream: UpstreamDevice) -> None:
         """Connect, fetch symbols and device info from one upstream."""
         timeout = upstream._discovery_timeout
         label = upstream.device_name or upstream.transport.name
@@ -384,7 +384,7 @@ class HubManager:
                 self._retry_discovery(upstream)
 
     def _poll_upstream_connection(
-        self, upstream: _UpstreamDevice
+        self, upstream: UpstreamDevice
     ) -> bool:
         """Handle connection state. Returns True to skip frame processing."""
         if upstream.transport.connect_pending:
@@ -440,7 +440,7 @@ class HubManager:
 
     def _process_upstream_data(
         self,
-        upstream: _UpstreamDevice,
+        upstream: UpstreamDevice,
         frame: bytes,
         msg_key: int,
     ) -> None:
@@ -500,7 +500,7 @@ class HubManager:
 
     def _validate_upstream_schema(
         self,
-        upstream: _UpstreamDevice,
+        upstream: UpstreamDevice,
         decoded: decoder.DecodedData,
         msg_key: int,
     ) -> bool:
@@ -536,7 +536,7 @@ class HubManager:
         return True
 
     def _relay_upstream_data(
-        self, upstream: _UpstreamDevice, decoded: decoder.DecodedData
+        self, upstream: UpstreamDevice, decoded: decoder.DecodedData
     ) -> None:
         """Update hub signals from decoded data and relay to downstream."""
         signals = self._server.signals
@@ -618,7 +618,7 @@ class HubManager:
 
     # ── Signal management ────────────────────────────────────────────
 
-    def _zero_upstream_signals(self, upstream: _UpstreamDevice) -> None:
+    def _zero_upstream_signals(self, upstream: UpstreamDevice) -> None:
         """Reset all signals from a disconnected upstream to zero."""
         if upstream.relay_downstream:
             signals = self._server.signals
@@ -632,7 +632,7 @@ class HubManager:
 
     def _rebuild_upstream_schema(
         self,
-        upstream: _UpstreamDevice,
+        upstream: UpstreamDevice,
         new_symbols: list[decoder.DecodedSymbol],
     ) -> None:
         """Rebuild an upstream's signals after schema change."""
@@ -670,7 +670,7 @@ class HubManager:
 
         self._server._update_schema_hash()
 
-    def _rebuild_slave_id_map(self, upstream: _UpstreamDevice) -> None:
+    def _rebuild_slave_id_map(self, upstream: UpstreamDevice) -> None:
         """Rebuild slave_id_map for one upstream from its current data."""
         if not upstream.relay_downstream:
             return
@@ -709,7 +709,7 @@ class HubManager:
     # ── Status frames ────────────────────────────────────────────────
 
     def _send_upstream_lost_frame(
-        self, upstream: _UpstreamDevice
+        self, upstream: UpstreamDevice
     ) -> None:
         """Send one data frame with STATUS_UPSTREAM_LOST."""
         if not upstream.relay_downstream or not self._server.connected:
@@ -744,7 +744,7 @@ class HubManager:
         self._server._tcp_send_data(data)
 
     def _send_upstream_reconnected_frame(
-        self, upstream: _UpstreamDevice
+        self, upstream: UpstreamDevice
     ) -> None:
         """Send one data frame with STATUS_UPSTREAM_RECONNECTED."""
         if not upstream.relay_downstream or not self._server.connected:
@@ -777,7 +777,7 @@ class HubManager:
         self._server._tcp_send_data(data)
 
     def _send_upstream_restarted_frame(
-        self, upstream: _UpstreamDevice
+        self, upstream: UpstreamDevice
     ) -> None:
         """Build and send a restart frame with upstream's device name."""
         if not self._server.connected:
@@ -814,7 +814,7 @@ class HubManager:
 
     # ── Reconnection ─────────────────────────────────────────────────
 
-    def _resend_activate(self, upstream: _UpstreamDevice) -> None:
+    def _resend_activate(self, upstream: UpstreamDevice) -> None:
         """Re-send ACTIVATE/DEACTIVATE after upstream restart or reconnect."""
         if upstream.interval_ms >= 0:
             b = upstream.interval_ms.to_bytes(4, "little")
@@ -838,7 +838,7 @@ class HubManager:
             )
 
     def _handle_upstream_disconnect(
-        self, upstream: _UpstreamDevice
+        self, upstream: UpstreamDevice
     ) -> None:
         """Reset upstream state on disconnect and notify downstream."""
         upstream.connected = False
@@ -854,7 +854,7 @@ class HubManager:
                 upstream.device_name
             )
 
-    def _start_discovery(self, upstream: _UpstreamDevice) -> None:
+    def _start_discovery(self, upstream: UpstreamDevice) -> None:
         """Begin discovery Phase 1: send DEACTIVATE + WRITE_SYMBOLS."""
         upstream.transport.send_command("BLAECK.DEACTIVATE")
         upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
@@ -862,7 +862,7 @@ class HubManager:
         upstream._discovery_retry_at = time.time() + 1.0
 
     def _handle_symbol_list(
-        self, upstream: _UpstreamDevice, frame: bytes
+        self, upstream: UpstreamDevice, frame: bytes
     ) -> None:
         """Handle a symbol list frame during reconnect or schema refresh."""
         new_symbols = None
@@ -896,7 +896,7 @@ class HubManager:
             upstream._discovery_retry_at = time.time() + 1.0
 
     def _handle_device_info(
-        self, upstream: _UpstreamDevice, frame: bytes
+        self, upstream: UpstreamDevice, frame: bytes
     ) -> None:
         """Handle a device info frame during reconnect or runtime."""
         infos = None
@@ -936,7 +936,7 @@ class HubManager:
                 )
                 upstream._restart_detected = False
 
-    def _retry_discovery(self, upstream: _UpstreamDevice) -> None:
+    def _retry_discovery(self, upstream: UpstreamDevice) -> None:
         """Retry the current discovery command if response hasn't arrived."""
         if not (
             upstream._awaiting_symbols or upstream._awaiting_devices
@@ -957,7 +957,7 @@ class HubManager:
 
     def _finalize_reconnect(
         self,
-        upstream: _UpstreamDevice,
+        upstream: UpstreamDevice,
         restart_detected: bool = False,
     ) -> None:
         """Complete reconnect: notify downstream, re-send ACTIVATE."""

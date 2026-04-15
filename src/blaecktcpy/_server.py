@@ -13,7 +13,7 @@ from . import _encoder
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from ._tcp import ClientManager
 from .hub import _decoder as decoder
-from .hub._manager import HubManager, _UpstreamDevice
+from .hub._manager import HubManager, UpstreamDevice
 
 __all__ = ["BlaeckTCPy"]
 
@@ -516,7 +516,7 @@ class BlaeckTCPy:
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
         auto_reconnect: bool = False,
-    ) -> _UpstreamDevice:
+    ) -> UpstreamDevice:
         """Register an upstream TCP device for later discovery.
 
         Does not connect or block; connection and discovery happen
@@ -556,7 +556,7 @@ class BlaeckTCPy:
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
-    ) -> _UpstreamDevice:
+    ) -> UpstreamDevice:
         """Register an upstream serial device for later discovery.
 
         Does not connect or block; connection and discovery happen
@@ -595,21 +595,21 @@ class BlaeckTCPy:
         """Read frames from all upstream devices, update signals, and relay."""
         self._hub.poll()
 
-    def _fire_data_received(self, upstream: _UpstreamDevice) -> None:
+    def _fire_data_received(self, upstream: UpstreamDevice) -> None:
         """Invoke all matching on_data_received callbacks."""
         for name_filter, func in self._data_received_callbacks:
             if name_filter is None or name_filter == upstream.device_name:
                 func(upstream)
 
-    def _send_upstream_lost_frame(self, upstream: _UpstreamDevice) -> None:
+    def _send_upstream_lost_frame(self, upstream: UpstreamDevice) -> None:
         """Send STATUS_UPSTREAM_LOST frame for a disconnected upstream."""
         self._hub._send_upstream_lost_frame(upstream)
 
-    def _send_upstream_reconnected_frame(self, upstream: _UpstreamDevice) -> None:
+    def _send_upstream_reconnected_frame(self, upstream: UpstreamDevice) -> None:
         """Send STATUS_UPSTREAM_RECONNECTED frame for a reconnected upstream."""
         self._hub._send_upstream_reconnected_frame(upstream)
 
-    def _resend_activate(self, upstream: _UpstreamDevice) -> None:
+    def _resend_activate(self, upstream: UpstreamDevice) -> None:
         """Re-send ACTIVATE/DEACTIVATE after upstream restart or reconnect."""
         self._hub._resend_activate(upstream)
 
@@ -1469,7 +1469,7 @@ class BlaeckTCPy:
             If name is None, returns {name: status_dict, ...}.
         """
 
-        def _status(u: _UpstreamDevice) -> dict:
+        def _status(u: UpstreamDevice) -> dict:
             return {
                 "connected": u.transport.connected,
                 "last_seen": u.transport.last_seen,
@@ -1484,7 +1484,7 @@ class BlaeckTCPy:
 
         return {u.device_name: _status(u) for u in self._hub._upstreams}
 
-    def __getitem__(self, name: str) -> _UpstreamDevice:
+    def __getitem__(self, name: str) -> UpstreamDevice:
         """Access an upstream device by name.
 
         Example::
