@@ -78,6 +78,15 @@ class HubManager:
 
     # ── Registration ─────────────────────────────────────────────────
 
+    @staticmethod
+    def _validate_interval_ms(value: int) -> None:
+        if value >= 0 or value == IntervalMode.CLIENT or value == IntervalMode.OFF:
+            return
+        raise ValueError(
+            f"Invalid interval_ms: {value}. "
+            f"Use a positive integer, IntervalMode.CLIENT, or IntervalMode.OFF."
+        )
+
     def add_tcp(
         self,
         ip: str,
@@ -92,6 +101,7 @@ class HubManager:
         """Register an upstream TCP device for later discovery."""
         if self._server._started:
             raise RuntimeError("Cannot add upstreams after start()")
+        self._validate_interval_ms(interval_ms)
         if not isinstance(relay_downstream, bool):
             raise TypeError("relay_downstream must be True or False")
         if not isinstance(forward_custom_commands, (bool, list)):
@@ -131,6 +141,7 @@ class HubManager:
 
         if self._server._started:
             raise RuntimeError("Cannot add upstreams after start()")
+        self._validate_interval_ms(interval_ms)
         if not isinstance(relay_downstream, bool):
             raise TypeError("relay_downstream must be True or False")
         if not isinstance(forward_custom_commands, (bool, list)):
