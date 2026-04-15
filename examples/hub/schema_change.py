@@ -49,6 +49,7 @@ sensor = BlaeckTCPy(
              port=10024,
              device_name="Sensor",
              log_level=logging.WARNING,
+             http_port=None,
          )
 sensor.timestamp_mode = TimestampMode.UNIX
 

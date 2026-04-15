@@ -535,6 +535,12 @@ def _make_handler(server: BlaeckTCPy):
     return _Handler
 
 
+class _ExclusiveHTTPServer(ThreadingHTTPServer):
+    """HTTPServer that refuses to share a port (no SO_REUSEADDR)."""
+
+    allow_reuse_address = False
+
+
 def start_http_server(
     server: BlaeckTCPy, port: int, bind: str = ""
 ) -> ThreadingHTTPServer:
@@ -550,7 +556,7 @@ def start_http_server(
     """
     handler = _make_handler(server)
     bind_addr = bind or server._ip
-    httpd = ThreadingHTTPServer((bind_addr, port), handler)
+    httpd = _ExclusiveHTTPServer((bind_addr, port), handler)
     httpd.daemon_threads = True
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()

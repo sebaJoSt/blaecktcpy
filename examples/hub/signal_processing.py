@@ -42,6 +42,7 @@ server = BlaeckTCPy(
              port=10024,
              device_name="Sensor Board",
              log_level=logging.WARNING,
+             http_port=None,
          )
 server.add_signal("temperature", "float")   # temperature in Fahrenheit (transformed by hub)
 server.add_signal("humidity", "float")     # relative humidity %

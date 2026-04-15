@@ -37,6 +37,7 @@ sine = BlaeckTCPy(
            port=10024,
            device_name="Sine Generator",
            log_level=logging.WARNING,
+           http_port=None,
        )
 for i in range(1, 4):
     sine.add_signal(f"Sine_{i}", "float")
@@ -47,6 +48,7 @@ cosine = BlaeckTCPy(
              port=10025,
              device_name="Cosine Generator",
              log_level=logging.WARNING,
+             http_port=None,
          )
 for i in range(1, 3):
     cosine.add_signal(f"Cosine_{i}", "float")
