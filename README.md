@@ -117,6 +117,8 @@ from blaecktcpy import TimestampMode
 bltcp.timestamp_mode = TimestampMode.UNIX
 ```
 
+Use `TimestampMode.UNIX` when downstream clients need absolute wall-clock time. Leave the default `TimestampMode.NONE` when the client adds its own timestamps.
+
 Every write method auto-fills the timestamp based on the mode. You can override it per-write:
 
 ```python

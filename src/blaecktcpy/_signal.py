@@ -23,13 +23,10 @@ class TimestampMode(IntEnum):
     """Timestamp modes for data frames.
 
     * **NONE** (0) — No timestamp in data frames (default).
-    * **MICROS** (1) — Microseconds since start (protocol-level only;
-      used by Arduino upstream devices, not available for blaecktcpy servers).
     * **UNIX** (2) — Microseconds since Unix epoch (1970-01-01 UTC).
     """
 
     NONE = 0
-    MICROS = 1
     UNIX = 2
 
 
@@ -140,7 +137,7 @@ class Signal:
         return self._value
 
     @value.setter
-    def value(self, value: int | float) -> None:
+    def value(self, value: int | float | bool) -> None:
         self._value = self._normalize_value(value)
 
     def to_bytes(self) -> bytes:

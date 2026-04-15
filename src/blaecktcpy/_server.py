@@ -1163,7 +1163,8 @@ class BlaeckTCPy:
                 int = microseconds since epoch (used directly).
         """
         self._require_started()
-        if not self.connected or not self.has_updated_signals:            return
+        if not self.connected or not self.has_updated_signals:
+            return
         lc = self._local_signal_count if self._started else len(self.signals)
         if lc == 0:
             return
@@ -1336,11 +1337,6 @@ class BlaeckTCPy:
             raise ValueError(
                 f"Invalid timestamp_mode {value!r}. Valid modes: {valid}"
             ) from None
-        if mode == TimestampMode.MICROS:
-            raise ValueError(
-                "TimestampMode.MICROS is not supported for blaecktcpy servers. "
-                "Use TimestampMode.UNIX instead."
-            )
         self._timestamp_mode = mode
 
     def _resolve_timestamp(
@@ -1427,7 +1423,7 @@ class BlaeckTCPy:
         end: int = -1,
         only_updated: bool = False,
         timestamp: int | None = None,
-        timestamp_mode: TimestampMode | None = None,
+        timestamp_mode: int | None = None,
         status: int = STATUS_OK,
         status_payload: bytes = b"\x00\x00\x00\x00",
     ) -> bytes:
@@ -1500,7 +1496,7 @@ class BlaeckTCPy:
     # ========================================================================
     # Lifecycle
     # ========================================================================
-    def close(self):
+    def close(self) -> None:
         """Gracefully close all upstream and downstream connections."""
         if self._closed:
             return

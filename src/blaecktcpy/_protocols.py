@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from ._signal import SignalList, TimestampMode
+from ._signal import SignalList
 
 
 class TCPHost(Protocol):
@@ -48,7 +48,7 @@ class HubHost(Protocol):
         end: int = -1,
         only_updated: bool = False,
         timestamp: int | None = None,
-        timestamp_mode: TimestampMode | None = None,
+        timestamp_mode: int | None = None,
         status: int = ...,
         status_payload: bytes = ...,
     ) -> bytes: ...

@@ -13,7 +13,6 @@ class TestTimestampModeEnum:
 
     def test_values(self):
         assert TimestampMode.NONE == 0
-        assert TimestampMode.MICROS == 1
         assert TimestampMode.UNIX == 2
 
     def test_is_int(self):
@@ -130,12 +129,12 @@ class TestTimestampInDataFrames:
             client.close()
             device.close()
 
-    def test_micros_mode_sends_relative_timestamp(self):
-        """Setting MICROS mode should raise ValueError."""
+    def test_micros_mode_raises_valueerror(self):
+        """Setting mode=1 (MICROS protocol value) should raise ValueError."""
         device, client = self._make_device()
         try:
-            with pytest.raises(ValueError, match="MICROS is not supported"):
-                device.timestamp_mode = TimestampMode.MICROS
+            with pytest.raises(ValueError, match="Invalid timestamp_mode"):
+                device.timestamp_mode = 1
         finally:
             client.close()
             device.close()

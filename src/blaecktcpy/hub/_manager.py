@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .._signal import Signal, SignalList, IntervalMode, TimestampMode
+from .._signal import Signal, SignalList, IntervalMode
 from .._encoder import MSC_SLAVE, STATUS_UPSTREAM_LOST, STATUS_UPSTREAM_RECONNECTED
 from . import _decoder as decoder
 from ._upstream import UpstreamTCP, _UpstreamBase
@@ -577,7 +577,7 @@ class HubManager:
                 )
         try:
             ts_mode = (
-                TimestampMode(decoded.timestamp_mode)
+                decoded.timestamp_mode
                 if ts is not None
                 else None
             )

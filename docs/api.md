@@ -41,7 +41,7 @@ BlaeckTCPy(
 start() -> None
 ```
 
-Create socket, bind, listen, register upstream signals, and activate. Must be called after all `add_signal()`, `add_tcp()`, and `add_serial()` calls (though `add_signal()` also works after start).
+Create socket, bind, listen, register upstream signals, and activate. Must be called after all `add_tcp()` and `add_serial()` calls. Local signals (`add_signal()`) can be added before or after `start()`.
 
 #### `close()`
 
@@ -284,7 +284,7 @@ Wall-clock time when `start()` was called (`time.time()`).
 timestamp_mode: TimestampMode
 ```
 
-Timestamp mode for outgoing data frames. Settable. Assigning `TimestampMode.MICROS` raises `ValueError`.
+Timestamp mode for outgoing data frames. Settable. Valid values: `TimestampMode.NONE` (default) and `TimestampMode.UNIX`.
 
 #### `data_clients`
 
@@ -526,7 +526,6 @@ An `IntEnum` for data frame timestamp modes.
 | Member | Value | Description |
 |---|---|---|
 | `NONE` | `0` | No timestamp (default) |
-| `MICROS` | `1` | Microseconds since start (not available for blaecktcpy servers) |
 | `UNIX` | `2` | Microseconds since Unix epoch |
 
 ---

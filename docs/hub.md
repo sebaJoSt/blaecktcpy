@@ -113,6 +113,8 @@ TCP upstreams can automatically reconnect after connection loss:
 hub.add_tcp("192.168.1.10", 24, name="Arduino", interval_ms=300, auto_reconnect=True)
 ```
 
+> **Note:** Auto-reconnect is only available for TCP upstreams. Serial upstreams do not support it.
+
 When an upstream disconnects (detected either before or during frame reading), the hub:
 
 1. Sends a `STATUS_UPSTREAM_LOST` (`0x80`) D2 data frame to downstream clients (signal values are zeroed in this frame)

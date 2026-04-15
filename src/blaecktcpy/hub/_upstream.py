@@ -176,11 +176,11 @@ class _UpstreamBase(ABC):
     def last_seen(self) -> float:
         return self._last_seen
 
-    def _handle_disconnect(self):
+    def _handle_disconnect(self) -> None:
         self._logger.warning(f"Upstream '{self.name}' disconnected")
         self._cleanup()
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         self._connected = False
         self._connect_pending = False
         self._buffer = b""
@@ -324,7 +324,7 @@ class UpstreamTCP(_UpstreamBase):
             self._handle_disconnect()
             return b""
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         super()._cleanup()
         if self._socket:
             try:
@@ -414,7 +414,7 @@ class UpstreamSerial(_UpstreamBase):
             self._handle_disconnect()
             return b""
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         super()._cleanup()
         if self._serial:
             try:
