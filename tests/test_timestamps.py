@@ -599,3 +599,36 @@ class TestHubTimestampStartValidation:
             _start_retry(hub)
         finally:
             hub.close()
+
+
+class TestRequireStarted:
+    """Verify public methods raise RuntimeError before start()."""
+
+    def test_tick_before_start(self):
+        server = _make_server_on_free_port()
+        server.add_signal("x", "float")
+        with pytest.raises(RuntimeError, match="not started"):
+            server.tick()
+
+    def test_read_before_start(self):
+        server = _make_server_on_free_port()
+        with pytest.raises(RuntimeError, match="not started"):
+            server.read()
+
+    def test_write_before_start(self):
+        server = _make_server_on_free_port()
+        server.add_signal("x", "float")
+        with pytest.raises(RuntimeError, match="not started"):
+            server.write("x", 1.0)
+
+    def test_write_all_data_before_start(self):
+        server = _make_server_on_free_port()
+        server.add_signal("x", "float")
+        with pytest.raises(RuntimeError, match="not started"):
+            server.write_all_data()
+
+    def test_timed_write_all_data_before_start(self):
+        server = _make_server_on_free_port()
+        server.add_signal("x", "float")
+        with pytest.raises(RuntimeError, match="not started"):
+            server.timed_write_all_data()

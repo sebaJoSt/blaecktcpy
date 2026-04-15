@@ -882,7 +882,7 @@ class TestHubWriteUpdate:
                      device_hw_version="HW",
                      device_fw_version="1.0",
                  )
-        with pytest.raises(KeyError):
+        with pytest.raises(RuntimeError, match="not started"):
             device.write("x", 1.0)
 
     # ---- update() ----
@@ -1137,7 +1137,7 @@ class TestHubWriteUpdate:
                      device_hw_version="HW",
                      device_fw_version="1.0",
                  )
-        with pytest.raises(AttributeError):
+        with pytest.raises(RuntimeError, match="not started"):
             device.read()
 
     def test_read_processes_write_data_command(self):

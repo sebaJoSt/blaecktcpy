@@ -449,6 +449,7 @@ class BlaeckTCPy:
                 float = seconds since epoch (converted internally),
                 int = microseconds since epoch (used directly).
         """
+        self._require_started()
         idx = self._resolve_signal(key)
         self.signals[idx].value = value
         if not self.connected:
@@ -822,8 +823,14 @@ class BlaeckTCPy:
     # ========================================================================
     # Message Handlers
     # ========================================================================
+
+    def _require_started(self) -> None:
+        if not self._started:
+            raise RuntimeError("Server not started — call start() before using this method")
+
     def read(self) -> None:
         """Read and process all pending messages from downstream clients."""
+        self._require_started()
         messages = self._tcp_read()
 
         for command, params, conn in messages:
@@ -1119,6 +1126,7 @@ class BlaeckTCPy:
                 float = seconds since epoch (converted internally),
                 int = microseconds since epoch (used directly).
         """
+        self._require_started()
         if not self.connected:
             return
         lc = self._local_signal_count if self._started else len(self.signals)
@@ -1144,8 +1152,8 @@ class BlaeckTCPy:
                 float = seconds since epoch (converted internally),
                 int = microseconds since epoch (used directly).
         """
-        if not self.connected or not self.has_updated_signals:
-            return
+        self._require_started()
+        if not self.connected or not self.has_updated_signals:            return
         lc = self._local_signal_count if self._started else len(self.signals)
         if lc == 0:
             return
@@ -1175,6 +1183,7 @@ class BlaeckTCPy:
                 float = seconds since epoch (converted internally),
                 int = microseconds since epoch (used directly).
         """
+        self._require_started()
         if msg_id is None:
             msg_id = _MSG_ID_HUB if self._fixed_interval_ms >= 0 else _MSG_ID_ACTIVATE
         if not self.connected:
@@ -1208,6 +1217,7 @@ class BlaeckTCPy:
                 float = seconds since epoch (converted internally),
                 int = microseconds since epoch (used directly).
         """
+        self._require_started()
         if msg_id is None:
             msg_id = _MSG_ID_HUB if self._fixed_interval_ms >= 0 else _MSG_ID_ACTIVATE
         if not self.connected:
