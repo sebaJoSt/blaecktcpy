@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """Sine Generator — serves three sine signals over TCP.
 
 The simplest blaecktcpy example. Run this, then connect Loggbok

@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """
 BlaeckTCPy Example: Basic Hub
 

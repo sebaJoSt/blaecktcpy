@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """Command Parser — custom command handling and client connection callbacks.
 
 Run this, then connect with telnet or netcat to send commands:
@@ -28,7 +29,7 @@ bltcp.add_signal("Motor_Speed", "float")
 # to control which clients get data (e.g. only the first client):
 
 @bltcp.on_client_connected()
-def on_connect(client_id):
+def on_connect(client_id: int):
     if client_id > 0:
         bltcp.data_clients.discard(client_id)
         print(f"Client #{client_id} connected (data excluded)")
@@ -37,27 +38,27 @@ def on_connect(client_id):
 
 
 @bltcp.on_client_disconnected()
-def on_disconnect(client_id):
+def on_disconnect(client_id: int):
     print(f"Client #{client_id} disconnected")
 
 
 # -- Custom command handlers --
 
 @bltcp.on_command("SET_LED")
-def handle_led(state):
+def handle_led(state: str):
     bltcp.signals[0].value = int(state)
     print(f"LED set to {state}")
 
 
 @bltcp.on_command("MOTOR")
-def handle_motor(speed, direction):
+def handle_motor(speed: str, direction: str):
     bltcp.signals[1].value = float(speed)
     print(f"Motor: speed={speed}, direction={direction}")
 
 
 # Catch-all — fires for every command (built-in and custom)
 @bltcp.on_command()
-def log_all(command, *params):
+def log_all(command: str, *params: str):
     print(f"[LOG] {command} {params}")
 
 

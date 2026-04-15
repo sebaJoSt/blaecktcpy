@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """
 BlaeckTCPy Example: Signal Processing
 
@@ -33,7 +34,7 @@ import math
 import time
 import threading
 
-from blaecktcpy import BlaeckTCPy
+from blaecktcpy import BlaeckTCPy, UpstreamDevice
 
 # --- Upstream server simulating a sensor board ---
 server = BlaeckTCPy(
@@ -75,7 +76,7 @@ hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=500)
 
 
 @hub.on_data_received("Sensor")
-def on_sensor_data(upstream):
+def on_sensor_data(upstream: UpstreamDevice):
     """Transform temperature to Celsius and compute dew point."""
     temp_sig = upstream.signals["temperature"]
     rh = upstream.signals["humidity"].value

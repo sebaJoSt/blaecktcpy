@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """
 CSV Tail Reader — blaecktcpy Example
 =====================================
@@ -96,8 +97,7 @@ def main():
                     bltcp.write_updated_data(unix_timestamp=unix_ts)
                     rows_sent += 1
                     print(
-                        f"\r  Rows sent: {rows_sent}  "
-                        f"(latest: {', '.join(f'{n}={bltcp.signals[i].value:.2f}' for i, n in enumerate(signal_names))})",
+                        f"\r  Rows sent: {rows_sent}  (latest: {', '.join(f'{n}={bltcp.signals[i].value:.2f}' for i, n in enumerate(signal_names))})",
                         end="",
                         flush=True,
                     )

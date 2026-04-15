@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """
 Random CSV Data Generator
 =========================
@@ -25,7 +26,7 @@ CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdi
 COLUMNS = ["timestamp", "temperature", "pressure", "humidity"]
 
 
-def generate_row(elapsed: float) -> list:
+def generate_row(elapsed: float) -> list[float | str]:
     """Produce one row of random but plausible sensor data.
 
     *elapsed* drives the sine waves; the timestamp column uses wall-clock time.
@@ -34,7 +35,7 @@ def generate_row(elapsed: float) -> list:
     temperature = 20.0 + 5.0 * math.sin(elapsed * 0.1) + random.gauss(0, 0.3)
     pressure = 1013.25 + 2.0 * math.sin(elapsed * 0.05) + random.gauss(0, 0.5)
     humidity = 55.0 + 10.0 * math.sin(elapsed * 0.08) + random.gauss(0, 1.0)
-    values = [round(temperature, 2), round(pressure, 2), round(humidity, 1)]
+    values: list[float | str] = [round(temperature, 2), round(pressure, 2), round(humidity, 1)]
 
     # ~30% chance to make this a partial row
     if random.random() < 0.3:

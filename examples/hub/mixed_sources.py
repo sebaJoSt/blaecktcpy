@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """
 BlaeckTCPy Example: Stress Board with SCPI Power Supply
 
@@ -65,7 +66,7 @@ hub.local_interval_ms = 500
 
 
 # -- SCPI helper --
-def scpi_query(sock, command):
+def scpi_query(sock: socket.socket, command: str) -> float:
     """Send a SCPI query and return the response as a float."""
     sock.sendall((command + "\n").encode())
     return float(sock.recv(256).decode().strip())

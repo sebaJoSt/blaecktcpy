@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """Datatype Test — exercises all supported BlaeckTCP datatypes.
 
 Useful for verifying protocol encoding — connect Loggbok and check

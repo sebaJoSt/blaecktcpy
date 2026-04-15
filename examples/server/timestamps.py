@@ -1,3 +1,4 @@
+# pyright: reportUnusedCallResult=false
 """
 Timestamp Modes — blaecktcpy Example
 =====================================
