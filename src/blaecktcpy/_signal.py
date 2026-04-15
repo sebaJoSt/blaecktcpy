@@ -4,7 +4,7 @@ import struct
 from collections.abc import Iterable
 from enum import IntEnum
 from dataclasses import dataclass, field
-from typing import SupportsIndex, overload
+from typing import Any, ClassVar, SupportsIndex, override, overload
 
 
 class IntervalMode(IntEnum):
@@ -40,7 +40,7 @@ class Signal:
     _value: int | float | bool = field(init=False, repr=False)
 
     # Class-level mappings
-    DATATYPE_TO_CODE = {
+    DATATYPE_TO_CODE: ClassVar[dict[str, int]] = {
         "bool": 0,
         "byte": 1,
         "short": 2,
@@ -53,7 +53,7 @@ class Signal:
         "double": 9,
     }
 
-    DATATYPE_SIZES = {
+    DATATYPE_SIZES: ClassVar[dict[str, int]] = {
         "bool": 1,
         "byte": 1,
         "short": 2,
@@ -66,8 +66,8 @@ class Signal:
         "double": 8,
     }
 
-    SIGNED_TYPES = {"short", "int", "long"}
-    FLOAT_TYPES = {"float", "double"}
+    SIGNED_TYPES: ClassVar[set[str]] = {"short", "int", "long"}
+    FLOAT_TYPES: ClassVar[set[str]] = {"float", "double"}
 
     def __init__(
         self,
@@ -155,6 +155,7 @@ class Signal:
         """Get the datatype code as a single byte"""
         return self.DATATYPE_TO_CODE[self.datatype].to_bytes(1, "little")
 
+    @override
     def __repr__(self) -> str:
         return f"{self.signal_name}: {self.datatype} = {self.value}"
 
@@ -171,7 +172,7 @@ class SignalList(list[Signal]):
     The cache is lazily rebuilt after any list mutation.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._name_cache: dict[str, Signal] | None = None
         self._index_cache: dict[str, int] | None = None
@@ -198,7 +199,8 @@ class SignalList(list[Signal]):
     @overload
     def __getitem__(self, key: slice) -> list[Signal]: ...
 
-    def __getitem__(self, key: str | SupportsIndex | slice) -> Signal | list[Signal]:  # type: ignore[override]
+    @override
+    def __getitem__(self, key: str | SupportsIndex | slice) -> Signal | list[Signal]:  # type: ignore[override]  # pyright: ignore[reportIncompatibleMethodOverride]
         if isinstance(key, str):
             self._ensure_cache()
             assert self._name_cache is not None
@@ -209,39 +211,48 @@ class SignalList(list[Signal]):
         return super().__getitem__(key)
 
     # Override mutating methods to invalidate the cache
+    @override
     def append(self, item: Signal) -> None:
         super().append(item)
         self._invalidate_cache()
 
+    @override
     def extend(self, items: Iterable[Signal]) -> None:
         super().extend(items)
         self._invalidate_cache()
 
+    @override
     def insert(self, index: SupportsIndex, item: Signal) -> None:
         super().insert(index, item)
         self._invalidate_cache()
 
+    @override
     def remove(self, item: Signal) -> None:
         super().remove(item)
         self._invalidate_cache()
 
+    @override
     def pop(self, index: SupportsIndex = -1) -> Signal:
         result = super().pop(index)
         self._invalidate_cache()
         return result
 
+    @override
     def clear(self) -> None:
         super().clear()
         self._invalidate_cache()
 
+    @override
     def __setitem__(self, key: SupportsIndex | slice, value: Signal | Iterable[Signal]) -> None:  # type: ignore[override]
-        super().__setitem__(key, value)  # type: ignore[index,assignment]
+        super().__setitem__(key, value)  # type: ignore[index,assignment]  # pyright: ignore[reportCallIssue,reportArgumentType]
         self._invalidate_cache()
 
+    @override
     def __delitem__(self, key: SupportsIndex | slice) -> None:
         super().__delitem__(key)
         self._invalidate_cache()
 
+    @override
     def __iadd__(self, other: Iterable[Signal]) -> "SignalList":
         result = super().__iadd__(other)
         self._invalidate_cache()

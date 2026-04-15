@@ -11,7 +11,7 @@ import select
 import socket
 import time
 from abc import ABC, abstractmethod
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, override, runtime_checkable
 
 # Windows socket error codes
 _WSAEWOULDBLOCK = 10035
@@ -71,12 +71,12 @@ class _UpstreamBase(ABC):
     """
 
     def __init__(self, name: str, logger: logging.Logger | None = None):
-        self.name = name
-        self._logger = logger or logging.getLogger("blaecktcpy")
-        self._buffer = b""
-        self._connected = False
-        self._connect_pending = False
-        self._last_seen = 0.0
+        self.name: str = name
+        self._logger: logging.Logger = logger or logging.getLogger("blaecktcpy")
+        self._buffer: bytes = b""
+        self._connected: bool = False
+        self._connect_pending: bool = False
+        self._last_seen: float = 0.0
         self.last_error: str = ""
 
     # -- Subclass must implement --
@@ -191,11 +191,12 @@ class UpstreamTCP(_UpstreamBase):
 
     def __init__(self, name: str, ip: str, port: int, logger: logging.Logger | None = None):
         super().__init__(name, logger)
-        self.ip = ip
-        self.port = port
+        self.ip: str = ip
+        self.port: int = port
         self._socket: socket.socket | None = None
         self._connect_deadline: float = 0.0
 
+    @override
     def connect(self, timeout: float = 5.0) -> bool:
         try:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -213,6 +214,7 @@ class UpstreamTCP(_UpstreamBase):
             self._cleanup()
             return False
 
+    @override
     def start_connect(self, timeout: float = 5.0) -> None:
         """Initiate a non-blocking TCP connect."""
         try:
@@ -239,6 +241,7 @@ class UpstreamTCP(_UpstreamBase):
             )
             self._cleanup()
 
+    @override
     def check_connect(self) -> bool | None:
         """Check if a pending non-blocking connect has completed."""
         if self._connected:
@@ -296,6 +299,7 @@ class UpstreamTCP(_UpstreamBase):
             self._cleanup()
             return False
 
+    @override
     def send(self, data: bytes) -> bool:
         if not self._connected or not self._socket:
             return False
@@ -307,6 +311,7 @@ class UpstreamTCP(_UpstreamBase):
             self._handle_disconnect()
             return False
 
+    @override
     def read_available(self) -> bytes:
         if not self._connected or not self._socket:
             return b""
@@ -324,6 +329,7 @@ class UpstreamTCP(_UpstreamBase):
             self._handle_disconnect()
             return b""
 
+    @override
     def _cleanup(self) -> None:
         super()._cleanup()
         if self._socket:
@@ -347,11 +353,12 @@ class UpstreamSerial(_UpstreamBase):
                 "pyserial is required for serial upstreams. "
                 "Install with: pip install blaecktcpy[serial]"
             )
-        self.port = port
-        self.baudrate = baudrate
-        self.dtr = dtr
-        self._serial = None
+        self.port: str = port
+        self.baudrate: int = baudrate
+        self.dtr: bool = dtr
+        self._serial: Any = None
 
+    @override
     def connect(self, timeout: float = 5.0) -> bool:
         try:
             assert _pyserial is not None
@@ -382,6 +389,7 @@ class UpstreamSerial(_UpstreamBase):
             self._cleanup()
             return False
 
+    @override
     def send(self, data: bytes) -> bool:
         if not self._connected or not self._serial:
             return False
@@ -395,6 +403,7 @@ class UpstreamSerial(_UpstreamBase):
             self._handle_disconnect()
             return False
 
+    @override
     def read_available(self) -> bytes:
         if not self._connected or not self._serial:
             return b""
@@ -414,6 +423,7 @@ class UpstreamSerial(_UpstreamBase):
             self._handle_disconnect()
             return b""
 
+    @override
     def _cleanup(self) -> None:
         super()._cleanup()
         if self._serial:

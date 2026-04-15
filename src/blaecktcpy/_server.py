@@ -7,7 +7,10 @@ import socket
 import sys
 import time
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
+
+if TYPE_CHECKING:
+    from http.server import ThreadingHTTPServer
 
 from . import _encoder
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
@@ -45,7 +48,7 @@ _MSG_ID_HUB = 185273100  # 0x0B0B0B0C — hub-overridden interval
 class _IntervalTimer:
     """Reusable interval timer with first-tick initialization."""
 
-    __slots__ = ("_interval_ms", "_base_ns", "_setpoint_ms", "_first_tick")
+    __slots__: tuple[str, ...] = ("_interval_ms", "_base_ns", "_setpoint_ms", "_first_tick")
 
     def __init__(self):
         self._interval_ms: int = 0
@@ -96,9 +99,9 @@ class BlaeckTCPy:
     """
 
     # Message type keys (pre-computed bytes for wire encoding)
-    MSG_SYMBOL_LIST = b"\xb0"
-    MSG_DATA = b"\xd2"
-    MSG_DEVICES = b"\xb6"
+    MSG_SYMBOL_LIST: bytes = b"\xb0"
+    MSG_DATA: bytes = b"\xd2"
+    MSG_DEVICES: bytes = b"\xb6"
 
     def __init__(
         self,
@@ -132,20 +135,20 @@ class BlaeckTCPy:
                 Defaults to ``8080``.  Pass ``None`` to disable the
                 status page.
         """
-        self._ip = ip
-        self._port = port
+        self._ip: str = ip
+        self._port: int = port
 
         # Per-instance logger
         logger_name = device_name.replace(" ", "_") if device_name else f"{ip}_{port}"
-        self._logger = logging.getLogger(f"blaecktcpy.{logger_name}")
+        self._logger: logging.Logger = logging.getLogger(f"blaecktcpy.{logger_name}")
         if log_level is None:
             self._logger.disabled = True
         else:
             self._logger.setLevel(log_level)
 
         # Device info
-        self.signals = SignalList()
-        self._device_name = device_name.encode()
+        self.signals: SignalList = SignalList()
+        self._device_name: bytes = device_name.encode()
 
         if device_hw_version is None:
             import platform
@@ -154,42 +157,45 @@ class BlaeckTCPy:
         if device_fw_version is None:
             device_fw_version = "1.0"
 
-        self._device_hw_version = device_hw_version.encode()
-        self._device_fw_version = device_fw_version.encode()
+        self._device_hw_version: bytes = device_hw_version.encode()
+        self._device_fw_version: bytes = device_fw_version.encode()
 
         # Protocol state
-        self._timed_activated = False
-        self._fixed_interval_ms = IntervalMode.CLIENT
+        self._timed_activated: bool = False
+        self._fixed_interval_ms: int = IntervalMode.CLIENT
         self._last_client_activate_cmd: str | None = None
-        self._timer = _IntervalTimer()
-        self._master_slave_config = b"\x00"
-        self._slave_id = b"\x00"
+        self._timer: _IntervalTimer = _IntervalTimer()
+        self._master_slave_config: bytes = b"\x00"
+        self._slave_id: bytes = b"\x00"
         self._command_handlers: dict[str, Callable[..., Any]] = {}
         self._non_forwarded_commands: set[str] = set()
         self._read_callback: Callable[..., Any] | None = None
         self._connect_callback: Callable[[int], Any] | None = None
         self._disconnect_callback: Callable[[int], Any] | None = None
         self._before_write_callback: Callable[[], Any] | None = None
-        self._server_restarted = True
-        self._restart_flag_pending = True
-        self._tcp = ClientManager(self, self._logger)
-        self._closed = False
-        self._timestamp_mode = TimestampMode.NONE
+        self._server_restarted: bool = True
+        self._restart_flag_pending: bool = True
+        self._tcp: ClientManager = ClientManager(self, self._logger)
+        self._closed: bool = False
+        self._timestamp_mode: TimestampMode = TimestampMode.NONE
         self._start_time: float = 0.0
         self._schema_hash: int = 0
 
         # Upstream state
-        self._hub = HubManager(self, self._logger)
+        self._hub: HubManager = HubManager(self, self._logger)
         self._upstream_disconnect_callback: Callable[..., Any] | None = None
         self._data_received_callbacks: list[tuple[str | None, Callable[..., Any]]] = []
 
         # Local signal boundary (frozen at start())
-        self._local_signal_count = 0
-        self._started = False
+        self._local_signal_count: int = 0
+        self._started: bool = False
 
         # HTTP status page
-        self._http_port = http_port
-        self._httpd = None
+        self._http_port: int | None = http_port
+        self._httpd: ThreadingHTTPServer | None = None
+
+        # Signal handler (set in start())
+        self._original_sigint: object = signal.getsignal(signal.SIGINT)
 
     # ========================================================================
     # Setup — Socket and Listening
@@ -356,7 +362,7 @@ class BlaeckTCPy:
         """Install SIGINT handler for clean shutdown."""
         self._original_sigint = signal.getsignal(signal.SIGINT)
 
-        def _handler(signum, frame):
+        def _handler(_signum: int, _frame: object) -> None:
             self.close()
             raise SystemExit(0)
 
@@ -696,7 +702,7 @@ class BlaeckTCPy:
         if not isinstance(forward, bool):
             raise TypeError("forward must be True or False")
 
-        def decorator(func):
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             if command is None:
                 self._read_callback = func
             else:
@@ -721,7 +727,7 @@ class BlaeckTCPy:
                     bltcp.data_clients.discard(client_id)
         """
 
-        def decorator(func):
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._connect_callback = func
             return func
 
@@ -739,7 +745,7 @@ class BlaeckTCPy:
                 print(f"Client #{client_id} left")
         """
 
-        def decorator(func):
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._disconnect_callback = func
             return func
 
@@ -757,7 +763,7 @@ class BlaeckTCPy:
                 bltcp.signals[0].value = read_sensor()
         """
 
-        def decorator(func):
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._before_write_callback = func
             return func
 
@@ -777,7 +783,7 @@ class BlaeckTCPy:
                 temp = upstream.signals["temperature"].value
         """
 
-        def decorator(func):
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._data_received_callbacks.append((upstream_name, func))
             return func
 
@@ -793,7 +799,7 @@ class BlaeckTCPy:
                 print(f"Lost connection to {name}")
         """
 
-        def decorator(func):
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             self._upstream_disconnect_callback = func
             return func
 
@@ -804,7 +810,7 @@ class BlaeckTCPy:
     # ========================================================================
 
     @staticmethod
-    def _decode_four_byte(params: list) -> int:
+    def _decode_four_byte(params: list[str]) -> int:
         """Decode up to 4 parameter bytes into a little-endian integer."""
         result = 0
         for i, part in enumerate(params[:4]):
@@ -825,7 +831,7 @@ class BlaeckTCPy:
         rtype = params[5].strip() if len(params) > 5 else "unknown"
         if name:
             self._tcp._client_meta[client_id] = {"name": name, "type": rtype}
-            addr = self._tcp._client_addrs.get(client_id, "")
+            _addr = self._tcp._client_addrs.get(client_id, "")
             self._logger.info(
                 f"Client #{client_id} identified ({rtype}: {name})"
             )
@@ -877,7 +883,7 @@ class BlaeckTCPy:
             else:
                 self._handle_simple_data_command(command, params)
 
-    def _handle_hub_data_command(self, command: str, params: list) -> None:
+    def _handle_hub_data_command(self, command: str, params: list[str]) -> None:
         """Handle ACTIVATE/DEACTIVATE/WRITE_DATA in hub mode."""
         if params:
             full_cmd = f"{command},{','.join(str(p) for p in params)}"
@@ -942,7 +948,7 @@ class BlaeckTCPy:
             )
             self._tcp_send_data(data)
 
-    def _handle_simple_data_command(self, command: str, params: list) -> None:
+    def _handle_simple_data_command(self, command: str, params: list[str]) -> None:
         """Handle ACTIVATE/DEACTIVATE/WRITE_DATA in simple server mode."""
         if command == "BLAECK.WRITE_DATA":
             self.write_all_data(self._decode_four_byte(params))
@@ -953,7 +959,7 @@ class BlaeckTCPy:
             if self._fixed_interval_ms == IntervalMode.CLIENT:
                 self._set_timed_data(False)
 
-    def _forward_custom_command(self, command: str, params: list) -> None:
+    def _forward_custom_command(self, command: str, params: list[str]) -> None:
         """Forward non-BLAECK commands to opted-in upstreams."""
         if command in self._non_forwarded_commands or command.startswith("BLAECK."):
             return
@@ -1071,7 +1077,7 @@ class BlaeckTCPy:
             if not upstream.relay_downstream:
                 continue
             old_sid_to_new: dict[int, int] = {}
-            for (msc, sid), hub_sid in upstream.slave_id_map.items():
+            for (_msc, sid), hub_sid in upstream.slave_id_map.items():
                 old_sid_to_new[sid] = hub_sid
             first_entry = True
             for info in upstream.device_infos:
@@ -1454,7 +1460,7 @@ class BlaeckTCPy:
     # ========================================================================
     # Status & Properties
     # ========================================================================
-    def upstream_status(self, name: str | None = None) -> dict[str, dict]:
+    def upstream_status(self, name: str | None = None) -> dict[str, bool | float | int] | dict[str, dict[str, bool | float | int]]:
         """Get connection status for upstream devices.
 
         Args:
@@ -1503,7 +1509,7 @@ class BlaeckTCPy:
         self._closed = True
         atexit.unregister(self.close)
         if hasattr(self, "_original_sigint"):
-            signal.signal(signal.SIGINT, self._original_sigint)
+            signal.signal(signal.SIGINT, self._original_sigint)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 
         # Stop HTTP status page
         if self._httpd is not None:
@@ -1529,6 +1535,7 @@ class BlaeckTCPy:
         """Clean up on exit."""
         self.close()
 
+    @override
     def __repr__(self) -> str:
         n = len(self._tcp._clients)
         clients = f"{n} client{'s' if n != 1 else ''}"

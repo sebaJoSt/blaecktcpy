@@ -15,11 +15,12 @@ import math
 import string
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import TYPE_CHECKING, Any, override
 
 if TYPE_CHECKING:
     from ._server import BlaeckTCPy
+    from .hub._manager import UpstreamDevice
 
 # ---------------------------------------------------------------------------
 # HTML template
@@ -289,7 +290,7 @@ def _upstream_interval_str(interval_ms: int) -> str:
     return str(interval_ms)
 
 
-def _transport_str(upstream) -> str:
+def _transport_str(upstream: UpstreamDevice) -> str:
     from .hub._upstream import UpstreamTCP
     t = upstream.transport
     if isinstance(t, UpstreamTCP):
@@ -300,7 +301,7 @@ def _transport_str(upstream) -> str:
     return f"Serial {port}" + (f" ({baud})" if baud else "")
 
 
-def _safe_value(v):
+def _safe_value(v: object) -> float | str | object:
     """Convert NaN/Inf to strings so json.dumps produces valid JSON."""
     if isinstance(v, float):
         if math.isnan(v):
@@ -310,7 +311,7 @@ def _safe_value(v):
     return v
 
 
-def _get_state(server: BlaeckTCPy) -> dict:
+def _get_state(server: BlaeckTCPy) -> dict[str, Any]:
     """Build a JSON-serialisable dict of the full server state."""
     from ._signal import TimestampMode
 
@@ -521,11 +522,13 @@ def _make_handler(server: BlaeckTCPy):
             else:
                 self.send_error(404)
 
-        def log_message(self, format, *args):
+        @override
+        def log_message(self, format: str, *args: object) -> None:
             # Silence default stderr logging
             pass
 
-        def address_string(self):
+        @override
+        def address_string(self) -> str:
             # Skip reverse DNS lookup — avoids multi-second delays
             return self.client_address[0]
 

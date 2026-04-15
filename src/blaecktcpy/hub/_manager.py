@@ -72,8 +72,8 @@ class HubManager:
     """Manages upstream device connections and data relay."""
 
     def __init__(self, server: HubHost, logger: logging.Logger) -> None:
-        self._server = server
-        self._logger = logger
+        self._server: HubHost = server
+        self._logger: logging.Logger = logger
         self._upstreams: list[UpstreamDevice] = []
 
     # ── Registration ─────────────────────────────────────────────────

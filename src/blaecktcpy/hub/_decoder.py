@@ -136,7 +136,7 @@ def parse_symbol_list(content: bytes) -> list[DecodedSymbol]:
     Returns:
         List of decoded signal definitions.
     """
-    msg_key, msg_id, data = _parse_header(content)
+    msg_key, _msg_id, data = _parse_header(content)
     if msg_key != MSGKEY_SYMBOL_LIST:
         raise ValueError(f"Expected B0 symbol list, got {msg_key:#x}")
 

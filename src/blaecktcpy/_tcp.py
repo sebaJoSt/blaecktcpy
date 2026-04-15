@@ -25,8 +25,8 @@ class ClientManager:
     """Manages TCP server socket and downstream client connections."""
 
     def __init__(self, server: TCPHost, logger: logging.Logger) -> None:
-        self._server = server
-        self._logger = logger
+        self._server: TCPHost = server
+        self._logger: logging.Logger = logger
         self._server_socket: socket.socket | None = None
         self._clients: dict[int, socket.socket] = {}
         self._next_client_id: int = 0
