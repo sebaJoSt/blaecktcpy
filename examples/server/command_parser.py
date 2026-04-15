@@ -1,4 +1,4 @@
-"""Command Parser — custom command handling with @bltcp.on_command().
+"""Command Parser — custom command handling and client connection callbacks.
 
 Run this, then connect with telnet or netcat to send commands:
     telnet 127.0.0.1 23
@@ -22,6 +22,26 @@ bltcp = BlaeckTCPy(
 bltcp.add_signal("LED_State", "bool")
 bltcp.add_signal("Motor_Speed", "float")
 
+
+# -- Client connection callbacks --
+# By default all clients receive data frames. Use on_client_connected
+# to control which clients get data (e.g. only the first client):
+
+@bltcp.on_client_connected()
+def on_connect(client_id):
+    if client_id > 0:
+        bltcp.data_clients.discard(client_id)
+        print(f"Client #{client_id} connected (data excluded)")
+    else:
+        print(f"Client #{client_id} connected (data included)")
+
+
+@bltcp.on_client_disconnected()
+def on_disconnect(client_id):
+    print(f"Client #{client_id} disconnected")
+
+
+# -- Custom command handlers --
 
 @bltcp.on_command("SET_LED")
 def handle_led(state):

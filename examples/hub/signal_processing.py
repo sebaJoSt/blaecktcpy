@@ -4,6 +4,7 @@ BlaeckTCPy Example: Signal Processing
 Demonstrates processing upstream data before it reaches Loggbok:
 - Transform a relayed signal in-place (Fahrenheit to Celsius)
 - Compute a new local signal from upstream values (dew point)
+- Use on_before_write to update a local signal right before transmission
 
   ┌────────────────────┐
   │  Sensor Server     │   ← upstream (temperature, humidity) on port 10024
@@ -15,11 +16,12 @@ Demonstrates processing upstream data before it reaches Loggbok:
   │  temperature → transformed to Celsius       │
   │  humidity → relayed as-is              │
   │  dew_point → computed locally          │
+  │  write_count → updated on_before_write │
   └───────────────────┬─────────────────────┘
                       │
                       ▼
               ┌──────────────┐
-              │   Loggbok    │   ← sees temperature (°C), humidity, dew_point
+              │   Loggbok    │   ← sees temperature (°C), humidity, dew_point, write_count
               └──────────────┘
 
 Setup:  python examples/hub/signal_processing.py
@@ -64,8 +66,9 @@ hub = BlaeckTCPy(
           device_name="Sensor Hub",
       )
 
-# Computed local signal
+# Computed local signals
 dew_point = hub.add_signal("dew_point", "float")
+write_count = hub.add_signal("write_count", "unsigned int")
 
 # Upstream — relayed so Loggbok sees temperature and humidity
 hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=500)
@@ -86,6 +89,12 @@ def on_sensor_data(upstream):
         a, b = 17.27, 237.7
         alpha = (a * temp_c) / (b + temp_c) + math.log(rh / 100.0)
         dew_point.value = (b * alpha) / (a - alpha)
+
+
+@hub.on_before_write()
+def before_write():
+    """Called right before each data frame is sent to clients."""
+    write_count.value += 1
 
 
 hub.start()
