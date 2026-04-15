@@ -86,6 +86,8 @@ def build_data_frame(
             + b":"
         )
     else:
+        if timestamp is None and timestamp_mode != 0:
+            raise ValueError("timestamp required when timestamp_mode != NONE")
         meta = flag_byte + b":" + hash_bytes + b":" + b"\x00" + b":"
 
     payload = b""

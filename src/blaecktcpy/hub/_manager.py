@@ -54,6 +54,7 @@ class _UpstreamDevice:
     _restart_detected: bool = False
     _discovery_retry_at: float = 0.0
     _discovery_timeout: float = 0.0
+    _ts_relay_warned: bool = False
 
     @property
     def signals(self) -> SignalList:
@@ -554,6 +555,15 @@ class HubManager:
             if single and decoded.timestamp is not None
             else None
         )
+        if not single and decoded.timestamp is not None:
+            if not upstream._ts_relay_warned:
+                upstream._ts_relay_warned = True
+                self._logger.info(
+                    f"Upstream '{upstream.device_name}' sends timestamps, "
+                    f"but they are not forwarded to clients — multiple "
+                    f"sources may use different clocks. Data is still "
+                    f"forwarded without timestamps."
+                )
         try:
             ts_mode = (
                 TimestampMode(decoded.timestamp_mode)

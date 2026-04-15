@@ -198,6 +198,19 @@ class BlaeckTCPy:
         # Freeze local signal count
         self._local_signal_count = len(self.signals)
 
+        # Refuse UNIX timestamps when mixing local signals with relayed upstreams
+        relayed = [u for u in self._hub._upstreams if u.relay_downstream]
+        if (
+            relayed
+            and self._local_signal_count > 0
+            and self._timestamp_mode != TimestampMode.NONE
+        ):
+            raise ValueError(
+                "TimestampMode.UNIX is not supported when combining "
+                "local signals with relayed upstreams — timestamps "
+                "cannot be consistent across different sources"
+            )
+
         # Create and bind socket
         self._tcp.init_socket()
 
@@ -1337,7 +1350,7 @@ class BlaeckTCPy:
     def _auto_timestamp(self) -> int | None:
         """Return the auto-generated timestamp for the current mode, or None."""
         if self._timestamp_mode == TimestampMode.UNIX:
-            return int(time.time() * 1_000_000)
+            return time.time_ns() // 1_000
         return None
 
     # ========================================================================
