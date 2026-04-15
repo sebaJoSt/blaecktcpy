@@ -27,7 +27,6 @@ from blaecktcpy import BlaeckTCPy, TimestampMode
 CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "test_data.csv")
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 23
 
-EXAMPLE_VERSION = "1.0"
 POLL_INTERVAL = 0.05  # seconds between file checks
 
 
@@ -60,8 +59,6 @@ def main():
                 ip="127.0.0.1",
                 port=PORT,
                 device_name="CSV Tail Reader",
-                device_hw_version="Python Script",
-                device_fw_version=EXAMPLE_VERSION,
             )
     bltcp.timestamp_mode = TimestampMode.UNIX
 

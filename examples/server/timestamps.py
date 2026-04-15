@@ -21,14 +21,10 @@ import time
 
 from blaecktcpy import BlaeckTCPy, TimestampMode
 
-EXAMPLE_VERSION = "1.0"
-
 bltcp = BlaeckTCPy(
             ip="127.0.0.1",
             port=23,
             device_name="Timestamp Demo",
-            device_hw_version="Python Script",
-            device_fw_version=EXAMPLE_VERSION,
         )
 
 bltcp.add_signal("Sine", "float")

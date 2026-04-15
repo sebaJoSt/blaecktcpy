@@ -40,8 +40,6 @@ import threading
 
 from blaecktcpy import BlaeckTCPy, TimestampMode
 
-EXAMPLE_VERSION = "1.0"
-
 # ---------------------------------------------------------------------------
 # Upstream: a sensor that can dynamically add/remove signals
 # ---------------------------------------------------------------------------
@@ -49,8 +47,6 @@ sensor = BlaeckTCPy(
              ip="127.0.0.1",
              port=10024,
              device_name="Sensor",
-             device_hw_version="Python Script",
-             device_fw_version=EXAMPLE_VERSION,
              log_level=logging.WARNING,
          )
 sensor.timestamp_mode = TimestampMode.UNIX
@@ -107,8 +103,6 @@ hub = BlaeckTCPy(
           ip="127.0.0.1",
           port=23,
           device_name="Schema Change Hub",
-          device_hw_version="Python Script",
-          device_fw_version=EXAMPLE_VERSION,
       )
 hub.timestamp_mode = TimestampMode.UNIX
 hub.local_interval_ms = 500

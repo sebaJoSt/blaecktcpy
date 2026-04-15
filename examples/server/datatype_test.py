@@ -8,8 +8,6 @@ import time
 
 from blaecktcpy import BlaeckTCPy
 
-EXAMPLE_VERSION = "1.0"
-
 ip = "127.0.0.1"
 port = 23
 
@@ -17,8 +15,6 @@ bltcp = BlaeckTCPy(
             ip=ip,
             port=port,
             device_name="Datatype Test",
-            device_hw_version="Python Script",
-            device_fw_version=EXAMPLE_VERSION,
         )
 
 bltcp.add_signal("Bool_false", "bool", False)

@@ -30,15 +30,11 @@ import threading
 
 from blaecktcpy import BlaeckTCPy
 
-EXAMPLE_VERSION = "1.0"
-
 # --- Upstream servers ---
 sine = BlaeckTCPy(
            ip="127.0.0.1",
            port=10024,
            device_name="Sine Generator",
-           device_hw_version="Python Script",
-           device_fw_version=EXAMPLE_VERSION,
            log_level=logging.WARNING,
        )
 for i in range(1, 4):
@@ -49,8 +45,6 @@ cosine = BlaeckTCPy(
              ip="127.0.0.1",
              port=10025,
              device_name="Cosine Generator",
-             device_hw_version="Python Script",
-             device_fw_version=EXAMPLE_VERSION,
              log_level=logging.WARNING,
          )
 for i in range(1, 3):
@@ -76,8 +70,6 @@ hub = BlaeckTCPy(
           ip="127.0.0.1",
           port=23,
           device_name="Basic Hub",
-          device_hw_version="Python Script",
-          device_fw_version=EXAMPLE_VERSION,
       )
 
 # Local signal

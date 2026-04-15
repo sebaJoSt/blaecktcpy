@@ -33,15 +33,11 @@ import threading
 
 from blaecktcpy import BlaeckTCPy
 
-EXAMPLE_VERSION = "1.0"
-
 # --- Upstream server simulating a sensor board ---
 server = BlaeckTCPy(
              ip="127.0.0.1",
              port=10024,
              device_name="Sensor Board",
-             device_hw_version="Python Script",
-             device_fw_version=EXAMPLE_VERSION,
              log_level=logging.WARNING,
          )
 server.add_signal("temperature", "float")   # temperature in Fahrenheit (transformed by hub)
@@ -66,8 +62,6 @@ hub = BlaeckTCPy(
           ip="127.0.0.1",
           port=23,
           device_name="Sensor Hub",
-          device_hw_version="Python Script",
-          device_fw_version=EXAMPLE_VERSION,
       )
 
 # Computed local signal

@@ -26,8 +26,6 @@ bltcp = BlaeckTCPy(
     ip='127.0.0.1',
     port=23,
     device_name='My Device',
-    device_hw_version='1.0',
-    device_fw_version='1.0',
 )
 ```
 
@@ -170,8 +168,7 @@ The same `BlaeckTCPy` class serves as a hub when you add upstream connections wi
 ```python
 from blaecktcpy import BlaeckTCPy
 
-hub = BlaeckTCPy(ip="0.0.0.0", port=23, device_name="My Hub",
-                 device_hw_version="Python", device_fw_version="1.0")
+hub = BlaeckTCPy(ip="0.0.0.0", port=23, device_name="My Hub")
 
 hub.add_tcp("192.168.1.10", 24, name="ESP32")
 hub.add_tcp("127.0.0.1", 25, name="Sine")

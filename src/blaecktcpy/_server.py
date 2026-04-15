@@ -106,8 +106,8 @@ class BlaeckTCPy:
         ip: str,
         port: int,
         device_name: str,
-        device_hw_version: str,
-        device_fw_version: str,
+        device_hw_version: str | None = None,
+        device_fw_version: str | None = None,
         log_level: int | None = logging.INFO,
         http_port: int | None = 8080,
     ):
@@ -118,8 +118,10 @@ class BlaeckTCPy:
             ip: IP address to bind to (e.g. '127.0.0.1' = localhost)
             port: TCP port to listen on
             device_name: Name of the device
-            device_hw_version: Hardware version string
-            device_fw_version: Firmware version string
+            device_hw_version: Hardware version string.  Defaults to the
+                current platform (e.g. ``"Windows AMD64"``).
+            device_fw_version: Firmware version string.  Defaults to
+                ``"1.0"``.
             log_level: Logging level for this instance (e.g.
                 ``logging.DEBUG``, ``logging.WARNING``).  Defaults to
                 ``logging.INFO``.  Pass ``None`` to silence all output.
@@ -144,6 +146,14 @@ class BlaeckTCPy:
         # Device info
         self.signals = SignalList()
         self._device_name = device_name.encode()
+
+        if device_hw_version is None:
+            import platform
+            machine = platform.machine()
+            device_hw_version = f"{platform.system()} {machine}" if machine else platform.system()
+        if device_fw_version is None:
+            device_fw_version = "1.0"
+
         self._device_hw_version = device_hw_version.encode()
         self._device_fw_version = device_fw_version.encode()
 

@@ -37,8 +37,6 @@ import time
 
 from blaecktcpy import BlaeckTCPy
 
-EXAMPLE_VERSION = "1.0"
-
 # -- Configuration --
 HUB_IP = "127.0.0.1"
 HUB_PORT = 23
@@ -55,8 +53,6 @@ hub = BlaeckTCPy(
           ip=HUB_IP,
           port=HUB_PORT,
           device_name="Stress Board Hub",
-          device_hw_version="Python Script",
-          device_fw_version=EXAMPLE_VERSION,
       )
 
 # Relay all microcontroller signals to Loggbok

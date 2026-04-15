@@ -16,8 +16,8 @@ BlaeckTCPy(
     ip: str,
     port: int,
     device_name: str,
-    device_hw_version: str,
-    device_fw_version: str,
+    device_hw_version: str | None = None,
+    device_fw_version: str | None = None,
     log_level: int | None = logging.INFO,
     http_port: int | None = 8080,
 )
@@ -28,8 +28,8 @@ BlaeckTCPy(
 | `ip` | `str` | — | IP address to bind to (e.g. `'127.0.0.1'` for localhost, `'0.0.0.0'` for all interfaces) |
 | `port` | `int` | — | TCP port to listen on |
 | `device_name` | `str` | — | Name of the device |
-| `device_hw_version` | `str` | — | Hardware version string |
-| `device_fw_version` | `str` | — | Firmware version string |
+| `device_hw_version` | `str \| None` | `None` | Hardware version string. Defaults to current platform (e.g. `"Windows AMD64"`). |
+| `device_fw_version` | `str \| None` | `None` | Firmware version string. Defaults to `"1.0"`. |
 | `log_level` | `int \| None` | `logging.INFO` | Logging level (e.g. `logging.DEBUG`, `logging.WARNING`). Pass `None` to silence all output. |
 | `http_port` | `int \| None` | `8080` | Port for the HTTP status page. Pass `None` to disable. If the port is occupied, a free port is chosen automatically. |
 
