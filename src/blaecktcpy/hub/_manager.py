@@ -575,15 +575,7 @@ class HubManager:
                     f"sources may use different clocks. Data is still "
                     f"forwarded without timestamps."
                 )
-        try:
-            ts_mode = (
-                decoded.timestamp_mode
-                if ts is not None
-                else None
-            )
-        except ValueError:
-            ts = None
-            ts_mode = None
+        ts_mode = decoded.timestamp_mode if ts is not None else None
 
         relay_msg_id = decoded.msg_id
         if upstream.interval_ms >= 0 and relay_msg_id == _MSG_ID_ACTIVATE:

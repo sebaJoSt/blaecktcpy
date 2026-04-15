@@ -1454,7 +1454,7 @@ class BlaeckTCPy:
     # ========================================================================
     # Status & Properties
     # ========================================================================
-    def upstream_status(self, name: str | None = None) -> dict:
+    def upstream_status(self, name: str | None = None) -> dict[str, dict]:
         """Get connection status for upstream devices.
 
         Args:
@@ -1465,7 +1465,7 @@ class BlaeckTCPy:
             If name is None, returns {name: status_dict, ...}.
         """
 
-        def _status(u: UpstreamDevice) -> dict:
+        def _status(u: UpstreamDevice) -> dict[str, bool | float | int]:
             return {
                 "connected": u.transport.connected,
                 "last_seen": u.transport.last_seen,
