@@ -6,7 +6,7 @@ import signal
 import socket
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from . import _encoder
@@ -390,7 +390,7 @@ class BlaeckTCPy:
 
         return sig
 
-    def add_signals(self, signals) -> None:
+    def add_signals(self, signals: Iterable[Signal]) -> None:
         """Add multiple local signals at once.
 
         Accepts any iterable of Signal objects::
@@ -1294,6 +1294,11 @@ class BlaeckTCPy:
                 self._logger.info(
                     "Local signal interval changed (client controlled)"
                 )
+        else:
+            raise ValueError(
+                f"Invalid local_interval_ms: {value}. "
+                f"Use a positive integer, IntervalMode.CLIENT, or IntervalMode.OFF."
+            )
 
     @property
     def start_time(self) -> float:
