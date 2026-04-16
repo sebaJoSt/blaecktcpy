@@ -385,8 +385,8 @@ def _get_state(server: BlaeckTCPy) -> dict[str, Any]:
 
 
 def _get_lib_version() -> str:
-    from ._server import LIB_VERSION
-    return LIB_VERSION
+    from importlib.metadata import version
+    return version("blaecktcpy")
 
 
 def _render_html(server: BlaeckTCPy) -> str:

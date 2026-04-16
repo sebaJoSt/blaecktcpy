@@ -12,7 +12,17 @@ from typing import TYPE_CHECKING, Any, override
 if TYPE_CHECKING:
     from http.server import ThreadingHTTPServer
 
-from . import _encoder
+from ._encoder import (
+    STATUS_OK as STATUS_OK,
+    STATUS_UPSTREAM_LOST as STATUS_UPSTREAM_LOST,
+    STATUS_UPSTREAM_RECONNECTED as STATUS_UPSTREAM_RECONNECTED,
+    MSC_MASTER as _MSC_MASTER,
+    MSC_SLAVE as _MSC_SLAVE,
+    build_client_trailer as _build_client_trailer_impl,
+    build_data_frame as _build_data_frame,
+    build_symbol_payload as _build_symbol_payload,
+    encode_device_entry as _encode_device_entry,
+)
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from ._tcp import ClientManager
 from .hub import _decoder as decoder
@@ -30,14 +40,6 @@ _USE_COLOR = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
 _BOLD = "\033[1m" if _USE_COLOR else ""
 _BLUE_ULINE = "\033[94;4m" if _USE_COLOR else ""
 _RESET = "\033[0m" if _USE_COLOR else ""
-
-# Re-export encoding constants for backward compatibility
-STATUS_OK = _encoder.STATUS_OK
-STATUS_UPSTREAM_LOST = _encoder.STATUS_UPSTREAM_LOST
-STATUS_UPSTREAM_RECONNECTED = _encoder.STATUS_UPSTREAM_RECONNECTED
-
-_MSC_MASTER = _encoder.MSC_MASTER
-_MSC_SLAVE = _encoder.MSC_SLAVE
 
 # Message IDs for data frames
 _MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B — client-controlled (BLAECK.ACTIVATE)
@@ -1121,14 +1123,14 @@ class BlaeckTCPy:
         restarted: bytes, device_type: bytes, parent: bytes,
     ) -> bytes:
         """Encode a single B6 device entry (MSC through Parent)."""
-        return _encoder.encode_device_entry(
+        return _encode_device_entry(
             msc, slave_id, name, hw, fw,
             lib_ver, lib_name, restarted, device_type, parent,
         )
 
     def _build_client_trailer(self, client_id: int) -> bytes:
         """Build B6 client trailer: ClientNo, DataEnabled, ClientName, ClientType."""
-        return _encoder.build_client_trailer(
+        return _build_client_trailer_impl(
             client_id, self._tcp.data_clients, self._tcp._client_meta,
         )
 
@@ -1434,12 +1436,12 @@ class BlaeckTCPy:
     ) -> bytes:
         """Build data message with CRC32 checksum (v5 format).
 
-        Delegates to :func:`_encoder.build_data_frame`.
+        Delegates to :func:`~blaecktcpy._encoder.build_data_frame`.
         """
         restart = self._restart_flag_pending
         self._restart_flag_pending = False
         mode = timestamp_mode if timestamp_mode is not None else self._timestamp_mode
-        return _encoder.build_data_frame(
+        return _build_data_frame(
             header, self.signals, start, end,
             schema_hash=self._schema_hash,
             restart_flag=restart,
@@ -1452,7 +1454,7 @@ class BlaeckTCPy:
 
     def _get_symbols(self) -> bytes:
         """Build symbol list message (simple server mode)."""
-        return _encoder.build_symbol_payload(
+        return _build_symbol_payload(
             self.signals, self._master_slave_config, self._slave_id,
         )
 
