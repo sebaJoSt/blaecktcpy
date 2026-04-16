@@ -25,7 +25,11 @@ import time
 
 from blaecktcpy import BlaeckTCPy, TimestampMode
 
-CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "test_data.csv")
+CSV_FILE = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else os.path.join(tempfile.gettempdir(), "test_data.csv")
+)
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 23
 
 POLL_INTERVAL = 0.05  # seconds between file checks
@@ -57,17 +61,19 @@ def main():
     print(f"Signals:     {signal_names}")
 
     bltcp = BlaeckTCPy(
-                ip="127.0.0.1",
-                port=PORT,
-                device_name="CSV Tail Reader",
-            )
+        ip="127.0.0.1",
+        port=PORT,
+        device_name="CSV Tail Reader",
+    )
     bltcp.timestamp_mode = TimestampMode.UNIX
 
     for name in signal_names:
         bltcp.add_signal(name, "double")
 
     bltcp.start()
-    print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
+    print(
+        "##LOGGBOK:READY##"
+    )  # Sentinel for Loggbok's process launcher — safe to remove
     # Open file and seek past existing content so we only stream new rows
     f = open(CSV_FILE, newline="")
     reader = csv.reader(f)
@@ -94,10 +100,15 @@ def main():
                         cell = row[i + 1]
                         if cell:  # skip empty cells (partial row)
                             bltcp.update(name, float(cell))
+                    updated_info = ", ".join(
+                        f"{s.signal_name}={s.value:.2f}"
+                        for s in bltcp.signals[: len(signal_names)]
+                        if s.updated
+                    )
                     bltcp.write_updated_data(unix_timestamp=unix_ts)
                     rows_sent += 1
                     print(
-                        f"\r  Rows sent: {rows_sent}  (latest: {', '.join(f'{n}={bltcp.signals[i].value:.2f}' for i, n in enumerate(signal_names))})",
+                        f"  Rows sent: {rows_sent}  ({updated_info})\n",
                         end="",
                         flush=True,
                     )
