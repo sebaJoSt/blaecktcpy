@@ -265,11 +265,10 @@ class HubManager:
         interval_info = ""
         if upstream.interval_ms >= 0:
             interval_info = (
-                f" (ACTIVATE sent: {upstream.interval_ms} ms "
-                f"— client control locked)"
+                f" (interval: {upstream.interval_ms} ms — locked)"
             )
         elif upstream.interval_ms == IntervalMode.OFF:
-            interval_info = " (DEACTIVATE sent — client control locked)"
+            interval_info = " (interval: OFF — locked)"
         elif upstream.interval_ms == IntervalMode.CLIENT:
             interval_info = " (interval: client controlled)"
         self._logger.info(
@@ -813,8 +812,8 @@ class HubManager:
             params = ",".join(str(x) for x in b)
             upstream.transport.send_command(f"BLAECK.ACTIVATE,{params}")
             self._logger.info(
-                f"Upstream '{upstream.device_name}' re-activated "
-                f"({upstream.interval_ms} ms)"
+                f"Upstream '{upstream.device_name}' interval restored: "
+                f"{upstream.interval_ms} ms"
             )
         elif upstream.interval_ms == IntervalMode.OFF:
             upstream.transport.send_command("BLAECK.DEACTIVATE")
@@ -826,7 +825,7 @@ class HubManager:
                 self._server._last_client_activate_cmd
             )
             self._logger.info(
-                f"Upstream '{upstream.device_name}' client interval restored"
+                f"Upstream '{upstream.device_name}' interval restored: client controlled"
             )
 
     def _handle_upstream_disconnect(

@@ -275,11 +275,10 @@ class BlaeckTCPy:
         interval_info = ""
         if self._fixed_interval_ms >= 0:
             interval_info = (
-                f" (interval: {self._fixed_interval_ms} ms"
-                f" — client control locked)"
+                f" (interval: {self._fixed_interval_ms} ms — locked)"
             )
         elif self._fixed_interval_ms == IntervalMode.OFF:
-            interval_info = " (DEACTIVATE — client control locked)"
+            interval_info = " (interval: OFF — locked)"
         elif self._fixed_interval_ms == IntervalMode.CLIENT:
             interval_info = " (interval: client controlled)"
         self._logger.info(
@@ -907,11 +906,11 @@ class BlaeckTCPy:
                     if command == "BLAECK.ACTIVATE":
                         interval = self._decode_four_byte(params)
                         self._logger.info(
-                            f"Client ACTIVATE forwarded to upstream '{upstream.device_name}' ({interval} ms)"
+                            f"Upstream '{upstream.device_name}' interval: {interval} ms (client ACTIVATE forwarded)"
                         )
                     else:
                         self._logger.info(
-                            f"Client DEACTIVATE forwarded to upstream '{upstream.device_name}' (OFF)"
+                            f"Upstream '{upstream.device_name}' interval: OFF (client DEACTIVATE forwarded)"
                         )
             # Store for replay on upstream reconnect
             self._last_client_activate_cmd = full_cmd
@@ -1264,10 +1263,10 @@ class BlaeckTCPy:
         self._timed_activated = activated
         if activated:
             self._timer.activate(interval_ms)
-            self._logger.info(f"Client ACTIVATE received — local signal interval ({interval_ms} ms)")
+            self._logger.info(f"Local signal interval: {interval_ms} ms (client ACTIVATE)")
         else:
             self._timer.deactivate()
-            self._logger.info("Client DEACTIVATE received — local signal interval (OFF)")
+            self._logger.info("Local signal interval: OFF (client DEACTIVATE)")
 
     @property
     def local_interval_ms(self) -> int:
@@ -1297,19 +1296,19 @@ class BlaeckTCPy:
             self._timer.activate(value)
             if self._started:
                 self._logger.info(
-                    f"Local signal interval changed ({value} ms)"
+                    f"Local signal interval set: {value} ms"
                 )
         elif value == IntervalMode.OFF:
             self._fixed_interval_ms = IntervalMode.OFF
             self._timed_activated = False
             self._timer.deactivate()
             if self._started:
-                self._logger.info("Local signal interval changed (OFF)")
+                self._logger.info("Local signal interval set: OFF")
         elif value == IntervalMode.CLIENT:
             self._fixed_interval_ms = IntervalMode.CLIENT
             if self._started:
                 self._logger.info(
-                    "Local signal interval changed (client controlled)"
+                    "Local signal interval set: client controlled"
                 )
         else:
             raise ValueError(
