@@ -69,9 +69,7 @@ def build_data_frame(
     if end == -1:
         end = len(signals) - 1
     if len(status_payload) != 4:
-        raise ValueError(
-            f"status_payload must be 4 bytes, got {len(status_payload)}"
-        )
+        raise ValueError(f"status_payload must be 4 bytes, got {len(status_payload)}")
 
     flag_byte = b"\x01" if restart_flag else b"\x00"
     hash_bytes = schema_hash.to_bytes(2, "little")
@@ -79,8 +77,10 @@ def build_data_frame(
     if timestamp is not None and timestamp_mode != 0:
         mode_byte = int(timestamp_mode).to_bytes(1, "little")
         meta = (
-            flag_byte + b":"
-            + hash_bytes + b":"
+            flag_byte
+            + b":"
+            + hash_bytes
+            + b":"
             + mode_byte
             + timestamp.to_bytes(8, "little")
             + b":"
@@ -100,8 +100,7 @@ def build_data_frame(
             sig.updated = False
 
     frame_no_crc = (
-        header + meta + payload
-        + status.to_bytes(1, "little") + status_payload
+        header + meta + payload + status.to_bytes(1, "little") + status_payload
     )
     crc = binascii.crc32(frame_no_crc).to_bytes(4, "little")
     return frame_no_crc + crc
@@ -142,15 +141,24 @@ def encode_device_entry(
 ) -> bytes:
     """Encode a single B6 device entry (MSC through Parent)."""
     return (
-        msc + slave_id
-        + name + b"\0"
-        + hw + b"\0"
-        + fw + b"\0"
-        + lib_ver + b"\0"
-        + lib_name + b"\0"
-        + restarted + b"\0"
-        + device_type + b"\0"
-        + parent + b"\0"
+        msc
+        + slave_id
+        + name
+        + b"\0"
+        + hw
+        + b"\0"
+        + fw
+        + b"\0"
+        + lib_ver
+        + b"\0"
+        + lib_name
+        + b"\0"
+        + restarted
+        + b"\0"
+        + device_type
+        + b"\0"
+        + parent
+        + b"\0"
     )
 
 
@@ -162,8 +170,12 @@ def build_client_trailer(
     """Build B6 client trailer: ClientNo, DataEnabled, ClientName, ClientType."""
     meta = client_meta.get(client_id, {})
     return (
-        str(client_id).encode() + b"\0"
-        + (b"1" if client_id in data_clients else b"0") + b"\0"
-        + meta.get("name", "").encode() + b"\0"
-        + meta.get("type", "unknown").encode() + b"\0"
+        str(client_id).encode()
+        + b"\0"
+        + (b"1" if client_id in data_clients else b"0")
+        + b"\0"
+        + meta.get("name", "").encode()
+        + b"\0"
+        + meta.get("type", "unknown").encode()
+        + b"\0"
     )

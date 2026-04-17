@@ -47,9 +47,7 @@ class ClientManager:
                 socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1
             )
         else:
-            self._server_socket.setsockopt(
-                socket.SOL_SOCKET, socket.SO_REUSEADDR, 1
-            )
+            self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     def bind(self, ip: str, port: int) -> None:
         """Bind server socket to *ip*:*port*."""
@@ -86,9 +84,7 @@ class ClientManager:
                 self.data_clients.add(client_id)
                 self._client_meta[client_id] = {"name": "", "type": "unknown"}
                 self._client_addrs[client_id] = f"{addr[0]}:{addr[1]}"
-                self._logger.info(
-                    f"Client #{client_id} connected: {addr[0]}:{addr[1]}"
-                )
+                self._logger.info(f"Client #{client_id} connected: {addr[0]}:{addr[1]}")
                 if self._server._connect_callback is not None:
                     self._server._connect_callback(client_id)
             except (BlockingIOError, OSError):
@@ -136,10 +132,7 @@ class ClientManager:
             self._logger.info(f"Client #{cid} disconnected")
         if client_id >= 0 and self._server._disconnect_callback is not None:
             self._server._disconnect_callback(client_id)
-        if (
-            not self._clients
-            and self._server._fixed_interval_ms == IntervalMode.CLIENT
-        ):
+        if not self._clients and self._server._fixed_interval_ms == IntervalMode.CLIENT:
             self._server._timed_activated = False
 
     # ── I/O ──────────────────────────────────────────────────────────
@@ -147,7 +140,9 @@ class ClientManager:
     def read_commands(self) -> list[tuple[str, list[str], socket.socket]]:
         """Non-blocking read from all clients; parse ``<cmd,p1,p2>`` messages."""
         if self._sel is None:
-            raise AttributeError("ClientManager not started — call start_listening() first")
+            raise AttributeError(
+                "ClientManager not started — call start_listening() first"
+            )
         messages: list[tuple[str, list[str], socket.socket]] = []
 
         events = self._sel.select(timeout=0)
@@ -192,9 +187,7 @@ class ClientManager:
                         parts = content.split(",")
                         command = parts[0].strip()
                         params = (
-                            [p.strip() for p in parts[1:]]
-                            if len(parts) > 1
-                            else []
+                            [p.strip() for p in parts[1:]] if len(parts) > 1 else []
                         )
                         messages.append((command, params, conn))
 

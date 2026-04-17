@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 # HTML template
 # ---------------------------------------------------------------------------
 
-_HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
+_HTML_TEMPLATE = string.Template(
+    r"""<!DOCTYPE html>
 <html data-theme="light">
 <head>
   <meta charset="utf-8">
@@ -244,12 +245,14 @@ _HTML_TEMPLATE = string.Template(r"""<!DOCTYPE html>
   _pollTimer = setInterval(refresh, 1000);
   </script>
 </body>
-</html>""")
+</html>"""
+)
 
 
 # ---------------------------------------------------------------------------
 # State → dict / HTML helpers
 # ---------------------------------------------------------------------------
+
 
 def _format_uptime(seconds: float) -> str:
     s = int(seconds)
@@ -267,6 +270,7 @@ def _format_uptime(seconds: float) -> str:
 
 def _interval_str(server: BlaeckTCPy) -> str:
     from ._signal import IntervalMode
+
     v = server._fixed_interval_ms
     if v >= 0:
         return f"{v} ms (local)"
@@ -281,6 +285,7 @@ def _interval_str(server: BlaeckTCPy) -> str:
 
 def _upstream_interval_str(interval_ms: int) -> str:
     from ._signal import IntervalMode
+
     if interval_ms >= 0:
         return f"{interval_ms} ms"
     if interval_ms == IntervalMode.OFF:
@@ -292,6 +297,7 @@ def _upstream_interval_str(interval_ms: int) -> str:
 
 def _transport_str(upstream: UpstreamDevice) -> str:
     from .hub._upstream import UpstreamTCP
+
     t = upstream.transport
     if isinstance(t, UpstreamTCP):
         return f"TCP {t.ip}:{t.port}"
@@ -325,23 +331,27 @@ def _get_state(server: BlaeckTCPy) -> dict[str, Any]:
         name = meta.get("name", "")
         ctype = meta.get("type", "")
         label = f"{name} ({ctype})" if name and ctype and ctype != "unknown" else name
-        clients.append({
-            "id": cid,
-            "name": label,
-            "address": addr,
-            "data": cid in server.data_clients,
-        })
+        clients.append(
+            {
+                "id": cid,
+                "name": label,
+                "address": addr,
+                "data": cid in server.data_clients,
+            }
+        )
 
     # Local signals
     local_count = server._local_signal_count
     local_signals = []
     for i in range(min(local_count, len(server.signals))):
         sig = server.signals[i]
-        local_signals.append({
-            "name": sig.signal_name,
-            "type": sig.datatype,
-            "value": _safe_value(sig.value),
-        })
+        local_signals.append(
+            {
+                "name": sig.signal_name,
+                "type": sig.datatype,
+                "value": _safe_value(sig.value),
+            }
+        )
 
     state = {
         "device_name": server._device_name.decode(),
@@ -363,22 +373,26 @@ def _get_state(server: BlaeckTCPy) -> dict[str, Any]:
         upstreams = []
         for u in server._hub._upstreams:
             signals = []
-            for sig in (u._signals or []):
-                signals.append({
-                    "name": sig.signal_name,
-                    "type": sig.datatype,
-                    "value": _safe_value(sig.value),
-                })
-            upstreams.append({
-                "name": u.device_name,
-                "connected": u.transport.connected,
-                "transport": _transport_str(u),
-                "signal_count": len(u.symbol_table),
-                "interval": _upstream_interval_str(u.interval_ms),
-                "relay": u.relay_downstream,
-                "auto_reconnect": u.auto_reconnect,
-                "signals": signals,
-            })
+            for sig in u._signals or []:
+                signals.append(
+                    {
+                        "name": sig.signal_name,
+                        "type": sig.datatype,
+                        "value": _safe_value(sig.value),
+                    }
+                )
+            upstreams.append(
+                {
+                    "name": u.device_name,
+                    "connected": u.transport.connected,
+                    "transport": _transport_str(u),
+                    "signal_count": len(u.symbol_table),
+                    "interval": _upstream_interval_str(u.interval_ms),
+                    "relay": u.relay_downstream,
+                    "auto_reconnect": u.auto_reconnect,
+                    "signals": signals,
+                }
+            )
         state["upstreams"] = upstreams
 
     return state
@@ -386,6 +400,7 @@ def _get_state(server: BlaeckTCPy) -> dict[str, Any]:
 
 def _get_lib_version() -> str:
     from importlib.metadata import version
+
     return version("blaecktcpy")
 
 
@@ -397,7 +412,11 @@ def _render_html(server: BlaeckTCPy) -> str:
     client_rows = ""
     if state["clients"]:
         for c in state["clients"]:
-            data_icon = '<span style="color:green">✓</span>' if c["data"] else '<span style="color:red">✗</span>'
+            data_icon = (
+                '<span style="color:green">✓</span>'
+                if c["data"]
+                else '<span style="color:red">✗</span>'
+            )
             client_rows += (
                 f"<tr><td>{c['id']}</td><td>{_esc(c['name'])}</td>"
                 f"<td>{_esc(c['address'])}</td><td>{data_icon}</td></tr>"
@@ -465,7 +484,8 @@ def _render_html(server: BlaeckTCPy) -> str:
     ts_mode = state["timestamp_mode"]
     timestamp_row = (
         f'<tr><td><strong>Timestamp</strong></td><td id="d-timestamp">{ts_mode}</td></tr>'
-        if ts_mode != "NONE" else ""
+        if ts_mode != "NONE"
+        else ""
     )
 
     return _HTML_TEMPLATE.substitute(
@@ -498,6 +518,7 @@ def _esc(text: str) -> str:
 # ---------------------------------------------------------------------------
 # HTTP handler & server
 # ---------------------------------------------------------------------------
+
 
 def _make_handler(server: BlaeckTCPy):
     """Create a request handler class bound to a BlaeckTCPy instance."""

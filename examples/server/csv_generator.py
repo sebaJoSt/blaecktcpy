@@ -22,7 +22,11 @@ import sys
 import tempfile
 import time
 
-CSV_FILE = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), "test_data.csv")
+CSV_FILE = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else os.path.join(tempfile.gettempdir(), "test_data.csv")
+)
 COLUMNS = ["timestamp", "temperature", "pressure", "humidity"]
 
 
@@ -35,7 +39,11 @@ def generate_row(elapsed: float) -> list[float | str]:
     temperature = 20.0 + 5.0 * math.sin(elapsed * 0.1) + random.gauss(0, 0.3)
     pressure = 1013.25 + 2.0 * math.sin(elapsed * 0.05) + random.gauss(0, 0.5)
     humidity = 55.0 + 10.0 * math.sin(elapsed * 0.08) + random.gauss(0, 1.0)
-    values: list[float | str] = [round(temperature, 2), round(pressure, 2), round(humidity, 1)]
+    values: list[float | str] = [
+        round(temperature, 2),
+        round(pressure, 2),
+        round(humidity, 1),
+    ]
 
     # ~30% chance to make this a partial row
     if random.random() < 0.3:
@@ -60,7 +68,9 @@ def main():
         start = time.time()
         row_count = 0
         print("Generating data... (Ctrl+C to stop)")
-        print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
+        print(
+            "##LOGGBOK:READY##"
+        )  # Sentinel for Loggbok's process launcher — safe to remove
         try:
             while True:
                 elapsed = time.time() - start

@@ -15,10 +15,10 @@ ip = "127.0.0.1"
 port = 23
 
 bltcp = BlaeckTCPy(
-            ip=ip,
-            port=port,
-            device_name="Command Parser Example",
-        )
+    ip=ip,
+    port=port,
+    device_name="Command Parser Example",
+)
 
 bltcp.add_signal("LED_State", "bool")
 bltcp.add_signal("Motor_Speed", "float")
@@ -27,6 +27,7 @@ bltcp.add_signal("Motor_Speed", "float")
 # -- Client connection callbacks --
 # By default all clients receive data frames. Use on_client_connected
 # to control which clients get data (e.g. only the first client):
+
 
 @bltcp.on_client_connected()
 def on_connect(client_id: int):
@@ -43,6 +44,7 @@ def on_disconnect(client_id: int):
 
 
 # -- Custom command handlers --
+
 
 @bltcp.on_command("SET_LED")
 def handle_led(state: str):
@@ -67,4 +69,6 @@ print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe t
 
 while True:
     bltcp.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed

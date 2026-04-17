@@ -46,11 +46,15 @@ _MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B — client-controlled (BLAECK.ACTIVAT
 _MSG_ID_HUB = 185273100  # 0x0B0B0B0C — hub-overridden interval
 
 
-
 class _IntervalTimer:
     """Reusable interval timer with first-tick initialization."""
 
-    __slots__: tuple[str, ...] = ("_interval_ms", "_base_ns", "_setpoint_ms", "_first_tick")
+    __slots__: tuple[str, ...] = (
+        "_interval_ms",
+        "_base_ns",
+        "_setpoint_ms",
+        "_first_tick",
+    )
 
     def __init__(self):
         self._interval_ms: int = 0
@@ -154,8 +158,11 @@ class BlaeckTCPy:
 
         if device_hw_version is None:
             import platform
+
             machine = platform.machine()
-            device_hw_version = f"{platform.system()} {machine}" if machine else platform.system()
+            device_hw_version = (
+                f"{platform.system()} {machine}" if machine else platform.system()
+            )
         if device_fw_version is None:
             device_fw_version = "1.0"
 
@@ -240,9 +247,7 @@ class BlaeckTCPy:
             if not self._stdin_is_interactive():
                 raise OSError(f"Port {self._port} is already in use")
             alt_port = self._find_free_port(self._ip, self._port)
-            self._logger.warning(
-                f"Something is already running on port {self._port}."
-            )
+            self._logger.warning(f"Something is already running on port {self._port}.")
             answer = input(
                 f"Would you like to run blaecktcpy on port {alt_port} instead? \033[1m(Y/n)\033[0m "
             ).strip()
@@ -276,16 +281,13 @@ class BlaeckTCPy:
         n = self._local_signal_count
         interval_info = ""
         if self._fixed_interval_ms >= 0:
-            interval_info = (
-                f" (interval: {self._fixed_interval_ms} ms — locked)"
-            )
+            interval_info = f" (interval: {self._fixed_interval_ms} ms — locked)"
         elif self._fixed_interval_ms == IntervalMode.OFF:
             interval_info = " (interval: OFF — locked)"
         elif self._fixed_interval_ms == IntervalMode.CLIENT:
             interval_info = " (interval: client controlled)"
         self._logger.info(
-            f"Local: {n} signal{'s' if n != 1 else ''}"
-            f"{interval_info}"
+            f"Local: {n} signal{'s' if n != 1 else ''}" f"{interval_info}"
         )
 
     def _register_upstream_signals(self) -> None:
@@ -318,6 +320,7 @@ class BlaeckTCPy:
             return
 
         from ._http import start_http_server
+
         http_ip = "127.0.0.1" if self._ip in ("0.0.0.0", "") else self._ip
         try:
             self._httpd = start_http_server(self, self._http_port)
@@ -332,9 +335,7 @@ class BlaeckTCPy:
                     f"using port {alt_port} instead"
                 )
             except OSError as e:
-                self._logger.warning(
-                    f"HTTP status page could not start: {e}"
-                )
+                self._logger.warning(f"HTTP status page could not start: {e}")
         if self._httpd is not None:
             self._logger.info(
                 f"{_RESET}Status page: "
@@ -473,7 +474,11 @@ class BlaeckTCPy:
             return
         ts = self._resolve_timestamp(unix_timestamp)
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
-        data = b"<BLAECK:" + self._build_data_msg(header, idx, idx, timestamp=ts) + b"/BLAECK>\r\n"
+        data = (
+            b"<BLAECK:"
+            + self._build_data_msg(header, idx, idx, timestamp=ts)
+            + b"/BLAECK>\r\n"
+        )
         self._tcp_send_data(data)
 
     def update(self, key: str | int, value: int | float) -> None:
@@ -549,8 +554,14 @@ class BlaeckTCPy:
             Upstream handle for accessing signal values.
         """
         return self._hub.add_tcp(
-            ip, port, name, timeout, interval_ms,
-            relay_downstream, forward_custom_commands, auto_reconnect,
+            ip,
+            port,
+            name,
+            timeout,
+            interval_ms,
+            relay_downstream,
+            forward_custom_commands,
+            auto_reconnect,
         )
 
     def add_serial(
@@ -590,8 +601,14 @@ class BlaeckTCPy:
             Upstream handle for accessing signal values.
         """
         return self._hub.add_serial(
-            port, baudrate, name, timeout, dtr, interval_ms,
-            relay_downstream, forward_custom_commands,
+            port,
+            baudrate,
+            name,
+            timeout,
+            dtr,
+            interval_ms,
+            relay_downstream,
+            forward_custom_commands,
         )
 
     def _discover_all_upstreams(self) -> None:
@@ -673,7 +690,9 @@ class BlaeckTCPy:
     # ========================================================================
     # Callbacks
     # ========================================================================
-    def on_command(self, command: str | None = None, *, forward: bool = True) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def on_command(
+        self, command: str | None = None, *, forward: bool = True
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a command handler.
 
         With a command name, registers a handler for that specific command.
@@ -734,7 +753,9 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_client_disconnected(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def on_client_disconnected(
+        self,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when a client disconnects.
 
         Receives the client ID that was disconnected.
@@ -770,7 +791,9 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_data_received(self, upstream_name: str | None = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def on_data_received(
+        self, upstream_name: str | None = None
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when upstream data arrives.
 
         Args:
@@ -790,7 +813,9 @@ class BlaeckTCPy:
 
         return decorator
 
-    def on_upstream_disconnected(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def on_upstream_disconnected(
+        self,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when an upstream device disconnects.
 
         Example::
@@ -833,9 +858,7 @@ class BlaeckTCPy:
         if name:
             self._tcp._client_meta[client_id] = {"name": name, "type": rtype}
             _addr = self._tcp._client_addrs.get(client_id, "")
-            self._logger.info(
-                f"Client #{client_id} identified ({rtype}: {name})"
-            )
+            self._logger.info(f"Client #{client_id} identified ({rtype}: {name})")
 
     # ========================================================================
     # Message Handlers
@@ -843,7 +866,9 @@ class BlaeckTCPy:
 
     def _require_started(self) -> None:
         if not self._started:
-            raise RuntimeError("Server not started — call start() before using this method")
+            raise RuntimeError(
+                "Server not started — call start() before using this method"
+            )
 
     def read(self) -> None:
         """Read and process all pending messages from downstream clients."""
@@ -933,16 +958,13 @@ class BlaeckTCPy:
                 self._before_write_callback()
             msg_id = self._decode_four_byte(params)
             ts = self._auto_timestamp()
-            header = (
-                self.MSG_DATA
-                + b":"
-                + msg_id.to_bytes(4, "little")
-                + b":"
-            )
+            header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
             data = (
                 b"<BLAECK:"
                 + self._build_data_msg(
-                    header, start=0, end=self._local_signal_count - 1,
+                    header,
+                    start=0,
+                    end=self._local_signal_count - 1,
                     timestamp=ts,
                 )
                 + b"/BLAECK>\r\n"
@@ -1066,11 +1088,16 @@ class BlaeckTCPy:
 
         # Master device
         payload += self._encode_device_entry(
-            _MSC_MASTER, b"\x00",
-            self._device_name, self._device_hw_version, self._device_fw_version,
-            LIB_VERSION.encode(), LIB_NAME.encode(),
+            _MSC_MASTER,
+            b"\x00",
+            self._device_name,
+            self._device_hw_version,
+            self._device_fw_version,
+            LIB_VERSION.encode(),
+            LIB_NAME.encode(),
             b"1" if self._server_restarted else b"0",
-            b"hub", b"0",
+            b"hub",
+            b"0",
         )
 
         # Upstream devices as slaves
@@ -1094,12 +1121,16 @@ class BlaeckTCPy:
                     orig_parent = int(info.parent) if info.parent else 0
                     parent_sid = old_sid_to_new.get(orig_parent, 0)
                 payload += self._encode_device_entry(
-                    _MSC_SLAVE, bytes([hub_sid]),
-                    info.device_name.encode(), info.hw_version.encode(),
-                    info.fw_version.encode(), info.lib_version.encode(),
+                    _MSC_SLAVE,
+                    bytes([hub_sid]),
+                    info.device_name.encode(),
+                    info.hw_version.encode(),
+                    info.fw_version.encode(),
+                    info.lib_version.encode(),
                     info.lib_name.encode(),
                     info.server_restarted.encode() if info.server_restarted else b"0",
-                    device_type.encode(), str(parent_sid).encode(),
+                    device_type.encode(),
+                    str(parent_sid).encode(),
                 )
 
         return payload + self._build_client_trailer(client_id)
@@ -1107,34 +1138,57 @@ class BlaeckTCPy:
     def _build_simple_device_payload(self, client_id: int) -> bytes:
         """Build B6 payload for simple server: DeviceCount=1 + device + client trailer."""
         payload = b"\x01" + self._encode_device_entry(
-            self._master_slave_config, self._slave_id,
-            self._device_name, self._device_hw_version, self._device_fw_version,
-            LIB_VERSION.encode(), LIB_NAME.encode(),
+            self._master_slave_config,
+            self._slave_id,
+            self._device_name,
+            self._device_hw_version,
+            self._device_fw_version,
+            LIB_VERSION.encode(),
+            LIB_NAME.encode(),
             b"1" if self._server_restarted else b"0",
-            b"server", b"0",
+            b"server",
+            b"0",
         )
         return payload + self._build_client_trailer(client_id)
 
     @staticmethod
     def _encode_device_entry(
-        msc: bytes, slave_id: bytes,
-        name: bytes, hw: bytes, fw: bytes,
-        lib_ver: bytes, lib_name: bytes,
-        restarted: bytes, device_type: bytes, parent: bytes,
+        msc: bytes,
+        slave_id: bytes,
+        name: bytes,
+        hw: bytes,
+        fw: bytes,
+        lib_ver: bytes,
+        lib_name: bytes,
+        restarted: bytes,
+        device_type: bytes,
+        parent: bytes,
     ) -> bytes:
         """Encode a single B6 device entry (MSC through Parent)."""
         return _encode_device_entry(
-            msc, slave_id, name, hw, fw,
-            lib_ver, lib_name, restarted, device_type, parent,
+            msc,
+            slave_id,
+            name,
+            hw,
+            fw,
+            lib_ver,
+            lib_name,
+            restarted,
+            device_type,
+            parent,
         )
 
     def _build_client_trailer(self, client_id: int) -> bytes:
         """Build B6 client trailer: ClientNo, DataEnabled, ClientName, ClientType."""
         return _build_client_trailer_impl(
-            client_id, self._tcp.data_clients, self._tcp._client_meta,
+            client_id,
+            self._tcp.data_clients,
+            self._tcp._client_meta,
         )
 
-    def write_all_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None) -> None:
+    def write_all_data(
+        self, msg_id: int = 1, *, unix_timestamp: float | int | None = None
+    ) -> None:
         """Send all local signal data to data-enabled clients.
 
         Args:
@@ -1160,7 +1214,9 @@ class BlaeckTCPy:
         )
         self._tcp_send_data(data)
 
-    def write_updated_data(self, msg_id: int = 1, *, unix_timestamp: float | int | None = None) -> None:
+    def write_updated_data(
+        self, msg_id: int = 1, *, unix_timestamp: float | int | None = None
+    ) -> None:
         """Send only updated local signals to data-enabled clients.
 
         Args:
@@ -1181,7 +1237,9 @@ class BlaeckTCPy:
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp=ts)
+            + self._build_data_msg(
+                header, start=0, end=lc - 1, only_updated=True, timestamp=ts
+            )
             + b"/BLAECK>\r\n"
         )
         self._tcp_send_data(data)
@@ -1190,7 +1248,9 @@ class BlaeckTCPy:
         """Check if the timed interval has elapsed."""
         return self._timer.elapsed()
 
-    def timed_write_all_data(self, msg_id: int | None = None, *, unix_timestamp: float | int | None = None) -> bool:
+    def timed_write_all_data(
+        self, msg_id: int | None = None, *, unix_timestamp: float | int | None = None
+    ) -> bool:
         """Send all local data if timer interval has elapsed.
 
         Args:
@@ -1224,7 +1284,9 @@ class BlaeckTCPy:
         )
         return self._tcp_send_data(data)
 
-    def timed_write_updated_data(self, msg_id: int | None = None, *, unix_timestamp: float | int | None = None) -> bool:
+    def timed_write_updated_data(
+        self, msg_id: int | None = None, *, unix_timestamp: float | int | None = None
+    ) -> bool:
         """Send only updated local signals if timer interval has elapsed.
 
         Args:
@@ -1255,7 +1317,9 @@ class BlaeckTCPy:
         header = self.MSG_DATA + b":" + msg_id.to_bytes(4, "little") + b":"
         data = (
             b"<BLAECK:"
-            + self._build_data_msg(header, start=0, end=lc - 1, only_updated=True, timestamp=ts)
+            + self._build_data_msg(
+                header, start=0, end=lc - 1, only_updated=True, timestamp=ts
+            )
             + b"/BLAECK>\r\n"
         )
         return self._tcp_send_data(data)
@@ -1265,7 +1329,9 @@ class BlaeckTCPy:
         self._timed_activated = activated
         if activated:
             self._timer.activate(interval_ms)
-            self._logger.info(f"Local signal interval: {interval_ms} ms (client ACTIVATE)")
+            self._logger.info(
+                f"Local signal interval: {interval_ms} ms (client ACTIVATE)"
+            )
         else:
             self._timer.deactivate()
             self._logger.info("Local signal interval: OFF (client DEACTIVATE)")
@@ -1297,9 +1363,7 @@ class BlaeckTCPy:
             self._timed_activated = True
             self._timer.activate(value)
             if self._started:
-                self._logger.info(
-                    f"Local signal interval set: {value} ms"
-                )
+                self._logger.info(f"Local signal interval set: {value} ms")
         elif value == IntervalMode.OFF:
             self._fixed_interval_ms = IntervalMode.OFF
             self._timed_activated = False
@@ -1309,9 +1373,7 @@ class BlaeckTCPy:
         elif value == IntervalMode.CLIENT:
             self._fixed_interval_ms = IntervalMode.CLIENT
             if self._started:
-                self._logger.info(
-                    "Local signal interval set: client controlled"
-                )
+                self._logger.info("Local signal interval set: client controlled")
         else:
             raise ValueError(
                 f"Invalid local_interval_ms: {value}. "
@@ -1369,9 +1431,7 @@ class BlaeckTCPy:
                 return int(unix_timestamp * 1_000_000)
             if isinstance(unix_timestamp, int) and not isinstance(unix_timestamp, bool):
                 return unix_timestamp
-            raise TypeError(
-                "unix_timestamp must be float (seconds) or int (µs)"
-            )
+            raise TypeError("unix_timestamp must be float (seconds) or int (µs)")
 
         return self._auto_timestamp()
 
@@ -1442,7 +1502,10 @@ class BlaeckTCPy:
         self._restart_flag_pending = False
         mode = timestamp_mode if timestamp_mode is not None else self._timestamp_mode
         return _build_data_frame(
-            header, self.signals, start, end,
+            header,
+            self.signals,
+            start,
+            end,
             schema_hash=self._schema_hash,
             restart_flag=restart,
             timestamp_mode=int(mode),
@@ -1455,13 +1518,17 @@ class BlaeckTCPy:
     def _get_symbols(self) -> bytes:
         """Build symbol list message (simple server mode)."""
         return _build_symbol_payload(
-            self.signals, self._master_slave_config, self._slave_id,
+            self.signals,
+            self._master_slave_config,
+            self._slave_id,
         )
 
     # ========================================================================
     # Status & Properties
     # ========================================================================
-    def upstream_status(self, name: str | None = None) -> dict[str, bool | float | int] | dict[str, dict[str, bool | float | int]]:
+    def upstream_status(
+        self, name: str | None = None
+    ) -> dict[str, bool | float | int] | dict[str, dict[str, bool | float | int]]:
         """Get connection status for upstream devices.
 
         Args:
@@ -1532,7 +1599,9 @@ class BlaeckTCPy:
         """Enable 'with' statement usage."""
         return self
 
-    def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> None:
+    def __exit__(
+        self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object
+    ) -> None:
         """Clean up on exit."""
         self.close()
 

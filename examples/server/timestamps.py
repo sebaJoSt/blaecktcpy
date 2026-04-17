@@ -23,10 +23,10 @@ import time
 from blaecktcpy import BlaeckTCPy, TimestampMode
 
 bltcp = BlaeckTCPy(
-            ip="127.0.0.1",
-            port=23,
-            device_name="Timestamp Demo",
-        )
+    ip="127.0.0.1",
+    port=23,
+    device_name="Timestamp Demo",
+)
 
 bltcp.add_signal("Sine", "float")
 bltcp.add_signal("Cosine", "float")
@@ -56,4 +56,6 @@ while True:
     # To supply your own timestamp instead, pass unix_timestamp explicitly:
     #   bltcp.timed_write_all_data(unix_timestamp=time.time())
     bltcp.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed

@@ -13,10 +13,10 @@ ip = "127.0.0.1"
 port = 23
 
 bltcp = BlaeckTCPy(
-            ip=ip,
-            port=port,
-            device_name="Datatype Test",
-        )
+    ip=ip,
+    port=port,
+    device_name="Datatype Test",
+)
 
 bltcp.add_signal("Bool_false", "bool", False)
 bltcp.add_signal("Bool_true", "bool", True)
@@ -49,4 +49,6 @@ bltcp.start()
 print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 while True:
     bltcp.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed

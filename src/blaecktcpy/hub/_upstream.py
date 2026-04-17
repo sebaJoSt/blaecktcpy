@@ -189,7 +189,9 @@ class _UpstreamBase(ABC):
 class UpstreamTCP(_UpstreamBase):
     """Non-blocking TCP client connection to an upstream BlaeckTCP(y) device."""
 
-    def __init__(self, name: str, ip: str, port: int, logger: logging.Logger | None = None):
+    def __init__(
+        self, name: str, ip: str, port: int, logger: logging.Logger | None = None
+    ):
         super().__init__(name, logger)
         self.ip: str = ip
         self.port: int = port
@@ -206,7 +208,9 @@ class UpstreamTCP(_UpstreamBase):
             self._socket.setblocking(False)
             self._connected = True
             self._last_seen = time.time()
-            self._logger.info(f"Upstream '{self.name}' connected: {self.ip}:{self.port}")
+            self._logger.info(
+                f"Upstream '{self.name}' connected: {self.ip}:{self.port}"
+            )
             return True
         except OSError as e:
             self.last_error = str(e)
@@ -229,16 +233,19 @@ class UpstreamTCP(_UpstreamBase):
                 self._logger.info(
                     f"Upstream '{self.name}' connected: {self.ip}:{self.port}"
                 )
-            elif err in (errno.EINPROGRESS, errno.EWOULDBLOCK, _WSAEWOULDBLOCK, _WSAECONNREFUSED):
+            elif err in (
+                errno.EINPROGRESS,
+                errno.EWOULDBLOCK,
+                _WSAEWOULDBLOCK,
+                _WSAECONNREFUSED,
+            ):
                 self._connect_pending = True
                 self._connect_deadline = time.time() + timeout
             else:
                 raise OSError(err, f"connect_ex returned {err}")
         except OSError as e:
             self.last_error = str(e)
-            self._logger.debug(
-                f"Upstream '{self.name}' async connect failed: {e}"
-            )
+            self._logger.debug(f"Upstream '{self.name}' async connect failed: {e}")
             self._cleanup()
 
     @override
@@ -251,42 +258,30 @@ class UpstreamTCP(_UpstreamBase):
         # Timeout check
         if time.time() > self._connect_deadline:
             self.last_error = "connect timeout"
-            self._logger.debug(
-                f"Upstream '{self.name}' async connect timed out"
-            )
+            self._logger.debug(f"Upstream '{self.name}' async connect timed out")
             self._cleanup()
             return False
         try:
-            _, writable, errored = select.select(
-                [], [self._socket], [self._socket], 0
-            )
+            _, writable, errored = select.select([], [self._socket], [self._socket], 0)
             if errored:
-                err = self._socket.getsockopt(
-                    socket.SOL_SOCKET, socket.SO_ERROR
-                )
+                err = self._socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
                 self.last_error = f"SO_ERROR={err}"
-                self._logger.debug(
-                    f"Upstream '{self.name}' async connect error: {err}"
-                )
+                self._logger.debug(f"Upstream '{self.name}' async connect error: {err}")
                 self._cleanup()
                 return False
             if writable:
-                err = self._socket.getsockopt(
-                    socket.SOL_SOCKET, socket.SO_ERROR
-                )
+                err = self._socket.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)
                 if err == 0:
                     self._connected = True
                     self._connect_pending = False
                     self._last_seen = time.time()
                     self._logger.info(
-                        f"Upstream '{self.name}' connected: "
-                        f"{self.ip}:{self.port}"
+                        f"Upstream '{self.name}' connected: " f"{self.ip}:{self.port}"
                     )
                     return True
                 self.last_error = f"SO_ERROR={err}"
                 self._logger.debug(
-                    f"Upstream '{self.name}' async connect failed: "
-                    f"SO_ERROR={err}"
+                    f"Upstream '{self.name}' async connect failed: " f"SO_ERROR={err}"
                 )
                 self._cleanup()
                 return False
@@ -346,7 +341,14 @@ class UpstreamSerial(_UpstreamBase):
     Requires pyserial: ``pip install blaecktcpy[serial]``
     """
 
-    def __init__(self, name: str, port: str, baudrate: int = 115200, dtr: bool = True, logger: logging.Logger | None = None):
+    def __init__(
+        self,
+        name: str,
+        port: str,
+        baudrate: int = 115200,
+        dtr: bool = True,
+        logger: logging.Logger | None = None,
+    ):
         super().__init__(name, logger)
         if _pyserial is None:
             raise ImportError(

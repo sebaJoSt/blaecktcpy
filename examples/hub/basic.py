@@ -33,23 +33,23 @@ from blaecktcpy import BlaeckTCPy
 
 # --- Upstream servers ---
 sine = BlaeckTCPy(
-           ip="127.0.0.1",
-           port=10024,
-           device_name="Sine Generator",
-           log_level=logging.WARNING,
-           http_port=None,
-       )
+    ip="127.0.0.1",
+    port=10024,
+    device_name="Sine Generator",
+    log_level=logging.WARNING,
+    http_port=None,
+)
 for i in range(1, 4):
     sine.add_signal(f"Sine_{i}", "float")
 sine.start()
 
 cosine = BlaeckTCPy(
-             ip="127.0.0.1",
-             port=10025,
-             device_name="Cosine Generator",
-             log_level=logging.WARNING,
-             http_port=None,
-         )
+    ip="127.0.0.1",
+    port=10025,
+    device_name="Cosine Generator",
+    log_level=logging.WARNING,
+    http_port=None,
+)
 for i in range(1, 3):
     cosine.add_signal(f"Cosine_{i}", "float")
 cosine.start()
@@ -61,19 +61,25 @@ def run_server(server, gen_func):
         for s in server.signals:
             s.value = gen_func(t)
         server.tick()
-        time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+        time.sleep(
+            0.001
+        )  # Prevent busy loop; reduce or remove if faster response is needed
 
 
-threading.Thread(target=run_server, args=(sine, lambda t: math.sin(t * 0.001)), daemon=True).start()
-threading.Thread(target=run_server, args=(cosine, lambda t: math.cos(t * 0.0005)), daemon=True).start()
+threading.Thread(
+    target=run_server, args=(sine, lambda t: math.sin(t * 0.001)), daemon=True
+).start()
+threading.Thread(
+    target=run_server, args=(cosine, lambda t: math.cos(t * 0.0005)), daemon=True
+).start()
 time.sleep(0.2)
 
 # --- Hub ---
 hub = BlaeckTCPy(
-          ip="127.0.0.1",
-          port=23,
-          device_name="Basic Hub",
-      )
+    ip="127.0.0.1",
+    port=23,
+    device_name="Basic Hub",
+)
 
 # Local signal
 sawtooth = hub.add_signal("Sawtooth_1", "float")
@@ -92,4 +98,6 @@ while True:
     elapsed_ms = (time.time() - hub.start_time) * 1000
     sawtooth.value = (elapsed_ms % 5000) / 5000.0  # 0..1 over 5 seconds
     hub.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed

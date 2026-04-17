@@ -45,12 +45,12 @@ from blaecktcpy import BlaeckTCPy, TimestampMode
 # Upstream: a sensor that can dynamically add/remove signals
 # ---------------------------------------------------------------------------
 sensor = BlaeckTCPy(
-             ip="127.0.0.1",
-             port=10024,
-             device_name="Sensor",
-             log_level=logging.WARNING,
-             http_port=None,
-         )
+    ip="127.0.0.1",
+    port=10024,
+    device_name="Sensor",
+    log_level=logging.WARNING,
+    http_port=None,
+)
 sensor.timestamp_mode = TimestampMode.UNIX
 
 temp = sensor.add_signal("Temp", "float")
@@ -92,7 +92,9 @@ def run_sensor():
         if has_pressure and len(sensor.signals) > 1:
             sensor.signals[1].value = 1013.25 + 10.0 * math.cos(t * 0.3)
         sensor.tick()
-        time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+        time.sleep(
+            0.001
+        )  # Prevent busy loop; reduce or remove if faster response is needed
 
 
 threading.Thread(target=run_sensor, daemon=True).start()
@@ -102,10 +104,10 @@ time.sleep(0.2)
 # Hub: custom commands are forwarded to upstreams automatically
 # ---------------------------------------------------------------------------
 hub = BlaeckTCPy(
-          ip="127.0.0.1",
-          port=23,
-          device_name="Schema Change Hub",
-      )
+    ip="127.0.0.1",
+    port=23,
+    device_name="Schema Change Hub",
+)
 hub.timestamp_mode = TimestampMode.UNIX
 hub.local_interval_ms = 500
 
@@ -114,9 +116,13 @@ hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=300)
 hub.start()
 
 print("Hub running on 127.0.0.1:23")
-print("Send <ADD_PRESSURE> or <REMOVE_PRESSURE> to the hub to change signals at runtime.")
+print(
+    "Send <ADD_PRESSURE> or <REMOVE_PRESSURE> to the hub to change signals at runtime."
+)
 print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe to remove
 
 while True:
     hub.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed

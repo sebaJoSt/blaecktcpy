@@ -38,24 +38,28 @@ from blaecktcpy import BlaeckTCPy, UpstreamDevice
 
 # --- Upstream server simulating a sensor board ---
 server = BlaeckTCPy(
-             ip="127.0.0.1",
-             port=10024,
-             device_name="Sensor Board",
-             log_level=logging.WARNING,
-             http_port=None,
-         )
-server.add_signal("temperature", "float")   # temperature in Fahrenheit (transformed by hub)
-server.add_signal("humidity", "float")     # relative humidity %
+    ip="127.0.0.1",
+    port=10024,
+    device_name="Sensor Board",
+    log_level=logging.WARNING,
+    http_port=None,
+)
+server.add_signal(
+    "temperature", "float"
+)  # temperature in Fahrenheit (transformed by hub)
+server.add_signal("humidity", "float")  # relative humidity %
 server.start()
 
 
 def run_server():
     while True:
         t = (time.time() - server.start_time) * 1000
-        server.signals[0].value = 72.0 + math.sin(t * 0.0005) * 5.0   # ~68-77 °F
+        server.signals[0].value = 72.0 + math.sin(t * 0.0005) * 5.0  # ~68-77 °F
         server.signals[1].value = 55.0 + math.sin(t * 0.0003) * 15.0  # ~40-70 %
         server.tick()
-        time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+        time.sleep(
+            0.001
+        )  # Prevent busy loop; reduce or remove if faster response is needed
 
 
 threading.Thread(target=run_server, daemon=True).start()
@@ -63,10 +67,10 @@ time.sleep(0.2)
 
 # --- Hub ---
 hub = BlaeckTCPy(
-          ip="127.0.0.1",
-          port=23,
-          device_name="Sensor Hub",
-      )
+    ip="127.0.0.1",
+    port=23,
+    device_name="Sensor Hub",
+)
 
 # Computed local signals
 dew_point = hub.add_signal("dew_point", "float")
@@ -104,4 +108,6 @@ print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe t
 
 while True:
     hub.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed

@@ -51,10 +51,10 @@ PSU_POLL_INTERVAL = 0.5  # seconds
 
 # -- Hub setup --
 hub = BlaeckTCPy(
-          ip=HUB_IP,
-          port=HUB_PORT,
-          device_name="Stress Board Hub",
-      )
+    ip=HUB_IP,
+    port=HUB_PORT,
+    device_name="Stress Board Hub",
+)
 
 # Relay all microcontroller signals to Loggbok
 hub.add_tcp(BOARD_IP, BOARD_PORT, "StressBoard", interval_ms=500)
@@ -98,4 +98,6 @@ print("##LOGGBOK:READY##")  # Sentinel for Loggbok's process launcher — safe t
 
 while True:
     hub.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed

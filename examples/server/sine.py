@@ -15,12 +15,12 @@ from blaecktcpy import BlaeckTCPy
 EXAMPLE_VERSION = "1.0"
 
 bltcp = BlaeckTCPy(
-            ip="127.0.0.1",
-            port=23,
-            device_name="Sine Generator",
-            device_hw_version="Python Script",
-            device_fw_version=EXAMPLE_VERSION,
-        )
+    ip="127.0.0.1",
+    port=23,
+    device_name="Sine Generator",
+    device_hw_version="Python Script",
+    device_fw_version=EXAMPLE_VERSION,
+)
 
 for i in range(1, 4):
     bltcp.add_signal(f"Sine_{i}", "float")
@@ -34,4 +34,6 @@ while True:
     for s in bltcp.signals:
         s.value = value
     bltcp.tick()
-    time.sleep(0.001)  # Prevent busy loop; reduce or remove if faster response is needed
+    time.sleep(
+        0.001
+    )  # Prevent busy loop; reduce or remove if faster response is needed
