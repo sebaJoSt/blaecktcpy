@@ -307,6 +307,7 @@ add_tcp(
     interval_ms: int = IntervalMode.CLIENT,
     relay_downstream: bool = True,
     forward_custom_commands: bool | list[str] = True,
+    replay_commands: list[str] | None = None,
     auto_reconnect: bool = False,
 ) -> UpstreamDevice
 ```
@@ -322,6 +323,7 @@ Register an upstream TCP device. Must be called before `start()`.
 | `interval_ms` | `int` | `IntervalMode.CLIENT` | Interval in milliseconds, or an `IntervalMode` member |
 | `relay_downstream` | `bool` | `True` | If `False`, signals are decoded but not exposed downstream |
 | `forward_custom_commands` | `bool \| list[str]` | `True` | `True` = all, `False` = none, or a list of command names |
+| `replay_commands` | `list[str] \| None` | `None` | Command names to replay after upstream reconnect |
 | `auto_reconnect` | `bool` | `False` | Automatically reconnect on connection loss |
 
 #### `add_serial()`
@@ -336,6 +338,7 @@ add_serial(
     interval_ms: int = IntervalMode.CLIENT,
     relay_downstream: bool = True,
     forward_custom_commands: bool | list[str] = True,
+    replay_commands: list[str] | None = None,
 ) -> UpstreamDevice
 ```
 
@@ -351,6 +354,7 @@ Register an upstream serial device. Must be called before `start()`. Requires py
 | `interval_ms` | `int` | `IntervalMode.CLIENT` | Interval in milliseconds, or an `IntervalMode` member |
 | `relay_downstream` | `bool` | `True` | If `False`, signals are decoded but not exposed downstream |
 | `forward_custom_commands` | `bool \| list[str]` | `True` | `True` = all, `False` = none, or a list of command names |
+| `replay_commands` | `list[str] \| None` | `None` | Command names to replay after upstream restart |
 
 #### `upstream_status()`
 

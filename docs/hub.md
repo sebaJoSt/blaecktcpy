@@ -105,6 +105,20 @@ def handle_motor(speed):
     print(f"Motor = {speed}")
 ```
 
+### Replaying commands after restart
+
+When an upstream device restarts or reconnects, it loses any state set by custom commands. Use `replay_commands` to automatically re-send the last known value of specific commands:
+
+```python
+hub.add_serial("COM3", 9600, name="Arduino",
+               forward_custom_commands=["SwitchLED", "SetColor"],
+               replay_commands=["SwitchLED", "SetColor"])
+```
+
+The hub stores the last full command string (including arguments) for each command name. After a restart or reconnect, commands listed in `replay_commands` are replayed before `BLAECK.ACTIVATE` is re-sent. Commands that were never sent by a client are silently skipped.
+
+> **Note:** `replay_commands` respects the `forward_custom_commands` filter — a command is only replayed if it would also be forwarded.
+
 ## Auto-reconnect
 
 TCP upstreams can automatically reconnect after connection loss:
@@ -127,8 +141,9 @@ is being attempted before a successful reconnect.
 On successful reconnect, the hub re-discovers device info and:
 
 1. Sends a `STATUS_UPSTREAM_RECONNECTED` (`0x81`) D2 data frame
-2. Re-sends `BLAECK.ACTIVATE` to hub-managed upstreams
-3. If the upstream device restarted, sends a `C0` restart notification frame containing the device name and version info. Downstream clients can use this to re-send `BLAECK.ACTIVATE` for client-controlled upstreams.
+2. Replays custom commands (if `replay_commands` is configured)
+3. Re-sends `BLAECK.ACTIVATE` to hub-managed upstreams
+4. If the upstream device restarted, sends a `C0` restart notification frame containing the device name and version info. Downstream clients can use this to re-send `BLAECK.ACTIVATE` for client-controlled upstreams.
 
 > **Note:** The hub always sends D2 frames downstream, even when the upstream
 > device uses the older B1/D1 format. StatusByte values `0x80`+ are only
