@@ -935,7 +935,10 @@ class BlaeckTCPy:
             # One-shot: forward to relayed upstreams only
             for upstream in self._hub._upstreams:
                 if upstream.relay_downstream and upstream.transport.connected:
-                    upstream.transport.send_command(full_cmd)
+                    if not upstream.transport.send_command(full_cmd):
+                        self._logger.warning(
+                            f"Upstream '{upstream.device_name}' failed to send {command}"
+                        )
         else:
             # ACTIVATE/DEACTIVATE: only forward to client-managed relayed upstreams
             for upstream in self._hub._upstreams:
@@ -944,8 +947,11 @@ class BlaeckTCPy:
                     and upstream.interval_ms == IntervalMode.CLIENT
                     and upstream.transport.connected
                 ):
-                    upstream.transport.send_command(full_cmd)
-                    if command == "BLAECK.ACTIVATE":
+                    if not upstream.transport.send_command(full_cmd):
+                        self._logger.warning(
+                            f"Upstream '{upstream.device_name}' failed to send {command}"
+                        )
+                    elif command == "BLAECK.ACTIVATE":
                         interval = self._decode_four_byte(params)
                         self._logger.info(
                             f"Upstream '{upstream.device_name}' interval: {interval} ms (client ACTIVATE forwarded)"
@@ -1015,7 +1021,10 @@ class BlaeckTCPy:
                 continue
             if isinstance(fcc, list) and command not in fcc:
                 continue
-            upstream.transport.send_command(full_cmd)
+            if not upstream.transport.send_command(full_cmd):
+                self._logger.warning(
+                    f"Upstream '{upstream.device_name}' failed to forward {command}"
+                )
 
     # ========================================================================
     # Message Writers

@@ -820,23 +820,34 @@ class HubManager:
         if upstream.interval_ms >= 0:
             b = upstream.interval_ms.to_bytes(4, "little")
             params = ",".join(str(x) for x in b)
-            upstream.transport.send_command(f"BLAECK.ACTIVATE,{params}")
-            self._logger.info(
-                f"Upstream '{upstream.device_name}' interval restored: "
-                f"{upstream.interval_ms} ms"
-            )
+            if not upstream.transport.send_command(f"BLAECK.ACTIVATE,{params}"):
+                self._logger.warning(
+                    f"Upstream '{upstream.device_name}' failed to resend ACTIVATE"
+                )
+            else:
+                self._logger.info(
+                    f"Upstream '{upstream.device_name}' interval restored: "
+                    f"{upstream.interval_ms} ms"
+                )
         elif upstream.interval_ms == IntervalMode.OFF:
-            upstream.transport.send_command("BLAECK.DEACTIVATE")
+            if not upstream.transport.send_command("BLAECK.DEACTIVATE"):
+                self._logger.warning(
+                    f"Upstream '{upstream.device_name}' failed to resend DEACTIVATE"
+                )
         elif (
             upstream.interval_ms == IntervalMode.CLIENT
             and self._server._last_client_activate_cmd
         ):
-            upstream.transport.send_command(
+            if not upstream.transport.send_command(
                 self._server._last_client_activate_cmd
-            )
-            self._logger.info(
-                f"Upstream '{upstream.device_name}' interval restored: client controlled"
-            )
+            ):
+                self._logger.warning(
+                    f"Upstream '{upstream.device_name}' failed to resend activate command"
+                )
+            else:
+                self._logger.info(
+                    f"Upstream '{upstream.device_name}' interval restored: client controlled"
+                )
 
     def _replay_custom_commands(self, upstream: UpstreamDevice) -> None:
         """Replay stored custom commands after upstream restart or reconnect."""
@@ -851,10 +862,14 @@ class HubManager:
                 continue
             if not fcc:
                 continue
-            upstream.transport.send_command(full_cmd)
-            self._logger.debug(
-                f"Upstream '{upstream.device_name}' replayed: {full_cmd}"
-            )
+            if not upstream.transport.send_command(full_cmd):
+                self._logger.warning(
+                    f"Upstream '{upstream.device_name}' failed to replay {command}"
+                )
+            else:
+                self._logger.debug(
+                    f"Upstream '{upstream.device_name}' replayed: {full_cmd}"
+                )
 
     def _handle_upstream_disconnect(
         self, upstream: UpstreamDevice
