@@ -44,7 +44,6 @@ class UpstreamDevice:
     _upstream_signals: SignalList | None = field(default=None, repr=False)
     expected_schema_hash: int = 0
     schema_stale: bool = False
-    _initial_restart_seen: bool = False
     _restart_c0_sent: bool = False
     auto_reconnect: bool = False
     _reconnect_cooldown: float = 0.0
@@ -236,9 +235,6 @@ class HubManager:
             )
 
         symbols = decoder.parse_symbol_list(frame)
-        if not symbols:
-            upstream.transport.close()
-            raise ValueError(f"Upstream '{label}' reported no signals")
         upstream.symbol_table = symbols
         upstream.expected_schema_hash = decoder.compute_schema_hash(
             [(s.name, s.datatype_code) for s in symbols]
@@ -265,11 +261,11 @@ class HubManager:
         if not upstream.device_name and upstream.device_infos:
             upstream.device_name = upstream.device_infos[0].device_name
 
-        for info in upstream.device_infos or []:
-            if info.server_restarted == "1":
-                upstream._initial_restart_seen = True
-                upstream._restart_c0_sent = True
-                break
+        # Discovery consumed the initial boot state — the 0xC0 frame was
+        # discarded by _poll_for_frame and the first data frame's
+        # restart_flag is part of the same boot, not a real restart.
+        # Setting _restart_c0_sent ensures that flag is consumed.
+        upstream._restart_c0_sent = True
 
         interval_info = ""
         if upstream.interval_ms >= 0:
@@ -375,14 +371,11 @@ class HubManager:
                     continue
 
                 if msg_key == decoder.MSGKEY_RESTART:
-                    if upstream._initial_restart_seen:
-                        self._send_upstream_restarted_frame(upstream)
-                        self._resend_activate(upstream)
-                        self._logger.info(
-                            f"Upstream '{upstream.device_name}' restarted (0xC0)"
-                        )
-                    else:
-                        upstream._initial_restart_seen = True
+                    self._logger.info(
+                        f"Upstream '{upstream.device_name}' restarted (0xC0)"
+                    )
+                    self._send_upstream_restarted_frame(upstream)
+                    self._resend_activate(upstream)
                     continue
 
                 if msg_key in decoder.MSGKEY_DATA_ALL:
@@ -465,25 +458,19 @@ class HubManager:
                 return
 
             if decoded.restart_flag:
-                if not upstream._initial_restart_seen:
-                    upstream._initial_restart_seen = True
-                    self._logger.debug(
-                        f"Upstream '{upstream.device_name}' "
-                        f"initial restart flag suppressed"
-                    )
-                elif upstream._restart_c0_sent:
+                if upstream._restart_c0_sent:
                     upstream._restart_c0_sent = False
                     self._logger.debug(
                         f"Upstream '{upstream.device_name}' restart "
                         f"flag consumed (0xC0 already sent)"
                     )
                 else:
-                    self._send_upstream_restarted_frame(upstream)
-                    self._resend_activate(upstream)
                     self._logger.info(
                         f"Upstream '{upstream.device_name}' restart "
                         f"flag relayed via 0xC0"
                     )
+                    self._send_upstream_restarted_frame(upstream)
+                    self._resend_activate(upstream)
 
             if not upstream.relay_downstream:
                 for sig_id, value in decoded.signals.items():
@@ -867,7 +854,7 @@ class HubManager:
                     f"Upstream '{upstream.device_name}' failed to replay {command}"
                 )
             else:
-                self._logger.debug(
+                self._logger.info(
                     f"Upstream '{upstream.device_name}' replayed: {full_cmd}"
                 )
 
@@ -941,20 +928,17 @@ class HubManager:
                 self._rebuild_slave_id_map(upstream)
                 for info in infos:
                     if info.server_restarted == "1":
-                        if upstream._initial_restart_seen:
-                            if upstream._awaiting_devices:
-                                upstream._restart_detected = True
-                            else:
-                                self._send_upstream_restarted_frame(
-                                    upstream
-                                )
-                                self._resend_activate(upstream)
-                            self._logger.info(
-                                f"Upstream '{upstream.device_name}' "
-                                f"restart detected via device info"
-                            )
+                        self._logger.info(
+                            f"Upstream '{upstream.device_name}' "
+                            f"restart detected via device info"
+                        )
+                        if upstream._awaiting_devices:
+                            upstream._restart_detected = True
                         else:
-                            upstream._initial_restart_seen = True
+                            self._send_upstream_restarted_frame(
+                                upstream
+                            )
+                            self._resend_activate(upstream)
         except (ValueError, IndexError, UnicodeDecodeError) as e:
             self._logger.warning(
                 f"Device info processing for "
@@ -997,12 +981,12 @@ class HubManager:
         """Complete reconnect: notify downstream, re-send ACTIVATE."""
         upstream._reconnecting = False
         self._send_upstream_reconnected_frame(upstream)
-        self._resend_activate(upstream)
-        if restart_detected:
-            self._send_upstream_restarted_frame(upstream)
         self._logger.info(
             f"Upstream '{upstream.device_name}' reconnected"
         )
+        if restart_detected:
+            self._send_upstream_restarted_frame(upstream)
+        self._resend_activate(upstream)
 
     # ── Helpers ──────────────────────────────────────────────────────
 

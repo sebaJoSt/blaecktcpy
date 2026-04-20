@@ -85,7 +85,6 @@ def _make_hub_with_reconnectable_upstream(
     ]
     upstream.symbol_table = sym_objs
     upstream.expected_schema_hash = decoder.compute_schema_hash(symbols)
-    upstream._initial_restart_seen = True
 
     offset = device._local_signal_count
     for i, (name, code) in enumerate(symbols):

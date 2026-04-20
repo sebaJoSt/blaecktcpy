@@ -105,11 +105,14 @@ _HTML_TEMPLATE = string.Template(
 
     <!-- Local Signals -->
     <article>
-      <h3>Local Signals (<span id="ls-count">$local_signal_count</span>)</h3>
-      <table id="local-signal-table" class="signal-table striped">
-        <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Value</th></tr></thead>
-        <tbody>$local_signal_rows</tbody>
-      </table>
+      <details open>
+        <summary>Local Signals (<span id="ls-count">$local_signal_count</span>)</summary>
+
+        <table id="local-signal-table" class="signal-table striped">
+          <thead><tr><th>#</th><th>Name</th><th>Type</th><th>Value</th></tr></thead>
+          <tbody>$local_signal_rows</tbody>
+        </table>
+      </details>
     </article>
 
     $upstream_html
@@ -179,9 +182,13 @@ _HTML_TEMPLATE = string.Template(
 
       // Local signals
       var ls = '';
-      d.local_signals.forEach(function(s, i) {
-        ls += '<tr><td>'+(i+1)+'</td><td>'+esc(s.name)+'</td><td>'+esc(s.type)+'</td><td>'+esc(String(s.value))+'</td></tr>';
-      });
+      if (d.local_signals.length === 0) {
+        ls = '<tr><td colspan="4"><em>No signals</em></td></tr>';
+      } else {
+        d.local_signals.forEach(function(s, i) {
+          ls += '<tr><td>'+(i+1)+'</td><td>'+esc(s.name)+'</td><td>'+esc(s.type)+'</td><td>'+esc(String(s.value))+'</td></tr>';
+        });
+      }
       setHtml('local-signal-body', ls);
 
       // Upstreams
@@ -203,9 +210,13 @@ _HTML_TEMPLATE = string.Template(
           if (statusEl) statusEl.innerHTML = '<span class="status-dot '+(u.connected?'up':'down')+'" title="'+(u.connected?'Connected':'Disconnected')+'"></span>';
           if (tbody) {
             var rs = '';
-            u.signals.forEach(function(s, i) {
-              rs += '<tr><td>'+(i+1)+'</td><td>'+esc(s.name)+'</td><td>'+esc(s.type)+'</td><td>'+esc(String(s.value))+'</td></tr>';
-            });
+            if (u.signals.length === 0) {
+              rs = '<tr><td colspan="4"><em>No signals</em></td></tr>';
+            } else {
+              u.signals.forEach(function(s, i) {
+                rs += '<tr><td>'+(i+1)+'</td><td>'+esc(s.name)+'</td><td>'+esc(s.type)+'</td><td>'+esc(String(s.value))+'</td></tr>';
+              });
+            }
             tbody.innerHTML = rs;
           }
         });
@@ -425,12 +436,15 @@ def _render_html(server: BlaeckTCPy) -> str:
         client_rows = '<tr><td colspan="4"><em>No clients connected</em></td></tr>'
 
     # Local signal rows
-    local_signal_rows = ""
-    for i, s in enumerate(state["local_signals"]):
-        local_signal_rows += (
-            f"<tr><td>{i + 1}</td><td>{_esc(s['name'])}</td>"
-            f"<td>{_esc(s['type'])}</td><td>{_esc(str(s['value']))}</td></tr>"
-        )
+    if state["local_signals"]:
+        local_signal_rows = ""
+        for i, s in enumerate(state["local_signals"]):
+            local_signal_rows += (
+                f"<tr><td>{i + 1}</td><td>{_esc(s['name'])}</td>"
+                f"<td>{_esc(s['type'])}</td><td>{_esc(str(s['value']))}</td></tr>"
+            )
+    else:
+        local_signal_rows = '<tr><td colspan="4"><em>No signals</em></td></tr>'
 
     # Upstream HTML
     upstream_html = ""
@@ -464,11 +478,14 @@ def _render_html(server: BlaeckTCPy) -> str:
             dot_class = "up" if u["connected"] else "down"
             dot_label = "Connected" if u["connected"] else "Disconnected"
             sig_rows = ""
-            for i, s in enumerate(u["signals"]):
-                sig_rows += (
-                    f"<tr><td>{i + 1}</td><td>{_esc(s['name'])}</td>"
-                    f"<td>{_esc(s['type'])}</td><td>{_esc(str(s['value']))}</td></tr>"
-                )
+            if u["signals"]:
+                for i, s in enumerate(u["signals"]):
+                    sig_rows += (
+                        f"<tr><td>{i + 1}</td><td>{_esc(s['name'])}</td>"
+                        f"<td>{_esc(s['type'])}</td><td>{_esc(str(s['value']))}</td></tr>"
+                    )
+            else:
+                sig_rows = '<tr><td colspan="4"><em>No signals</em></td></tr>'
             upstream_html += f"""
     <article>
       <details>

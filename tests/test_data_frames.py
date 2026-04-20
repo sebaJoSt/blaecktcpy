@@ -438,8 +438,6 @@ class TestRelayFrameScoping:
             # Clear the device's initial restart flags
             device._restart_flag_pending = False
             device._server_restarted = False
-            up_a._initial_restart_seen = True
-            up_b._initial_restart_seen = True
 
             # Upstream A: restart_flag=True
             frame_a = self._build_d1_frame(restart_flag=True, signal_values=[1.0, 2.0])
