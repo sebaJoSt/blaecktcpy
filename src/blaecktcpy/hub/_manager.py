@@ -702,10 +702,12 @@ class HubManager:
         if not upstream.relay_downstream or not self._server.connected:
             return
         hub_indices = sorted(upstream.index_map.values())
-        if not hub_indices:
-            return
-        start_idx = hub_indices[0]
-        end_idx = hub_indices[-1]
+        if hub_indices:
+            start_idx = hub_indices[0]
+            end_idx = hub_indices[-1]
+        else:
+            start_idx = 0
+            end_idx = -2  # empty range: range(0, -1) produces no signals
         auto_reconnect_byte = (
             b"\x01" if upstream.auto_reconnect else b"\x00"
         )
@@ -737,13 +739,15 @@ class HubManager:
         if not upstream.relay_downstream or not self._server.connected:
             return
         hub_indices = sorted(upstream.index_map.values())
-        if not hub_indices:
-            return
         signals = self._server.signals
         for hub_idx in hub_indices:
             signals[hub_idx].updated = True
-        start_idx = hub_indices[0]
-        end_idx = hub_indices[-1]
+        if hub_indices:
+            start_idx = hub_indices[0]
+            end_idx = hub_indices[-1]
+        else:
+            start_idx = 0
+            end_idx = -2
         header = (
             self._server.MSG_DATA
             + b":"
@@ -897,10 +901,11 @@ class HubManager:
                         f"BLAECK.GET_DEVICES{self._hub_identity}"
                     )
                 upstream.schema_stale = False
-                self._logger.info(
-                    f"Schema refreshed for '{upstream.device_name}': "
-                    f"{len(new_symbols)} signals"
-                )
+                if not upstream._awaiting_symbols:
+                    self._logger.info(
+                        f"Schema refreshed for '{upstream.device_name}': "
+                        f"{len(new_symbols)} signals"
+                    )
         except (ValueError, IndexError, UnicodeDecodeError) as e:
             self._logger.warning(
                 f"Schema re-discovery failed for "
