@@ -889,7 +889,7 @@ class HubManager:
         new_symbols = None
         try:
             new_symbols = decoder.parse_symbol_list(frame)
-            if new_symbols:
+            if new_symbols is not None:
                 self._rebuild_upstream_schema(upstream, new_symbols)
                 self._rebuild_slave_id_map(upstream)
                 if upstream.schema_stale:
@@ -908,7 +908,7 @@ class HubManager:
             )
         if not upstream._awaiting_symbols:
             return
-        if new_symbols:
+        if new_symbols is not None:
             upstream._awaiting_symbols = False
             upstream.transport.send_command(
                 f"BLAECK.GET_DEVICES{self._hub_identity}"
@@ -946,7 +946,7 @@ class HubManager:
             )
         if not upstream._awaiting_devices:
             return
-        if infos:
+        if infos is not None:
             upstream._awaiting_devices = False
             if upstream._reconnecting:
                 self._finalize_reconnect(
