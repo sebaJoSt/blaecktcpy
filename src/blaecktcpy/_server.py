@@ -178,6 +178,7 @@ class BlaeckTCPy:
         self._slave_id: bytes = b"\x00"
         self._command_handlers: dict[str, Callable[..., Any]] = {}
         self._non_forwarded_commands: set[str] = set()
+        self._last_custom_commands: dict[str, str] = {}
         self._read_callback: Callable[..., Any] | None = None
         self._connect_callback: Callable[[int], Any] | None = None
         self._disconnect_callback: Callable[[int], Any] | None = None
@@ -528,6 +529,7 @@ class BlaeckTCPy:
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
         auto_reconnect: bool = False,
+        replay_commands: list[str] | None = None,
     ) -> UpstreamDevice:
         """Register an upstream TCP device for later discovery.
 
@@ -549,6 +551,11 @@ class BlaeckTCPy:
                 to forward only those.
             auto_reconnect: If True, automatically reconnect when the
                 upstream TCP connection is lost.
+            replay_commands: List of command names whose last invocation
+                is replayed to this upstream after a reconnect or restart.
+                Only useful for idempotent, state-setting commands.
+                Commands not in ``forward_custom_commands`` are silently
+                skipped during replay.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -562,6 +569,7 @@ class BlaeckTCPy:
             relay_downstream,
             forward_custom_commands,
             auto_reconnect,
+            replay_commands,
         )
 
     def add_serial(
@@ -574,6 +582,7 @@ class BlaeckTCPy:
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
+        replay_commands: list[str] | None = None,
     ) -> UpstreamDevice:
         """Register an upstream serial device for later discovery.
 
@@ -596,6 +605,11 @@ class BlaeckTCPy:
                 forwarded to this upstream.  ``True`` (default) forwards
                 all, ``False`` forwards none, or a list of command names
                 to forward only those.
+            replay_commands: List of command names whose last invocation
+                is replayed to this upstream after a reconnect or restart.
+                Only useful for idempotent, state-setting commands.
+                Commands not in ``forward_custom_commands`` are silently
+                skipped during replay.
 
         Returns:
             Upstream handle for accessing signal values.
@@ -609,6 +623,7 @@ class BlaeckTCPy:
             interval_ms,
             relay_downstream,
             forward_custom_commands,
+            replay_commands,
         )
 
     def _discover_all_upstreams(self) -> None:
@@ -990,6 +1005,10 @@ class BlaeckTCPy:
             full_cmd = f"{command},{','.join(str(p) for p in params)}"
         else:
             full_cmd = command
+        for upstream in self._hub._upstreams:
+            if command in upstream.replay_commands:
+                self._last_custom_commands[command] = full_cmd
+                break
         for upstream in self._hub._upstreams:
             fcc = upstream.forward_custom_commands
             if not fcc or not upstream.transport.connected:

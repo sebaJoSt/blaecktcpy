@@ -287,3 +287,208 @@ class TestCustomCommandForwarding:
         finally:
             client.close()
             device.close()
+
+
+class TestReplayCommandRegistration:
+    """Verify replay_commands on add_tcp/add_serial."""
+
+    def setup_method(self):
+        self.device = _make_server_on_free_port()
+
+    def test_replay_commands_default_is_empty(self):
+        transport = RecordingTransport("ESP32")
+        upstream = UpstreamDevice(
+            device_name="ESP32", transport=transport,
+        )
+        assert upstream.replay_commands == []
+
+    def test_replay_commands_set_on_upstream(self):
+        transport = RecordingTransport("ESP32")
+        upstream = UpstreamDevice(
+            device_name="ESP32", transport=transport,
+            replay_commands=["SET_LED", "SET_MOTOR"],
+        )
+        assert upstream.replay_commands == ["SET_LED", "SET_MOTOR"]
+
+    def test_add_tcp_replay_commands_rejects_non_list(self):
+        with pytest.raises(TypeError, match="replay_commands must be a list"):
+            self.device.add_tcp("127.0.0.1", 9999, replay_commands=True)
+
+    def test_add_serial_replay_commands_rejects_non_list(self):
+        with pytest.raises(TypeError, match="replay_commands must be a list"):
+            self.device.add_serial("COM99", replay_commands="SET_LED")
+
+
+class TestCustomCommandReplay:
+    """Verify replayable commands are stored and replayed on reconnect."""
+
+    def _make_hub_with_upstream(self, forward_custom_commands=True,
+                                 replay_commands=None):
+        """Create a hub with one recording upstream and a TCP client."""
+        import socket
+        import time
+
+        device = _make_server_on_free_port()
+
+        transport = RecordingTransport("ESP32")
+        upstream = UpstreamDevice(
+            device_name="ESP32",
+            transport=transport,
+            relay_downstream=True,
+            forward_custom_commands=forward_custom_commands,
+            replay_commands=replay_commands or [],
+        )
+        device._hub._upstreams.append(upstream)
+        _start_retry(device)
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(("127.0.0.1", device._port))
+        device._accept_new_clients()
+
+        return device, client, transport, upstream
+
+    def test_replayable_command_is_stored(self):
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            replay_commands=["SET_LED"]
+        )
+        try:
+            import time
+
+            client.sendall(b"<SET_LED,ON>")
+            time.sleep(0.05)
+            device.read()
+            assert device._last_custom_commands == {"SET_LED": "SET_LED,ON"}
+        finally:
+            client.close()
+            device.close()
+
+    def test_non_replayable_command_not_stored(self):
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            replay_commands=[]
+        )
+        try:
+            import time
+
+            client.sendall(b"<TRIGGER>")
+            time.sleep(0.05)
+            device.read()
+            assert "TRIGGER" not in device._last_custom_commands
+        finally:
+            client.close()
+            device.close()
+
+    def test_last_invocation_wins(self):
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            replay_commands=["SET_LED"]
+        )
+        try:
+            import time
+
+            client.sendall(b"<SET_LED,ON>")
+            time.sleep(0.05)
+            device.read()
+            client.sendall(b"<SET_LED,OFF>")
+            time.sleep(0.05)
+            device.read()
+            assert device._last_custom_commands == {"SET_LED": "SET_LED,OFF"}
+        finally:
+            client.close()
+            device.close()
+
+    def test_replay_on_reconnect(self):
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            replay_commands=["SET_LED"]
+        )
+        try:
+            import time
+
+            client.sendall(b"<SET_LED,ON>")
+            time.sleep(0.05)
+            device.read()
+            transport.sent.clear()
+
+            device._hub._replay_custom_commands(upstream)
+            assert b"<SET_LED,ON>" in transport.sent
+        finally:
+            client.close()
+            device.close()
+
+    def test_replay_respects_forward_whitelist(self):
+        """Command in replay_commands but not in forward_custom_commands is skipped."""
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            forward_custom_commands=["SET_MOTOR"],
+            replay_commands=["SET_LED", "SET_MOTOR"],
+        )
+        try:
+            import time
+
+            # SET_LED won't be forwarded (not in forward list), but stored
+            # via the upstream's replay_commands
+            client.sendall(b"<SET_MOTOR,100>")
+            time.sleep(0.05)
+            device.read()
+            transport.sent.clear()
+
+            device._hub._replay_custom_commands(upstream)
+            assert b"<SET_LED,ON>" not in transport.sent
+            assert b"<SET_MOTOR,100>" in transport.sent
+        finally:
+            client.close()
+            device.close()
+
+    def test_replay_skips_when_forward_false(self):
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            forward_custom_commands=False,
+            replay_commands=["SET_LED"],
+        )
+        try:
+            import time
+
+            client.sendall(b"<SET_LED,ON>")
+            time.sleep(0.05)
+            device.read()
+            # Command stored because another upstream might want it
+            # but this upstream has forward=False
+            device._hub._replay_custom_commands(upstream)
+            assert len(transport.sent) == 0
+        finally:
+            client.close()
+            device.close()
+
+    def test_replay_before_activate(self):
+        """Replay commands are sent before BLAECK.ACTIVATE."""
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            replay_commands=["SET_LED"]
+        )
+        try:
+            import time
+
+            client.sendall(b"<SET_LED,ON>")
+            time.sleep(0.05)
+            device.read()
+            transport.sent.clear()
+
+            device._hub._resend_activate(upstream)
+            # SET_LED should appear before any BLAECK command
+            led_idx = None
+            for i, msg in enumerate(transport.sent):
+                if b"SET_LED" in msg:
+                    led_idx = i
+                    break
+            assert led_idx == 0, f"SET_LED should be first, got index {led_idx}"
+        finally:
+            client.close()
+            device.close()
+
+    def test_no_replay_without_prior_command(self):
+        """If no command was ever sent, nothing is replayed."""
+        device, client, transport, upstream = self._make_hub_with_upstream(
+            replay_commands=["SET_LED"]
+        )
+        try:
+            device._hub._replay_custom_commands(upstream)
+            assert len(transport.sent) == 0
+        finally:
+            client.close()
+            device.close()

@@ -39,6 +39,7 @@ class UpstreamDevice:
     connected: bool = True
     relay_downstream: bool = True
     forward_custom_commands: bool | list[str] = True
+    replay_commands: list[str] = field(default_factory=list)
     _signals: list[Signal] = field(default_factory=list)
     _upstream_signals: SignalList | None = field(default=None, repr=False)
     expected_schema_hash: int = 0
@@ -97,6 +98,7 @@ class HubManager:
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
         auto_reconnect: bool = False,
+        replay_commands: list[str] | None = None,
     ) -> UpstreamDevice:
         """Register an upstream TCP device for later discovery."""
         if self._server._started:
@@ -109,6 +111,8 @@ class HubManager:
                 "forward_custom_commands must be True, False, "
                 "or a list of command names"
             )
+        if replay_commands is not None and not isinstance(replay_commands, list):
+            raise TypeError("replay_commands must be a list of command names or None")
 
         label = name or f"{ip}:{port}"
         transport = UpstreamTCP(label, ip, port, logger=self._logger)
@@ -119,6 +123,7 @@ class HubManager:
             connected=False,
             relay_downstream=relay_downstream,
             forward_custom_commands=forward_custom_commands,
+            replay_commands=replay_commands or [],
             auto_reconnect=auto_reconnect,
             _discovery_timeout=timeout,
         )
@@ -135,6 +140,7 @@ class HubManager:
         interval_ms: int = IntervalMode.CLIENT,
         relay_downstream: bool = True,
         forward_custom_commands: bool | list[str] = True,
+        replay_commands: list[str] | None = None,
     ) -> UpstreamDevice:
         """Register an upstream serial device for later discovery."""
         from ._upstream import UpstreamSerial
@@ -149,6 +155,8 @@ class HubManager:
                 "forward_custom_commands must be True, False, "
                 "or a list of command names"
             )
+        if replay_commands is not None and not isinstance(replay_commands, list):
+            raise TypeError("replay_commands must be a list of command names or None")
 
         label = name or port
         transport = UpstreamSerial(
@@ -161,6 +169,7 @@ class HubManager:
             connected=False,
             relay_downstream=relay_downstream,
             forward_custom_commands=forward_custom_commands,
+            replay_commands=replay_commands or [],
             _discovery_timeout=timeout,
         )
         self._upstreams.append(upstream)
@@ -807,6 +816,7 @@ class HubManager:
 
     def _resend_activate(self, upstream: UpstreamDevice) -> None:
         """Re-send ACTIVATE/DEACTIVATE after upstream restart or reconnect."""
+        self._replay_custom_commands(upstream)
         if upstream.interval_ms >= 0:
             b = upstream.interval_ms.to_bytes(4, "little")
             params = ",".join(str(x) for x in b)
@@ -826,6 +836,24 @@ class HubManager:
             )
             self._logger.info(
                 f"Upstream '{upstream.device_name}' interval restored: client controlled"
+            )
+
+    def _replay_custom_commands(self, upstream: UpstreamDevice) -> None:
+        """Replay stored custom commands after upstream restart or reconnect."""
+        if not upstream.replay_commands or not upstream.transport.connected:
+            return
+        fcc = upstream.forward_custom_commands
+        for command in upstream.replay_commands:
+            full_cmd = self._server._last_custom_commands.get(command)
+            if full_cmd is None:
+                continue
+            if isinstance(fcc, list) and command not in fcc:
+                continue
+            if not fcc:
+                continue
+            upstream.transport.send_command(full_cmd)
+            self._logger.debug(
+                f"Upstream '{upstream.device_name}' replayed: {full_cmd}"
             )
 
     def _handle_upstream_disconnect(
