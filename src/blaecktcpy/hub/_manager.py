@@ -375,6 +375,7 @@ class HubManager:
                         f"Upstream '{upstream.device_name}' restarted (0xC0)"
                     )
                     self._send_upstream_restarted_frame(upstream)
+                    self._replay_custom_commands(upstream)
                     self._resend_activate(upstream)
                     continue
 
@@ -470,6 +471,7 @@ class HubManager:
                         f"flag relayed via 0xC0"
                     )
                     self._send_upstream_restarted_frame(upstream)
+                    self._replay_custom_commands(upstream)
                     self._resend_activate(upstream)
 
             if not upstream.relay_downstream:
@@ -807,7 +809,6 @@ class HubManager:
 
     def _resend_activate(self, upstream: UpstreamDevice) -> None:
         """Re-send ACTIVATE/DEACTIVATE after upstream restart or reconnect."""
-        self._replay_custom_commands(upstream)
         if upstream.interval_ms >= 0:
             b = upstream.interval_ms.to_bytes(4, "little")
             params = ",".join(str(x) for x in b)
@@ -845,6 +846,8 @@ class HubManager:
         if not upstream.replay_commands or not upstream.transport.connected:
             return
         fcc = upstream.forward_custom_commands
+        replayed = []
+        failed = []
         for command in upstream.replay_commands:
             full_cmd = self._server._last_custom_commands.get(command)
             if full_cmd is None:
@@ -853,19 +856,32 @@ class HubManager:
                 continue
             if not fcc:
                 continue
-            if not upstream.transport.send_command(full_cmd):
-                self._logger.warning(
-                    f"Upstream '{upstream.device_name}' failed to replay {command}"
-                )
+            if upstream.transport.send_command(full_cmd):
+                replayed.append(f"<{full_cmd}>")
             else:
-                self._logger.info(
-                    f"Upstream '{upstream.device_name}' replayed: {full_cmd}"
-                )
+                failed.append(command)
+        if replayed:
+            self._logger.info(
+                f"Upstream '{upstream.device_name}' replayed: "
+                + ", ".join(replayed)
+            )
+        for command in failed:
+            self._logger.warning(
+                f"Upstream '{upstream.device_name}' failed to replay {command}"
+            )
 
     def _handle_upstream_disconnect(
         self, upstream: UpstreamDevice
     ) -> None:
         """Reset upstream state on disconnect and notify downstream."""
+        if upstream.auto_reconnect:
+            self._logger.warning(
+                f"Upstream '{upstream.device_name}' disconnected, reconnecting..."
+            )
+        else:
+            self._logger.warning(
+                f"Upstream '{upstream.device_name}' disconnected"
+            )
         upstream.connected = False
         upstream._reconnecting = False
         upstream._awaiting_symbols = False
@@ -991,6 +1007,7 @@ class HubManager:
         )
         if restart_detected:
             self._send_upstream_restarted_frame(upstream)
+        self._replay_custom_commands(upstream)
         self._resend_activate(upstream)
 
     # ── Helpers ──────────────────────────────────────────────────────

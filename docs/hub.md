@@ -115,7 +115,14 @@ hub.add_serial("COM3", 9600, name="Arduino",
                replay_commands=["SwitchLED", "SetColor"])
 ```
 
-The hub stores the last full command string (including arguments) for each command name. After a restart or reconnect, commands listed in `replay_commands` are replayed before `BLAECK.ACTIVATE` is re-sent. Commands that were never sent by a client are silently skipped.
+How it works:
+
+1. A downstream client sends `<SwitchLED,1>` — the hub forwards it and stores `SwitchLED,1` in memory.
+2. The upstream device restarts or reconnects.
+3. The hub replays `SwitchLED,1` to the upstream, then re-sends `BLAECK.ACTIVATE`.
+4. If no client ever sent `SetColor`, that command has nothing to replay and is skipped.
+
+Stored commands are **not persisted** — if the hub itself restarts, they are lost.
 
 > **Note:** `replay_commands` respects the `forward_custom_commands` filter — a command is only replayed if it would also be forwarded.
 

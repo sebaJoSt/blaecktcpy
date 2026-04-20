@@ -177,7 +177,6 @@ class _UpstreamBase(ABC):
         return self._last_seen
 
     def _handle_disconnect(self) -> None:
-        self._logger.warning(f"Upstream '{self.name}' disconnected")
         self._cleanup()
 
     def _cleanup(self) -> None:

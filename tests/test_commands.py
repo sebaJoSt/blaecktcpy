@@ -469,6 +469,7 @@ class TestCustomCommandReplay:
             device.read()
             transport.sent.clear()
 
+            device._hub._replay_custom_commands(upstream)
             device._hub._resend_activate(upstream)
             # SET_LED should appear before any BLAECK command
             led_idx = None
