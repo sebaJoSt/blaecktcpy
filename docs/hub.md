@@ -30,7 +30,7 @@ hub.add_serial("COM3", 115200, name="Arduino")
 
 ## Upstream data rate
 
-The hub sends `BLAECK.DEACTIVATE` to every upstream on connect (to ensure a clean state) and again on `close()`.
+The hub sends `BLAECK.DEACTIVATE` to every upstream on initial connect (to ensure a clean state) and again on `close()`. On reconnect, client-managed upstreams (`IntervalMode.CLIENT`) skip the `DEACTIVATE` so the downstream client retains control of the activation state.
 
 By default (`interval_ms=IntervalMode.CLIENT`), each upstream starts streaming when a downstream client (e.g. Loggbok) sends `BLAECK.ACTIVATE`. The hub forwards `ACTIVATE` and `DEACTIVATE` commands from the client to these upstreams.
 

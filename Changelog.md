@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- TCP keepalive on upstream connections (idle 5 s, interval 1 s, count 5) for faster dead-peer detection after cable pulls
+
+### Fixed
+
+- CLIENT mode upstreams no longer receive `BLAECK.DEACTIVATE` during discovery, preventing a deadlock where nobody re-ACTIVATEs
+- Removed duplicate `BLAECK.ACTIVATE` after reconnect in CLIENT mode — the downstream client owns activation
+
 ## [2.0.0] - 2026-04-08
 
 Complete rewrite. Version 1.0.0 was a test release — treat 2.0.0 as the first production version.
