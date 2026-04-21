@@ -882,8 +882,13 @@ class HubManager:
             )
 
     def _start_discovery(self, upstream: UpstreamDevice) -> None:
-        """Begin discovery Phase 1: send DEACTIVATE + WRITE_SYMBOLS."""
-        upstream.transport.send_command("BLAECK.DEACTIVATE")
+        """Begin discovery Phase 1: send DEACTIVATE + WRITE_SYMBOLS.
+
+        In CLIENT mode, skip DEACTIVATE so the Arduino keeps its
+        existing activation state — the downstream client owns it.
+        """
+        if upstream.interval_ms != IntervalMode.CLIENT:
+            upstream.transport.send_command("BLAECK.DEACTIVATE")
         upstream.transport.send_command("BLAECK.WRITE_SYMBOLS")
         upstream._awaiting_symbols = True
         upstream._discovery_retry_at = time.time() + 1.0

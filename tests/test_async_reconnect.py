@@ -148,7 +148,11 @@ class TestAsyncReconnectStateMachine:
             device.close()
 
     def test_connect_success_sends_discovery_commands(self):
-        """After async connect succeeds, DEACTIVATE + WRITE_SYMBOLS are sent (Phase 1)."""
+        """After async connect succeeds, discovery commands are sent (Phase 1).
+
+        In CLIENT mode (default), only WRITE_SYMBOLS is sent — no DEACTIVATE,
+        because the downstream client owns the activation state.
+        """
         device, upstream, transport = _make_hub_with_reconnectable_upstream(
             [("temp", 8)]
         )
@@ -168,9 +172,9 @@ class TestAsyncReconnectStateMachine:
             assert upstream._awaiting_symbols is True
             assert upstream._awaiting_devices is False  # Phase 1: only symbols
 
-            # Verify commands sent (only DEACTIVATE + WRITE_SYMBOLS, not GET_DEVICES yet)
+            # CLIENT mode: only WRITE_SYMBOLS, no DEACTIVATE
             sent_cmds = [s.decode(errors="replace") for s in transport.sent]
-            assert any("BLAECK.DEACTIVATE" in c for c in sent_cmds)
+            assert not any("BLAECK.DEACTIVATE" in c for c in sent_cmds)
             assert any("BLAECK.WRITE_SYMBOLS" in c for c in sent_cmds)
             assert not any("BLAECK.GET_DEVICES" in c for c in sent_cmds)
         finally:
