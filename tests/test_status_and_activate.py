@@ -442,8 +442,8 @@ class TestResendActivate:
         finally:
             device.close()
 
-    def test_client_managed_restores_last_command(self):
-        """IntervalMode.CLIENT restores the last client ACTIVATE command."""
+    def test_client_managed_sends_nothing(self):
+        """IntervalMode.CLIENT does not replay — the downstream client owns it."""
         device = _make_server_on_free_port()
         _start_retry(device)
         try:
@@ -451,12 +451,9 @@ class TestResendActivate:
             upstream = self._make_upstream(transport, interval_ms=IntervalMode.CLIENT)
             device._hub._upstreams.append(upstream)
 
-            device._last_client_activate_cmd = "BLAECK.ACTIVATE,232,3,0,0"
             device._resend_activate(upstream)
 
-            assert len(transport.sent) == 1
-            cmd = transport.sent[0].decode()
-            assert cmd == "<BLAECK.ACTIVATE,232,3,0,0>"
+            assert len(transport.sent) == 0
         finally:
             device.close()
 
@@ -469,7 +466,6 @@ class TestResendActivate:
             upstream = self._make_upstream(transport, interval_ms=IntervalMode.CLIENT)
             device._hub._upstreams.append(upstream)
 
-            device._last_client_activate_cmd = None
             device._resend_activate(upstream)
 
             assert len(transport.sent) == 0

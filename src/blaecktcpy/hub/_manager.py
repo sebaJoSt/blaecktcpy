@@ -826,20 +826,6 @@ class HubManager:
                 self._logger.warning(
                     f"Upstream '{upstream.device_name}' failed to resend DEACTIVATE"
                 )
-        elif (
-            upstream.interval_ms == IntervalMode.CLIENT
-            and self._server._last_client_activate_cmd
-        ):
-            if not upstream.transport.send_command(
-                self._server._last_client_activate_cmd
-            ):
-                self._logger.warning(
-                    f"Upstream '{upstream.device_name}' failed to resend activate command"
-                )
-            else:
-                self._logger.info(
-                    f"Upstream '{upstream.device_name}' interval restored: client controlled"
-                )
 
     def _replay_custom_commands(self, upstream: UpstreamDevice) -> None:
         """Replay stored custom commands after upstream restart or reconnect."""

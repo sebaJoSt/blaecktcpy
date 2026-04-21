@@ -172,7 +172,6 @@ class BlaeckTCPy:
         # Protocol state
         self._timed_activated: bool = False
         self._fixed_interval_ms: int = IntervalMode.CLIENT
-        self._last_client_activate_cmd: str | None = None
         self._timer: _IntervalTimer = _IntervalTimer()
         self._master_slave_config: bytes = b"\x00"
         self._slave_id: bytes = b"\x00"
@@ -960,8 +959,6 @@ class BlaeckTCPy:
                         self._logger.info(
                             f"Upstream '{upstream.device_name}' interval: OFF (client DEACTIVATE forwarded)"
                         )
-            # Store for replay on upstream reconnect
-            self._last_client_activate_cmd = full_cmd
 
         # Local signals: respond to client when in client-controlled mode
         if (
