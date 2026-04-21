@@ -7,6 +7,7 @@ binary frames from their data stream.
 
 import errno
 import logging
+import platform
 import select
 import socket
 import time
@@ -18,6 +19,26 @@ _WSAEWOULDBLOCK = 10035
 _WSAECONNREFUSED = 10036
 
 _UPSTREAM_RECV_BUFFER = 65536  # 64 KB per upstream read
+
+# TCP keepalive settings — detect dead connections after ~10 s
+_KEEPALIVE_IDLE = 5   # first probe after 5 s of silence
+_KEEPALIVE_INTERVAL = 1  # probe every 1 s
+_KEEPALIVE_COUNT = 5  # give up after 5 failed probes
+
+
+def _configure_keepalive(sock: socket.socket) -> None:
+    """Enable TCP keepalive with short intervals for fast dead-peer detection."""
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    if platform.system() == "Darwin":
+        # macOS uses TCP_KEEPALIVE instead of TCP_KEEPIDLE
+        TCP_KEEPALIVE = 0x10  # noqa: N806
+        sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, _KEEPALIVE_IDLE)
+    elif hasattr(socket, "TCP_KEEPIDLE"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, _KEEPALIVE_IDLE)
+    if hasattr(socket, "TCP_KEEPINTVL"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, _KEEPALIVE_INTERVAL)
+    if hasattr(socket, "TCP_KEEPCNT"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, _KEEPALIVE_COUNT)
 
 try:
     import serial as _pyserial
@@ -202,6 +223,7 @@ class UpstreamTCP(_UpstreamBase):
         try:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            _configure_keepalive(self._socket)
             self._socket.settimeout(timeout)
             self._socket.connect((self.ip, self.port))
             self._socket.setblocking(False)
@@ -223,6 +245,7 @@ class UpstreamTCP(_UpstreamBase):
         try:
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self._socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            _configure_keepalive(self._socket)
             self._socket.setblocking(False)
             err = self._socket.connect_ex((self.ip, self.port))
             if err == 0:
