@@ -44,18 +44,18 @@ server = BlaeckTCPy(
     log_level=logging.WARNING,
     http_port=None,
 )
-server.add_signal(
+temperature = server.add_signal(
     "temperature", "float"
 )  # temperature in Fahrenheit (transformed by hub)
-server.add_signal("humidity", "float")  # relative humidity %
+humidity = server.add_signal("humidity", "float")  # relative humidity %
 server.start()
 
 
 def run_server():
     while True:
         t = (time.time() - server.start_time) * 1000
-        server.signals[0].value = 72.0 + math.sin(t * 0.0005) * 5.0  # ~68-77 °F
-        server.signals[1].value = 55.0 + math.sin(t * 0.0003) * 15.0  # ~40-70 %
+        temperature.value = 72.0 + math.sin(t * 0.0005) * 5.0  # ~68-77 °F
+        humidity.value = 55.0 + math.sin(t * 0.0003) * 15.0  # ~40-70 %
         server.tick()
         time.sleep(
             0.001
@@ -76,7 +76,9 @@ hub = BlaeckTCPy(
 dew_point = hub.add_signal("dew_point", "float")
 write_count = hub.add_signal("write_count", "unsigned int")
 
-# Upstream — relayed so Loggbok sees temperature and humidity
+# Upstream — relayed so Loggbok sees temperature and humidity.
+# relay_downstream=True is the default; set to False to hide upstream signals
+# from Loggbok and only expose computed local signals.
 hub.add_tcp("127.0.0.1", 10024, "Sensor", interval_ms=500)
 
 
