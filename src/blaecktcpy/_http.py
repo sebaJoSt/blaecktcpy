@@ -41,7 +41,7 @@ _HTML_TEMPLATE = string.Template(
     .status-dot.up { background:#22c55e; }
     .status-dot.down { background:#ef4444; }
     nav a { cursor:pointer; text-decoration:none; }
-    #theme-toggle { color:inherit; position:relative; right:15px; user-select:none; }
+    #theme-toggle { color:inherit; user-select:none; }
     #theme-toggle svg { width:1.5rem; height:1.5rem; vertical-align:middle; }
     [data-theme="dark"] #theme-toggle { color:#f0c040; }
     [data-theme="dark"] #theme-toggle svg { width:1.8rem; height:1.8rem; }
@@ -68,11 +68,13 @@ _HTML_TEMPLATE = string.Template(
       <ul>
         <li>
           <hgroup style="padding-left:10px;">
-            <h1 style="margin:0;display:inline;">blaecktcpy</h1>
-            <a id="theme-toggle" aria-label="Toggle color scheme" style="margin-left:18px;vertical-align:middle;position:relative;top:-3px;"></a>
+            <h1 style="margin:0;">blaecktcpy</h1>
             <p style="margin:0;">v$lib_version</p>
           </hgroup>
         </li>
+      </ul>
+      <ul>
+        <li><a id="theme-toggle" aria-label="Toggle color scheme" style="padding-right:10px;"></a></li>
       </ul>
     </nav>
   </header>
