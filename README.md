@@ -207,7 +207,6 @@ See the [examples](examples/) folder:
 | Example | Description |
 |---|---|
 | [`basic.py`](examples/hub/basic.py) | Aggregates two upstream servers and a local signal |
-| [`schema_change.py`](examples/hub/schema_change.py) | Runtime signal changes via custom commands with automatic re-discovery |
 | [`signal_processing.py`](examples/hub/signal_processing.py) | Transform and compute signals via `on_data_received` |
 | [`mixed_sources.py`](examples/hub/mixed_sources.py) | BlaeckTCP microcontroller + SCPI power supply (requires hardware) |
 
