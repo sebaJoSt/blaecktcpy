@@ -4,7 +4,7 @@ CSV Tail Reader — blaecktcpy Example
 =====================================
 Tails a growing CSV file and streams new rows as BlaeckTCP signals.
 
-Signals are created dynamically from the CSV header (all columns except
+Signals are derived from the CSV header at startup (all columns except
 the first, which is assumed to be a timestamp/index). Each time a new
 row appears, the signal values are updated and sent immediately.
 
