@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blaecktcpy"
-version = "2.0.0"
+version = "2.0.1"
 description = "A Python TCP server and multi-device hub for real-time streaming of named, typed signals in binary format"
 readme = "README.md"
 authors = [
@@ -31,6 +31,9 @@ Homepage = "https://github.com/sebaJoSt/blaecktcpy"
 [project.optional-dependencies]
 serial = ["pyserial>=3.5"]
 test = ["pytest>=8"]
+
+[tool.setuptools.package-data]
+blaecktcpy = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
