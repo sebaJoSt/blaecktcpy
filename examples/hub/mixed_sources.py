@@ -1,6 +1,5 @@
-# pyright: reportUnusedCallResult=false
 """
-BlaeckTCPy Example: Stress Board with SCPI Power Supply
+blaecktcpy Example: Stress Board with SCPI Power Supply
 
 Combines a BlaeckTCP microcontroller (stress board) with an
 Ethernet power supply that speaks SCPI over TCP. The hub polls

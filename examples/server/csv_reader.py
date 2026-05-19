@@ -2,7 +2,7 @@
 """
 CSV Tail Reader — blaecktcpy Example
 =====================================
-Tails a growing CSV file and streams new rows as BlaeckTCP signals.
+Tails a growing CSV file and streams new rows as blaecktcpy signals.
 
 Signals are derived from the CSV header at startup (all columns except
 the first, which is assumed to be a timestamp/index). Each time a new

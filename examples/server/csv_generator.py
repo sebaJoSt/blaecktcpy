@@ -1,4 +1,3 @@
-# pyright: reportUnusedCallResult=false
 """
 Random CSV Data Generator
 =========================

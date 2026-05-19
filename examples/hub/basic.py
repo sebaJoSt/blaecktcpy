@@ -1,6 +1,5 @@
-# pyright: reportUnusedCallResult=false
 """
-BlaeckTCPy Example: Basic Hub
+blaecktcpy Example: Basic Hub
 
 Aggregates signals from two upstream devices and one local
 signal, then serves everything as a single merged device.

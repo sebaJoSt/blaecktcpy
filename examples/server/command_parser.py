@@ -1,4 +1,3 @@
-# pyright: reportUnusedCallResult=false
 """Command Parser — custom command handling and client connection callbacks.
 
 Run this, then connect with telnet or netcat to send commands:

@@ -1,6 +1,5 @@
-# pyright: reportUnusedCallResult=false
 """
-BlaeckTCPy Example: Signal Processing
+blaecktcpy Example: Signal Processing
 
 Demonstrates processing upstream data before it reaches Loggbok:
 - Transform a relayed signal in-place (Fahrenheit to Celsius)

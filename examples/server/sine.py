@@ -1,8 +1,7 @@
-# pyright: reportUnusedCallResult=false
 """Sine Generator — serves three sine signals over TCP.
 
 The simplest blaecktcpy example. Run this, then connect Loggbok
-(or any BlaeckTCP client) to 127.0.0.1:23 to see live data.
+(or any blaecktcpy client) to 127.0.0.1:23 to see live data.
 
 A status page is available at http://127.0.0.1:8080.
 """
