@@ -7,7 +7,10 @@ import socket
 import sys
 import time
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from enum import IntEnum
 from typing import TYPE_CHECKING, Any, override
+from urllib.parse import unquote
 
 if TYPE_CHECKING:
     from http.server import ThreadingHTTPServer
@@ -18,17 +21,36 @@ from ._encoder import (
     STATUS_UPSTREAM_RECONNECTED as STATUS_UPSTREAM_RECONNECTED,
     MSC_MASTER as _MSC_MASTER,
     MSC_SLAVE as _MSC_SLAVE,
+    MSG_COMMAND_LIST as _MSG_COMMAND_LIST,
+    CMD_KIND_PLAIN as _CMD_KIND_PLAIN,
+    CMD_KIND_NUMBER as _CMD_KIND_NUMBER,
+    CMD_KIND_SWITCH as _CMD_KIND_SWITCH,
+    CMD_KIND_SELECT as _CMD_KIND_SELECT,
+    CMD_KIND_BUTTON as _CMD_KIND_BUTTON,
+    CMD_KIND_TEXT as _CMD_KIND_TEXT,
+    ACK_OK as _ACK_OK,
+    ACK_OUT_OF_RANGE as _ACK_OUT_OF_RANGE,
+    ACK_BAD_SWITCH as _ACK_BAD_SWITCH,
+    ACK_BAD_SELECT as _ACK_BAD_SELECT,
+    ACK_TOO_LONG as _ACK_TOO_LONG,
     build_client_trailer as _build_client_trailer_impl,
+    build_command_ack as _build_command_ack,
+    build_command_entry as _build_command_entry,
     build_data_frame as _build_data_frame,
+    build_header as _build_header,
+    build_message as _build_message,
     build_symbol_payload as _build_symbol_payload,
     encode_device_entry as _encode_device_entry,
+    fnv1a32 as _fnv1a32,
+    wrap_frame as _wrap_frame,
 )
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode
 from ._tcp import ClientManager
 from .hub import _decoder as decoder
 from .hub._manager import HubManager, UpstreamDevice
 
-__all__ = ["BlaeckTCPy"]
+__all__ = ["BlaeckTCPy", "BlaeckCommandKind"]
+
 
 from importlib.metadata import version as _pkg_version
 
@@ -44,6 +66,36 @@ _RESET = "\033[0m" if _USE_COLOR else ""
 # Message IDs for data frames
 _MSG_ID_ACTIVATE = 185273099  # 0x0B0B0B0B — client-controlled (BLAECK.ACTIVATE)
 _MSG_ID_HUB = 185273100  # 0x0B0B0B0C — hub-overridden interval
+
+
+class BlaeckCommandKind(IntEnum):
+    """Kind of a device command advertised in the 0xE0 Command List frame.
+
+    Values match the BlaeckTCP/BlaeckSerial firmware and Loggbok's CommandKind
+    enum, so a host can render the right Home Assistant control.
+    """
+
+    PLAIN = _CMD_KIND_PLAIN
+    NUMBER = _CMD_KIND_NUMBER
+    SWITCH = _CMD_KIND_SWITCH
+    SELECT = _CMD_KIND_SELECT
+    BUTTON = _CMD_KIND_BUTTON
+    TEXT = _CMD_KIND_TEXT
+
+
+@dataclass
+class _CommandMeta:
+    """Typed-command metadata used for 0xE0 discovery and value validation."""
+
+    kind: BlaeckCommandKind
+    min_value: float = 0.0
+    max_value: float = 0.0
+    step: float = 0.0
+    unit: str | None = None
+    options: list[str] | None = None
+    state_signal: str | None = None
+    max_length: int = 0
+
 
 
 class _IntervalTimer:
@@ -176,6 +228,9 @@ class BlaeckTCPy:
         self._master_slave_config: bytes = b"\x00"
         self._slave_id: bytes = b"\x00"
         self._command_handlers: dict[str, Callable[..., Any]] = {}
+        self._command_meta: dict[str, _CommandMeta] = {}
+        self._command_ack_msg_id: int = 0
+        self._message_msg_id: int = 0
         self._non_forwarded_commands: set[str] = set()
         self._last_custom_commands: dict[str, str] = {}
         self._read_callback: Callable[..., Any] | None = None
@@ -377,7 +432,7 @@ class BlaeckTCPy:
         self,
         signal_or_name: Signal | str,
         datatype: str = "",
-        value: int | float = 0,
+        value: int | float | str | None = None,
     ) -> Signal:
         """Add a local signal.
 
@@ -452,7 +507,7 @@ class BlaeckTCPy:
     def write(
         self,
         key: str | int,
-        value: int | float,
+        value: int | float | str,
         *,
         msg_id: int = 1,
         unix_timestamp: float | int | None = None,
@@ -481,7 +536,7 @@ class BlaeckTCPy:
         )
         self._tcp_send_data(data)
 
-    def update(self, key: str | int, value: int | float) -> None:
+    def update(self, key: str | int, value: int | float | str) -> None:
         """Update a local signal's value and mark it as updated (no send).
 
         Args:
@@ -747,6 +802,131 @@ class BlaeckTCPy:
 
         return decorator
 
+    def _register_typed_command(
+        self, command: str, forward: bool, meta: _CommandMeta
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Shared registration for the typed-command decorators."""
+        if not isinstance(command, str) or not command:
+            raise ValueError("command must be a non-empty string")
+        if not isinstance(forward, bool):
+            raise TypeError("forward must be True or False")
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            self._command_handlers[command] = func
+            self._command_meta[command] = meta
+            if not forward:
+                self._non_forwarded_commands.add(command)
+            return func
+
+        return decorator
+
+    def on_number_command(
+        self,
+        command: str,
+        *,
+        state_signal: str | None = None,
+        min_value: float = 0.0,
+        max_value: float = 0.0,
+        step: float = 0.0,
+        unit: str | None = None,
+        forward: bool = True,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a numeric command (Home Assistant ``number`` entity).
+
+        Values outside ``[min_value, max_value]`` are rejected before the
+        handler runs. ``state_signal`` names the signal reflecting the applied
+        value; the handler is responsible for writing it back (e.g.
+        ``bltcp.update(state_signal, value)``). ``step`` and ``unit`` are
+        display-only hints for the host.
+        """
+        meta = _CommandMeta(
+            kind=BlaeckCommandKind.NUMBER,
+            min_value=float(min_value),
+            max_value=float(max_value),
+            step=float(step),
+            unit=unit,
+            state_signal=state_signal,
+        )
+        return self._register_typed_command(command, forward, meta)
+
+    def on_switch_command(
+        self,
+        command: str,
+        *,
+        state_signal: str | None = None,
+        forward: bool = True,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register an on/off command (Home Assistant ``switch`` entity).
+
+        The value must be ``"0"`` or ``"1"``; anything else is rejected.
+        """
+        meta = _CommandMeta(
+            kind=BlaeckCommandKind.SWITCH,
+            state_signal=state_signal,
+        )
+        return self._register_typed_command(command, forward, meta)
+
+    def on_select_command(
+        self,
+        command: str,
+        *,
+        options: list[str] | str,
+        state_signal: str | None = None,
+        forward: bool = True,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register an enumerated command (Home Assistant ``select`` entity).
+
+        ``options`` is a list of option names or a comma-separated string. The
+        host may send either an option name or a numeric index; the value is
+        normalized to the option's index (as a string) before the handler runs.
+        Values that resolve to neither are rejected.
+        """
+        if isinstance(options, str):
+            opts = [o.strip() for o in options.split(",")] if options else []
+        else:
+            opts = [str(o) for o in options]
+        meta = _CommandMeta(
+            kind=BlaeckCommandKind.SELECT,
+            options=opts,
+            state_signal=state_signal,
+        )
+        return self._register_typed_command(command, forward, meta)
+
+    def on_button_command(
+        self,
+        command: str,
+        *,
+        forward: bool = True,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a stateless action (Home Assistant ``button`` entity).
+
+        Carries no value to validate; the handler runs on every invocation.
+        """
+        meta = _CommandMeta(kind=BlaeckCommandKind.BUTTON)
+        return self._register_typed_command(command, forward, meta)
+
+    def on_text_command(
+        self,
+        command: str,
+        *,
+        state_signal: str | None = None,
+        max_length: int = 255,
+        forward: bool = True,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a free-text command (Home Assistant ``text`` entity).
+
+        The host percent-encodes the value on the wire; it is percent-decoded
+        before the handler runs. Values longer than ``max_length`` (after
+        decoding) are rejected.
+        """
+        meta = _CommandMeta(
+            kind=BlaeckCommandKind.TEXT,
+            max_length=int(max_length),
+            state_signal=state_signal,
+        )
+        return self._register_typed_command(command, forward, meta)
+
+
     def on_client_connected(self) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         """Decorator to register a callback when a new client connects.
 
@@ -893,10 +1073,8 @@ class BlaeckTCPy:
             self._tcp._commanding_client = conn
             self._dispatch_protocol_command(command, params, conn)
 
-            # Dispatch to specific command handler
-            handler = self._command_handlers.get(command)
-            if handler is not None:
-                handler(*params)
+            # Dispatch to specific command handler (with typed validation + ack)
+            self._dispatch_command_handlers(command, params)
 
             self._forward_custom_command(command, params)
 
@@ -904,12 +1082,129 @@ class BlaeckTCPy:
             if self._read_callback is not None:
                 self._read_callback(command, *params)
 
+    def _dispatch_command_handlers(self, command: str, params: list[str]) -> None:
+        """Dispatch a command to its registered handler.
+
+        Plain ``on_command`` handlers keep their legacy fire-and-forget
+        behavior. Typed commands are validated first: on success the value is
+        normalized (SELECT -> index string, TEXT percent-decoded), the handler
+        runs, and a 0xF0 accept ack is sent; on failure the handler is skipped
+        and a 0xF0 reject ack carries the reason. Unknown commands (no handler)
+        are left for forwarding/catch-all and are not acked here.
+        """
+        handler = self._command_handlers.get(command)
+        if handler is None:
+            return
+
+        meta = self._command_meta.get(command)
+        if meta is None:
+            handler(*params)
+            return
+
+        call_params = list(params)
+        reason = self._validate_typed_command(command, meta, call_params)
+        raw_payload = command if not params else command + "," + ",".join(params)
+        if reason == _ACK_OK:
+            handler(*call_params)
+            self._send_command_ack(raw_payload, 0, _ACK_OK)
+        else:
+            self._send_command_ack(raw_payload, 1, reason)
+
+    def _validate_typed_command(
+        self, command: str, meta: _CommandMeta, params: list[str]
+    ) -> int:
+        """Validate/normalize a typed command's value; return a 0xF0 reason code.
+
+        Mutates ``params[0]`` in place for SELECT (normalized to index string)
+        and TEXT (percent-decoded), mirroring the BlaeckTCP firmware.
+        """
+        kind = meta.kind
+        if kind in (BlaeckCommandKind.PLAIN, BlaeckCommandKind.BUTTON):
+            return _ACK_OK
+        # No value supplied -> let the handler decide (query/toggle usage).
+        if not params or params[0] == "":
+            return _ACK_OK
+
+        v = params[0]
+
+        if kind == BlaeckCommandKind.NUMBER:
+            try:
+                f = float(v)
+            except ValueError:
+                self._logger.warning(
+                    f"Command rejected (not a number): {command}={v}"
+                )
+                return _ACK_OUT_OF_RANGE
+            if f < meta.min_value or f > meta.max_value:
+                self._logger.warning(
+                    f"Command rejected (out of range): {command}={v} "
+                    f"allowed [{meta.min_value}, {meta.max_value}]"
+                )
+                return _ACK_OUT_OF_RANGE
+
+        elif kind == BlaeckCommandKind.SWITCH:
+            if v not in ("0", "1"):
+                self._logger.warning(
+                    f"Command rejected (switch expects 0/1): {command}={v}"
+                )
+                return _ACK_BAD_SWITCH
+
+        elif kind == BlaeckCommandKind.SELECT:
+            idx = self._resolve_select_index(meta.options, v)
+            if idx is None:
+                count = len(meta.options) if meta.options else 0
+                self._logger.warning(
+                    f"Command rejected (bad select value): {command}={v} "
+                    f"allowed [0, {count - 1}] or an option name"
+                )
+                return _ACK_BAD_SELECT
+            # Normalize to the index string so index-based handlers work whether
+            # the caller sent a name (e.g. HA select) or a raw index.
+            params[0] = str(idx)
+
+        elif kind == BlaeckCommandKind.TEXT:
+            decoded = unquote(v)
+            params[0] = decoded
+            if meta.max_length > 0 and len(decoded) > meta.max_length:
+                self._logger.warning(
+                    f"Command rejected (text too long): {command} "
+                    f"len={len(decoded)} max={meta.max_length}"
+                )
+                return _ACK_TOO_LONG
+
+        return _ACK_OK
+
+    @staticmethod
+    def _resolve_select_index(options: list[str] | None, value: str) -> int | None:
+        """Resolve a SELECT value (option name or numeric index) to an index."""
+        opts = options or []
+        for i, opt in enumerate(opts):
+            if opt.lower() == value.lower():
+                return i
+        try:
+            n = int(value)
+        except ValueError:
+            return None
+        if 0 <= n < len(opts):
+            return n
+        return None
+
+    def _send_command_ack(self, raw_payload: str, status: int, reason: int) -> None:
+        """Send a 0xF0 Command Ack correlated by FNV-1a hash of the payload."""
+        frame = _build_command_ack(
+            self._command_ack_msg_id, _fnv1a32(raw_payload), status, reason
+        )
+        self._command_ack_msg_id = (self._command_ack_msg_id + 1) & 0xFFFFFFFF
+        self._tcp_send(frame)
+
     def _dispatch_protocol_command(
         self, command: str, params: list[str], conn: socket.socket
     ) -> None:
         """Handle BLAECK.* protocol commands from downstream clients."""
         if command == "BLAECK.WRITE_SYMBOLS":
             self.write_symbols(self._decode_four_byte(params))
+        elif command == "BLAECK.WRITE_COMMANDS":
+            self.write_commands(self._decode_four_byte(params))
         elif command == "BLAECK.GET_DEVICES":
             self._update_client_identity(params, conn)
             self.write_devices(self._decode_four_byte(params))
@@ -1026,6 +1321,63 @@ class BlaeckTCPy:
     # ========================================================================
     # Message Writers
     # ========================================================================
+    def write_commands(self, msg_id: int = 1) -> None:
+        """Send the 0xE0 Command List to connected clients.
+
+        Emits one entry per registered command (in registration order),
+        including plain ``on_command`` handlers (kind PLAIN, no metadata) so a
+        host can build a full command palette. Typed commands carry their
+        Home-Assistant discovery metadata. TCP is a single server device, so
+        msConfig and slaveID are 0 for every entry.
+        """
+        if not self.connected:
+            return
+
+        payload = b""
+        for name in self._command_handlers:
+            meta = self._command_meta.get(name)
+            if meta is None:
+                payload += _build_command_entry(b"\x00", b"\x00", name, _CMD_KIND_PLAIN)
+            else:
+                payload += _build_command_entry(
+                    b"\x00",
+                    b"\x00",
+                    name,
+                    int(meta.kind),
+                    min_value=meta.min_value,
+                    max_value=meta.max_value,
+                    step=meta.step,
+                    unit=meta.unit,
+                    options=meta.options,
+                    state_signal=meta.state_signal,
+                    max_length=meta.max_length,
+                )
+
+        data = _wrap_frame(_build_header(_MSG_COMMAND_LIST, msg_id) + payload)
+        self._tcp_send(data)
+
+    def write_message(
+        self, channel_name: str, text: str, msg_id: int | None = None
+    ) -> None:
+        """Broadcast a 0x90 Message frame to every connected client.
+
+        A named, fire-and-forget free-text status/log line from the device to
+        the host (e.g. Loggbok surfaces each channel as its own Home Assistant
+        text sensor). The frame carries no CRC and is sent to all connected
+        clients regardless of the data mask; it is never logged as signal data.
+
+        Args:
+            channel_name: Channel/topic name for the message.
+            text: UTF-8 text payload (capped at 65535 bytes).
+            msg_id: Optional message id; auto-increments when omitted.
+        """
+        if not self.connected:
+            return
+        if msg_id is None:
+            msg_id = self._message_msg_id
+            self._message_msg_id = (self._message_msg_id + 1) & 0xFFFFFFFF
+        self._tcp_send(_build_message(msg_id, channel_name, text))
+
     def write_symbols(self, msg_id: int = 1) -> None:
         """Send symbol list to connected clients."""
         if not self.connected:

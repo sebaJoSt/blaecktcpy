@@ -110,3 +110,42 @@ def test_float_signal_rejects_unconvertible_value():
 def test_signal_repr():
     sig = Signal("temp", "float", 22.5)
     assert repr(sig) == "temp: float = 22.5"
+
+
+# ── string signals ───────────────────────────────────────────────────────────
+def test_string_signal_dtype_code_and_byte():
+    assert Signal.DATATYPE_TO_CODE["string"] == 0x0A
+    assert Signal("s", "string").get_dtype_byte() == b"\x0a"
+
+
+def test_string_signal_defaults_to_empty():
+    sig = Signal("label", "string")
+    assert sig.value == ""
+    # wire layout: 1-byte length (0) + no chars
+    assert sig.to_bytes() == b"\x00"
+
+
+def test_string_signal_serializes_length_prefixed_utf8():
+    sig = Signal("label", "string", "Sine")
+    assert sig.value == "Sine"
+    assert sig.to_bytes() == b"\x04Sine"
+
+
+def test_string_signal_utf8_multibyte():
+    sig = Signal("label", "string", "héllo")
+    raw = "héllo".encode("utf-8")
+    assert sig.to_bytes() == bytes([len(raw)]) + raw
+
+
+def test_string_signal_caps_at_255_bytes():
+    sig = Signal("label", "string", "x" * 300)
+    encoded = sig.to_bytes()
+    assert encoded[0] == 255
+    assert len(encoded) == 256
+
+
+def test_string_signal_coerces_non_str_value():
+    sig = Signal("label", "string", 42)
+    assert sig.value == "42"
+    assert sig.to_bytes() == b"\x0242"
+

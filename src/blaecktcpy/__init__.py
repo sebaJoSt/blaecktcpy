@@ -38,6 +38,7 @@ if not logger.handlers:
 from ._signal import Signal, SignalList, IntervalMode, TimestampMode  # noqa: E402
 from ._server import (
     BlaeckTCPy,
+    BlaeckCommandKind as BlaeckCommandKind,
     LIB_VERSION as LIB_VERSION,
     LIB_NAME as LIB_NAME,
     STATUS_OK as STATUS_OK,
@@ -52,5 +53,6 @@ __all__ = [
     "IntervalMode",
     "TimestampMode",
     "BlaeckTCPy",
+    "BlaeckCommandKind",
     "UpstreamDevice",
 ]

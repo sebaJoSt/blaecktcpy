@@ -30,6 +30,7 @@ class HubHost(Protocol):
     signals: SignalList
     _local_signal_count: int
     _device_name: bytes
+    _last_custom_commands: dict[str, str]
     _upstream_disconnect_callback: Callable[..., Any] | None
 
     @property

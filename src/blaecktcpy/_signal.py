@@ -37,7 +37,7 @@ class Signal:
     signal_name: str
     datatype: str
     updated: bool = False
-    _value: int | float | bool = field(init=False, repr=False)
+    _value: int | float | bool | str = field(init=False, repr=False)
 
     # Class-level mappings
     DATATYPE_TO_CODE: ClassVar[dict[str, int]] = {
@@ -51,6 +51,7 @@ class Signal:
         "unsigned long": 7,
         "float": 8,
         "double": 9,
+        "string": 10,
     }
 
     DATATYPE_SIZES: ClassVar[dict[str, int]] = {
@@ -68,18 +69,23 @@ class Signal:
 
     SIGNED_TYPES: ClassVar[set[str]] = {"short", "int", "long"}
     FLOAT_TYPES: ClassVar[set[str]] = {"float", "double"}
+    # A string signal's value is text; on the wire it is a 1-byte length
+    # (capped at 255) followed by that many UTF-8 bytes.
+    STRING_MAX_BYTES: ClassVar[int] = 255
 
     def __init__(
         self,
         signal_name: str,
         datatype: str,
-        value: int | float = 0,
+        value: int | float | str | None = None,
         updated: bool = False,
     ):
         self.signal_name = signal_name
         self.datatype = datatype
         self.updated = updated
         self._validate_datatype(datatype)
+        if value is None:
+            value = "" if datatype == "string" else 0
         self.value = value
 
     @classmethod
@@ -97,7 +103,10 @@ class Signal:
             return -(1 << (bits - 1)), (1 << (bits - 1)) - 1
         return 0, (1 << bits) - 1
 
-    def _normalize_value(self, value: int | float) -> int | float | bool:
+    def _normalize_value(self, value: int | float | str) -> int | float | bool | str:
+        if self.datatype == "string":
+            return value if isinstance(value, str) else str(value)
+
         if self.datatype in self.FLOAT_TYPES:
             try:
                 return float(value)
@@ -133,15 +142,18 @@ class Signal:
         return normalized
 
     @property
-    def value(self) -> int | float | bool:
+    def value(self) -> int | float | bool | str:
         return self._value
 
     @value.setter
-    def value(self, value: int | float | bool) -> None:
+    def value(self, value: int | float | bool | str) -> None:
         self._value = self._normalize_value(value)
 
     def to_bytes(self) -> bytes:
         """Convert signal value to bytes based on datatype"""
+        if self.datatype == "string":
+            raw = str(self._value).encode("utf-8")[: self.STRING_MAX_BYTES]
+            return bytes([len(raw)]) + raw
         if self.datatype in self.FLOAT_TYPES:
             fmt = "<f" if self.datatype == "float" else "<d"
             return struct.pack(fmt, self.value)

@@ -5,6 +5,7 @@ Used internally by :class:`~blaecktcpy.BlaeckTCPy`.
 """
 
 import binascii
+import struct
 
 from ._signal import SignalList
 
@@ -12,6 +13,25 @@ from ._signal import SignalList
 MSG_SYMBOL_LIST = b"\xb0"
 MSG_DATA = b"\xd2"
 MSG_DEVICES = b"\xb6"
+MSG_COMMAND_LIST = b"\xe0"
+MSG_COMMAND_ACK = b"\xf0"
+MSG_MESSAGE = b"\x90"
+# Command kind byte values (0xE0 Command List frame). Match the BlaeckTCP/
+# BlaeckSerial firmware and Loggbok's CommandKind enum.
+CMD_KIND_PLAIN = 0
+CMD_KIND_NUMBER = 1
+CMD_KIND_SWITCH = 2
+CMD_KIND_SELECT = 3
+CMD_KIND_BUTTON = 4
+CMD_KIND_TEXT = 5
+
+# 0xF0 Command Ack reason codes (status 0 = accepted, 1 = rejected).
+ACK_OK = 0
+ACK_UNKNOWN = 1
+ACK_OUT_OF_RANGE = 2
+ACK_BAD_SWITCH = 3
+ACK_BAD_SELECT = 4
+ACK_TOO_LONG = 5
 
 # Status byte values for data frames
 STATUS_OK = 0x00
@@ -179,3 +199,108 @@ def build_client_trailer(
         + meta.get("type", "unknown").encode()
         + b"\0"
     )
+
+
+def fnv1a32(payload: str) -> int:
+    """FNV-1a 32-bit hash of a command wire payload (``NAME,arg1,arg2``).
+
+    Correlates a forwarded command with its 0xF0 acknowledgement. Hashes the
+    ASCII bytes of the exact string placed between ``<`` and ``>`` so the
+    device's hash matches what the host computed, mirroring BlaeckTCP and
+    Loggbok's ``CommandHash.Fnv1a32``.
+    """
+    h = 0x811C9DC5
+    for b in payload.encode("ascii", "replace"):
+        h ^= b
+        h = (h * 0x01000193) & 0xFFFFFFFF
+    return h
+
+
+def build_command_entry(
+    msc: bytes,
+    slave_id: bytes,
+    name: str,
+    kind: int,
+    *,
+    min_value: float = 0.0,
+    max_value: float = 0.0,
+    step: float = 0.0,
+    unit: str | None = None,
+    options: list[str] | None = None,
+    state_signal: str | None = None,
+    max_length: int = 0,
+) -> bytes:
+    """Encode a single 0xE0 Command List entry (byte-exact with BlaeckTCP).
+
+    Layout::
+
+        msConfig(1) slaveID(1) name\\0 kind(1) flags(1)
+        [min(4) max(4) step(4)]  if flags.hasRange     (LE float)
+        [unit\\0]                 if flags.hasUnit
+        [optionsCsv\\0]           if flags.hasOptions
+        [stateSignal\\0]          if flags.hasStateSignal
+        [maxLen(2)]              if flags.hasTextMax    (LE uint16)
+
+    flags bits: 0=hasRange 1=hasUnit 2=hasOptions 3=hasStateSignal 4=hasTextMax.
+    """
+    flags = 0
+    if kind == CMD_KIND_NUMBER:
+        flags |= 0x01
+    if unit is not None:
+        flags |= 0x02
+    if kind == CMD_KIND_SELECT and options is not None:
+        flags |= 0x04
+    if state_signal is not None:
+        flags |= 0x08
+    if kind == CMD_KIND_TEXT:
+        flags |= 0x10
+
+    entry = msc + slave_id + name.encode() + b"\0" + bytes([kind, flags])
+
+    if kind == CMD_KIND_NUMBER:
+        entry += struct.pack("<fff", min_value, max_value, step)
+    if unit is not None:
+        entry += unit.encode() + b"\0"
+    if kind == CMD_KIND_SELECT and options is not None:
+        entry += ",".join(options).encode() + b"\0"
+    if state_signal is not None:
+        entry += state_signal.encode() + b"\0"
+    if kind == CMD_KIND_TEXT:
+        entry += (max_length & 0xFFFF).to_bytes(2, "little")
+
+    return entry
+
+
+def build_command_ack(msg_id: int, command_hash: int, status: int, reason: int) -> bytes:
+    """Build a complete 0xF0 Command Ack frame (no CRC, like 0xE0).
+
+    Payload: command hash(4, LE) + status(1) + reason(1).
+    """
+    payload = (
+        (command_hash & 0xFFFFFFFF).to_bytes(4, "little")
+        + bytes([status & 0xFF, reason & 0xFF])
+    )
+    return wrap_frame(build_header(MSG_COMMAND_ACK, msg_id) + payload)
+
+
+MESSAGE_MAX_BYTES = 65535
+
+
+def build_message(msg_id: int, channel_name: str, text: str) -> bytes:
+    """Build a complete 0x90 Message frame (no CRC, like 0xE0/0xF0).
+
+    A named free-text status/log channel, device -> host. Broadcast to every
+    connected client regardless of the data mask; never treated as signal data.
+
+    Payload: ``channelName`` (NUL-terminated) + text length(2, LE uint16) +
+    UTF-8 ``text`` (capped at 65535 bytes).
+    """
+    name_bytes = channel_name.encode("utf-8")
+    text_bytes = text.encode("utf-8")[:MESSAGE_MAX_BYTES]
+    payload = (
+        name_bytes
+        + b"\x00"
+        + len(text_bytes).to_bytes(2, "little")
+        + text_bytes
+    )
+    return wrap_frame(build_header(MSG_MESSAGE, msg_id) + payload)

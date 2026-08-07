@@ -32,7 +32,9 @@ MSGKEY_DEVICES_ALL = {
     MSGKEY_DEVICES_LEGACY,
 }
 
-# Datatype code → (name, byte size, struct format)
+# Datatype code → (name, byte size, struct format).
+# String (0x0A) is variable-length (1-byte length prefix + UTF-8 bytes): size 0
+# and no struct format signal that it needs special-case handling.
 _DTYPE_INFO = {
     0: ("bool", 1, "<?"),
     1: ("byte", 1, "<B"),
@@ -44,7 +46,11 @@ _DTYPE_INFO = {
     7: ("unsigned long", 4, "<I"),
     8: ("float", 4, "<f"),
     9: ("double", 8, "<d"),
+    10: ("string", 0, None),
 }
+
+# Datatype code for variable-length string signals (0x0A).
+DTYPE_STRING = 10
 
 # Maps upstream DTYPE codes to BlaeckTCPy-compatible datatype strings.
 # AVR int/uint (2 bytes) map to short/unsigned short since BlaeckTCPy
@@ -60,6 +66,7 @@ DTYPE_TO_SIGNAL_TYPE = {
     7: "unsigned long",
     8: "float",
     9: "double",
+    10: "string",
 }
 
 
@@ -86,7 +93,7 @@ class DecodedData:
     timestamp: int | None
     status_byte: int = 0
     status_payload: bytes = b"\x00\x00\x00\x00"
-    signals: dict[int, float | int | bool] = field(default_factory=dict)
+    signals: dict[int, float | int | bool | str] = field(default_factory=dict)
 
 
 @dataclass
@@ -396,7 +403,7 @@ def _parse_data_b1(
 
     signal_data_end = len(data) - 5
     status_byte = data[signal_data_end] if len(data) >= 5 else 0
-    signals: dict[int, float | int | bool] = {}
+    signals: dict[int, float | int | bool | str] = {}
     pos = 0
     for i, symbol in enumerate(symbol_table):
         size = symbol.datatype_size
@@ -430,9 +437,9 @@ def _parse_data_b1(
 
 def _unpack_signals(
     data: bytes, pos: int, end: int, symbol_table: list[DecodedSymbol]
-) -> dict[int, float | int | bool]:
+) -> dict[int, float | int | bool | str]:
     """Unpack SymbolID + DATA pairs from signal payload."""
-    signals = {}
+    signals: dict[int, float | int | bool | str] = {}
     while pos + 2 <= end:
         symbol_id = int.from_bytes(data[pos : pos + 2], "little")
         pos += 2
@@ -441,6 +448,26 @@ def _unpack_signals(
             break  # unknown signal — can't determine data size
 
         symbol = symbol_table[symbol_id]
+
+        # String: 1-byte length prefix + that many UTF-8 bytes (variable size).
+        if symbol.datatype_code == DTYPE_STRING:
+            if pos >= end:
+                raise ValueError(
+                    f"Truncated string length for symbol ID {symbol_id}"
+                )
+            str_len = data[pos]
+            pos += 1
+            if pos + str_len > end:
+                raise ValueError(
+                    f"Truncated string payload for symbol ID {symbol_id}: "
+                    f"need {str_len} bytes, have {end - pos}"
+                )
+            signals[symbol_id] = data[pos : pos + str_len].decode(
+                "utf-8", errors="replace"
+            )
+            pos += str_len
+            continue
+
         size = symbol.datatype_size
         info = _DTYPE_INFO.get(symbol.datatype_code)
         if not info or size <= 0:
@@ -453,10 +480,9 @@ def _unpack_signals(
                 f"Truncated signal payload for symbol ID {symbol_id}: "
                 f"need {size} bytes, have {end - pos}"
             )
-        if info:
-            _, _, fmt = info
-            value = struct.unpack(fmt, data[pos : pos + size])[0]
-            signals[symbol_id] = value
+        _, _, fmt = info
+        value = struct.unpack(fmt, data[pos : pos + size])[0]
+        signals[symbol_id] = value
         pos += size
 
     return signals
