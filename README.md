@@ -1,4 +1,10 @@
-# blaecktcpy
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/blaecktcpy-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/blaecktcpy-light.svg">
+  <img src="docs/blaecktcpy-light.svg" alt="blaecktcpy" height="75">
+</picture>
+
+---
 
 [![Tests](https://github.com/sebaJoSt/blaecktcpy/actions/workflows/tests.yml/badge.svg)](https://github.com/sebaJoSt/blaecktcpy/actions/workflows/tests.yml)
 [![PyPI](https://img.shields.io/pypi/v/blaecktcpy)](https://pypi.org/project/blaecktcpy/)
